@@ -138,3 +138,53 @@ export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
 
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
+
+export const notificationTypes = [
+  "approval_assigned",
+  "control_overdue",
+  "workflow_status_changed",
+  "evidence_requested",
+  "high_risk_created",
+  "system_modified",
+] as const;
+
+export const notifications = pgTable("notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  type: text("type").notNull(),
+  entityType: text("entity_type"),
+  entityId: varchar("entity_id"),
+  read: boolean("read").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type Notification = typeof notifications.$inferSelect;
+
+export const evidenceFiles = pgTable("evidence_files", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  systemId: varchar("system_id").notNull(),
+  controlId: varchar("control_id"),
+  workflowId: varchar("workflow_id"),
+  fileName: text("file_name").notNull(),
+  fileSize: integer("file_size").notNull(),
+  mimeType: text("mime_type").notNull(),
+  filePath: text("file_path").notNull(),
+  uploadedBy: text("uploaded_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertEvidenceFileSchema = createInsertSchema(evidenceFiles).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertEvidenceFile = z.infer<typeof insertEvidenceFileSchema>;
+export type EvidenceFile = typeof evidenceFiles.$inferSelect;

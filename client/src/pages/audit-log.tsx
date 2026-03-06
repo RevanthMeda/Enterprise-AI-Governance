@@ -1,8 +1,17 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, FileText, Server, ShieldCheck, ClipboardCheck, Download } from "lucide-react";
+import { Activity, FileText, Server, ShieldCheck, ClipboardCheck, Download, Filter, X, Search } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { exportAuditTrailCsv } from "@/lib/export-utils";
 import type { AuditLog } from "@shared/schema";
 
@@ -11,6 +20,7 @@ const entityIcons: Record<string, any> = {
   approval_workflow: FileText,
   system_control: ClipboardCheck,
   compliance: ShieldCheck,
+  evidence_file: FileText,
 };
 
 const actionColors: Record<string, string> = {
@@ -23,9 +33,38 @@ const actionColors: Record<string, string> = {
 };
 
 export default function AuditLogPage() {
+  const [actionFilter, setActionFilter] = useState("all");
+  const [entityFilter, setEntityFilter] = useState("all");
+  const [actorSearch, setActorSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+
+  const hasActiveFilters = actionFilter !== "all" || entityFilter !== "all" || actorSearch !== "" || dateFrom !== "" || dateTo !== "";
+
+  const queryParams = new URLSearchParams();
+  if (actionFilter !== "all") queryParams.set("action", actionFilter);
+  if (entityFilter !== "all") queryParams.set("entityType", entityFilter);
+  if (actorSearch) queryParams.set("performedBy", actorSearch);
+  if (dateFrom) queryParams.set("dateFrom", dateFrom);
+  if (dateTo) queryParams.set("dateTo", dateTo);
+
   const { data: logs = [], isLoading } = useQuery<AuditLog[]>({
-    queryKey: ["/api/audit-logs"],
+    queryKey: ["/api/audit-logs", queryParams.toString()],
+    queryFn: async () => {
+      const res = await fetch(`/api/audit-logs?${queryParams.toString()}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch logs");
+      return res.json();
+    },
   });
+
+  const clearFilters = () => {
+    setActionFilter("all");
+    setEntityFilter("all");
+    setActorSearch("");
+    setDateFrom("");
+    setDateTo("");
+  };
 
   if (isLoading) {
     return (
@@ -47,25 +86,112 @@ export default function AuditLogPage() {
             Complete audit trail of all governance activities
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => exportAuditTrailCsv(logs)} data-testid="button-export-audit">
-          <Download className="h-3.5 w-3.5 mr-1.5" />
-          Export CSV
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={showFilters ? "secondary" : "outline"}
+            size="sm"
+            onClick={() => setShowFilters(!showFilters)}
+            data-testid="button-toggle-audit-filters"
+          >
+            <Filter className="h-3.5 w-3.5 mr-1.5" />
+            Filters
+            {hasActiveFilters && (
+              <span className="ml-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] text-primary-foreground font-bold">!</span>
+            )}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => exportAuditTrailCsv(logs)} data-testid="button-export-audit">
+            <Download className="h-3.5 w-3.5 mr-1.5" />
+            Export CSV
+          </Button>
+        </div>
       </div>
+
+      {showFilters && (
+        <div className="flex flex-wrap gap-3 p-3 rounded-lg bg-muted/30 border" data-testid="panel-audit-filters">
+          <Select value={actionFilter} onValueChange={setActionFilter}>
+            <SelectTrigger className="w-[140px]" data-testid="select-action-filter">
+              <SelectValue placeholder="Action" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Actions</SelectItem>
+              <SelectItem value="created">Created</SelectItem>
+              <SelectItem value="updated">Updated</SelectItem>
+              <SelectItem value="deleted">Deleted</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="rejected">Rejected</SelectItem>
+              <SelectItem value="status_changed">Status Changed</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={entityFilter} onValueChange={setEntityFilter}>
+            <SelectTrigger className="w-[160px]" data-testid="select-entity-filter">
+              <SelectValue placeholder="Entity Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Entities</SelectItem>
+              <SelectItem value="ai_system">AI System</SelectItem>
+              <SelectItem value="approval_workflow">Workflow</SelectItem>
+              <SelectItem value="system_control">Control</SelectItem>
+              <SelectItem value="evidence_file">Evidence</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Actor name..."
+              value={actorSearch}
+              onChange={(e) => setActorSearch(e.target.value)}
+              className="pl-7 w-[150px]"
+              data-testid="input-actor-filter"
+            />
+          </div>
+          <Input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="w-[140px]"
+            placeholder="From date"
+            data-testid="input-date-from"
+          />
+          <Input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="w-[140px]"
+            placeholder="To date"
+            data-testid="input-date-to"
+          />
+          {hasActiveFilters && (
+            <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="button-clear-audit-filters">
+              <X className="h-3.5 w-3.5 mr-1" />
+              Clear
+            </Button>
+          )}
+        </div>
+      )}
 
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
             <Activity className="h-4 w-4 text-muted-foreground" />
             Activity Timeline
+            <span className="text-[10px] font-normal text-muted-foreground ml-1">({logs.length} entries)</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
           {logs.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16">
               <Activity className="h-12 w-12 text-muted-foreground/30 mb-3" />
-              <h3 className="text-sm font-medium mb-1">No audit entries</h3>
-              <p className="text-xs text-muted-foreground">Activity will appear here as you use the platform</p>
+              <h3 className="text-sm font-medium mb-1">
+                {hasActiveFilters ? "No entries match your filters" : "No audit entries"}
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                {hasActiveFilters ? "Try adjusting your filters" : "Activity will appear here as you use the platform"}
+              </p>
+              {hasActiveFilters && (
+                <Button variant="outline" size="sm" className="mt-3" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              )}
             </div>
           ) : (
             <div className="relative">

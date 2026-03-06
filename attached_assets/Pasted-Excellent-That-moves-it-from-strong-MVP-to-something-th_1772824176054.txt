@@ -1,0 +1,192 @@
+Excellent. That moves it from “strong MVP” to something that feels materially enterprise-ready.
+
+Given what you now have, I’d prioritize the next wave like this:
+
+## Next 3 to build
+
+### 1. Search & Filtering Across All Pages
+
+This is the highest-value next step.
+
+Why now:
+
+* Your surface area has expanded a lot: registry, detail pages, controls, workflows, audit logs, exports.
+* Without strong search/filtering, the product starts feeling heavy as real customer data grows.
+* This improves daily operator efficiency immediately.
+
+What to add:
+
+* global search by system name, owner, vendor, department
+* filters for risk level, status, framework, geography, data sensitivity
+* audit log date range + actor + action type
+* saved filter presets
+* URL-persisted filters for shareable views
+
+Best implementation detail:
+
+* keep filtering server-side for correctness and scale
+* mirror filter state in query params
+* add indexed columns in Postgres for common filter fields
+
+### 2. Notification System
+
+This becomes much more valuable now that auth and roles exist.
+
+Why now:
+
+* you now know who should receive what
+* workflows and overdue controls can actually trigger useful alerts
+* it increases product stickiness and operational follow-through
+
+Start with:
+
+* pending approval assigned to reviewer
+* control due soon / overdue
+* workflow status changed
+* evidence requested
+* high-risk system created or modified
+
+Recommended approach:
+
+* in-app notifications first
+* email second
+* event-driven notification service interface so Slack/Teams can be added later
+
+### 3. Evidence File Uploads
+
+This is the next biggest enterprise credibility upgrade.
+
+Why now:
+
+* you already have exports, audit history, and system detail pages
+* evidence attachments complete the audit story
+* regulators, internal audit, and procurement teams love proof artifacts
+
+Support first:
+
+* upload evidence against control
+* upload evidence against workflow/review
+* file metadata: uploader, timestamp, linked system, linked control
+* version history / replacement behavior
+* downloadable evidence list in PDF report
+
+Implementation note:
+
+* abstract file storage immediately
+* local disk for dev, S3-compatible interface for later
+* do not hardcode filesystem assumptions into business logic
+
+---
+
+# Recommended order
+
+## Best sequence
+
+1. Search & Filtering
+2. Notification System
+3. Evidence File Uploads
+
+That gives you:
+
+* much better usability
+* much better workflow completion
+* much better audit-readiness
+
+---
+
+# After that
+
+## 4. Risk Assessment Wizard
+
+Very strong next feature after evidence.
+
+Why:
+
+* it improves data quality at the point of entry
+* it makes the app easier for non-experts
+* it strengthens the EU AI Act classification workflow
+
+Best version:
+
+* guided questionnaire
+* deterministic rules engine first
+* explanation output for why the system was classified that way
+* optional AI assist later, never AI-only
+
+## 5. Dashboard Trend Charts
+
+Do this after search/notifications/evidence.
+
+Why:
+
+* trend charts are more meaningful once underlying activity is richer
+* they become more persuasive when based on actual workflow, evidence, and audit events
+
+Useful charts:
+
+* systems by risk over time
+* control completion trend
+* overdue control trend
+* workflow cycle time
+* approvals by role/team
+* audit event volume by type
+
+---
+
+# What I would delay
+
+## Bulk Control Assignment
+
+Useful, but not urgent unless users are actively onboarding many systems at once.
+
+## AI-powered suggestions
+
+Wait until the governance fundamentals are airtight.
+In this product category, trust comes from:
+
+* traceability
+* approvals
+* evidence
+* clear rules
+
+Then AI assist can enhance, not replace, the process.
+
+## Multi-tenant support
+
+Only bring this forward if you are about to onboard multiple customers into one deployment.
+
+## Integration connectors
+
+High value later, especially Jira, ServiceNow, Microsoft, cloud discovery. But I’d add them after notifications and evidence, unless a real buyer is asking for one specific integration.
+
+---
+
+# If you want the strongest commercial next step
+
+Build this package:
+
+* Search & Filtering
+* Notification System
+* Evidence File Uploads
+
+That package makes the product feel:
+
+* operationally mature
+* audit-capable
+* sticky for teams using it weekly
+
+---
+
+# If you want the best path to enterprise pilots
+
+Then the roadmap should be:
+
+1. Search & Filtering
+2. Evidence File Uploads
+3. Notification System
+4. Risk Assessment Wizard
+5. One connector: Jira or ServiceNow
+
+That’s probably the best path from “great MVP” to “pilot-ready with real companies.”
+
+If you want, I can map this into a concrete implementation backlog with database schema changes, API routes, UI components, and migration order.

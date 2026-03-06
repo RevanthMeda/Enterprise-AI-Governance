@@ -5,10 +5,13 @@ import {
   type SystemControl, type InsertSystemControl,
   type ApprovalWorkflow, type InsertApprovalWorkflow,
   type AuditLog, type InsertAuditLog,
+  type Notification, type InsertNotification,
+  type EvidenceFile, type InsertEvidenceFile,
   users, aiSystems, complianceControls, systemControls, approvalWorkflows, auditLogs,
+  notifications, evidenceFiles,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, or, ilike, gte, lte, SQL } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -16,7 +19,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   getAllUsers(): Promise<User[]>;
 
-  getAiSystems(): Promise<AiSystem[]>;
+  getAiSystems(filters?: AiSystemFilters): Promise<AiSystem[]>;
   getAiSystem(id: string): Promise<AiSystem | undefined>;
   createAiSystem(system: InsertAiSystem): Promise<AiSystem>;
   updateAiSystem(id: string, data: Partial<InsertAiSystem>): Promise<AiSystem | undefined>;
@@ -31,15 +34,55 @@ export interface IStorage {
   createSystemControl(sc: InsertSystemControl): Promise<SystemControl>;
   updateSystemControl(id: string, data: Partial<InsertSystemControl>): Promise<SystemControl | undefined>;
 
-  getApprovalWorkflows(): Promise<ApprovalWorkflow[]>;
+  getApprovalWorkflows(filters?: ApprovalWorkflowFilters): Promise<ApprovalWorkflow[]>;
   getApprovalWorkflow(id: string): Promise<ApprovalWorkflow | undefined>;
   getApprovalWorkflowsBySystem(systemId: string): Promise<ApprovalWorkflow[]>;
   createApprovalWorkflow(wf: InsertApprovalWorkflow): Promise<ApprovalWorkflow>;
   updateApprovalWorkflow(id: string, data: Partial<InsertApprovalWorkflow>): Promise<ApprovalWorkflow | undefined>;
 
-  getAuditLogs(): Promise<AuditLog[]>;
+  getAuditLogs(filters?: AuditLogFilters): Promise<AuditLog[]>;
   getAuditLogsByEntity(entityId: string): Promise<AuditLog[]>;
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
+
+  getNotificationsByUser(userId: string): Promise<Notification[]>;
+  createNotification(notification: InsertNotification): Promise<Notification>;
+  markNotificationRead(id: string): Promise<Notification | undefined>;
+  markAllNotificationsRead(userId: string): Promise<void>;
+  getUnreadNotificationCount(userId: string): Promise<number>;
+
+  getEvidenceFiles(filters?: EvidenceFileFilters): Promise<EvidenceFile[]>;
+  getEvidenceFile(id: string): Promise<EvidenceFile | undefined>;
+  createEvidenceFile(file: InsertEvidenceFile): Promise<EvidenceFile>;
+  deleteEvidenceFile(id: string): Promise<void>;
+}
+
+export interface AiSystemFilters {
+  search?: string;
+  riskLevel?: string;
+  status?: string;
+  dataSensitivity?: string;
+  geography?: string;
+  department?: string;
+}
+
+export interface AuditLogFilters {
+  action?: string;
+  entityType?: string;
+  performedBy?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export interface ApprovalWorkflowFilters {
+  status?: string;
+  priority?: string;
+  systemId?: string;
+}
+
+export interface EvidenceFileFilters {
+  systemId?: string;
+  controlId?: string;
+  workflowId?: string;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -62,8 +105,37 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(users);
   }
 
-  async getAiSystems(): Promise<AiSystem[]> {
-    return db.select().from(aiSystems).orderBy(desc(aiSystems.createdAt));
+  async getAiSystems(filters?: AiSystemFilters): Promise<AiSystem[]> {
+    const conditions: SQL[] = [];
+    if (filters?.search) {
+      const term = `%${filters.search}%`;
+      conditions.push(or(
+        ilike(aiSystems.name, term),
+        ilike(aiSystems.owner, term),
+        ilike(aiSystems.department, term),
+        ilike(aiSystems.vendor, term),
+      )!);
+    }
+    if (filters?.riskLevel && filters.riskLevel !== "all") {
+      conditions.push(eq(aiSystems.riskLevel, filters.riskLevel));
+    }
+    if (filters?.status && filters.status !== "all") {
+      conditions.push(eq(aiSystems.status, filters.status));
+    }
+    if (filters?.dataSensitivity && filters.dataSensitivity !== "all") {
+      conditions.push(eq(aiSystems.dataSensitivity, filters.dataSensitivity));
+    }
+    if (filters?.geography && filters.geography !== "all") {
+      conditions.push(ilike(aiSystems.geography, `%${filters.geography}%`));
+    }
+    if (filters?.department && filters.department !== "all") {
+      conditions.push(ilike(aiSystems.department, `%${filters.department}%`));
+    }
+    const query = db.select().from(aiSystems);
+    if (conditions.length > 0) {
+      return query.where(and(...conditions)).orderBy(desc(aiSystems.createdAt));
+    }
+    return query.orderBy(desc(aiSystems.createdAt));
   }
 
   async getAiSystem(id: string): Promise<AiSystem | undefined> {
@@ -117,8 +189,22 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getApprovalWorkflows(): Promise<ApprovalWorkflow[]> {
-    return db.select().from(approvalWorkflows).orderBy(desc(approvalWorkflows.createdAt));
+  async getApprovalWorkflows(filters?: ApprovalWorkflowFilters): Promise<ApprovalWorkflow[]> {
+    const conditions: SQL[] = [];
+    if (filters?.status && filters.status !== "all") {
+      conditions.push(eq(approvalWorkflows.status, filters.status));
+    }
+    if (filters?.priority && filters.priority !== "all") {
+      conditions.push(eq(approvalWorkflows.priority, filters.priority));
+    }
+    if (filters?.systemId && filters.systemId !== "all") {
+      conditions.push(eq(approvalWorkflows.systemId, filters.systemId));
+    }
+    const query = db.select().from(approvalWorkflows);
+    if (conditions.length > 0) {
+      return query.where(and(...conditions)).orderBy(desc(approvalWorkflows.createdAt));
+    }
+    return query.orderBy(desc(approvalWorkflows.createdAt));
   }
 
   async getApprovalWorkflow(id: string): Promise<ApprovalWorkflow | undefined> {
@@ -140,8 +226,28 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getAuditLogs(): Promise<AuditLog[]> {
-    return db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt));
+  async getAuditLogs(filters?: AuditLogFilters): Promise<AuditLog[]> {
+    const conditions: SQL[] = [];
+    if (filters?.action && filters.action !== "all") {
+      conditions.push(eq(auditLogs.action, filters.action));
+    }
+    if (filters?.entityType && filters.entityType !== "all") {
+      conditions.push(eq(auditLogs.entityType, filters.entityType));
+    }
+    if (filters?.performedBy) {
+      conditions.push(ilike(auditLogs.performedBy, `%${filters.performedBy}%`));
+    }
+    if (filters?.dateFrom) {
+      conditions.push(gte(auditLogs.createdAt, new Date(filters.dateFrom)));
+    }
+    if (filters?.dateTo) {
+      conditions.push(lte(auditLogs.createdAt, new Date(filters.dateTo)));
+    }
+    const query = db.select().from(auditLogs);
+    if (conditions.length > 0) {
+      return query.where(and(...conditions)).orderBy(desc(auditLogs.createdAt));
+    }
+    return query.orderBy(desc(auditLogs.createdAt));
   }
 
   async getAuditLogsByEntity(entityId: string): Promise<AuditLog[]> {
@@ -151,6 +257,61 @@ export class DatabaseStorage implements IStorage {
   async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
     const [created] = await db.insert(auditLogs).values(log).returning();
     return created;
+  }
+
+  async getNotificationsByUser(userId: string): Promise<Notification[]> {
+    return db.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(desc(notifications.createdAt));
+  }
+
+  async createNotification(notification: InsertNotification): Promise<Notification> {
+    const [created] = await db.insert(notifications).values(notification).returning();
+    return created;
+  }
+
+  async markNotificationRead(id: string): Promise<Notification | undefined> {
+    const [updated] = await db.update(notifications).set({ read: true }).where(eq(notifications.id, id)).returning();
+    return updated;
+  }
+
+  async markAllNotificationsRead(userId: string): Promise<void> {
+    await db.update(notifications).set({ read: true }).where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
+  }
+
+  async getUnreadNotificationCount(userId: string): Promise<number> {
+    const result = await db.select().from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
+    return result.length;
+  }
+
+  async getEvidenceFiles(filters?: EvidenceFileFilters): Promise<EvidenceFile[]> {
+    const conditions: SQL[] = [];
+    if (filters?.systemId) {
+      conditions.push(eq(evidenceFiles.systemId, filters.systemId));
+    }
+    if (filters?.controlId) {
+      conditions.push(eq(evidenceFiles.controlId, filters.controlId));
+    }
+    if (filters?.workflowId) {
+      conditions.push(eq(evidenceFiles.workflowId, filters.workflowId));
+    }
+    const query = db.select().from(evidenceFiles);
+    if (conditions.length > 0) {
+      return query.where(and(...conditions)).orderBy(desc(evidenceFiles.createdAt));
+    }
+    return query.orderBy(desc(evidenceFiles.createdAt));
+  }
+
+  async getEvidenceFile(id: string): Promise<EvidenceFile | undefined> {
+    const [file] = await db.select().from(evidenceFiles).where(eq(evidenceFiles.id, id));
+    return file;
+  }
+
+  async createEvidenceFile(file: InsertEvidenceFile): Promise<EvidenceFile> {
+    const [created] = await db.insert(evidenceFiles).values(file).returning();
+    return created;
+  }
+
+  async deleteEvidenceFile(id: string): Promise<void> {
+    await db.delete(evidenceFiles).where(eq(evidenceFiles.id, id));
   }
 }
 

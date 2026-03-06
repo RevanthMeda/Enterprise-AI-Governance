@@ -13,11 +13,11 @@ import {
   Eye,
   Trash2,
   Download,
+  X,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -89,30 +89,36 @@ const statusColors: Record<string, string> = {
 export default function Registry() {
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sensitivityFilter, setSensitivityFilter] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
+  const hasActiveFilters = riskFilter !== "all" || statusFilter !== "all" || sensitivityFilter !== "all" || search !== "";
+
+  const queryParams = new URLSearchParams();
+  if (search) queryParams.set("search", search);
+  if (riskFilter !== "all") queryParams.set("riskLevel", riskFilter);
+  if (statusFilter !== "all") queryParams.set("status", statusFilter);
+  if (sensitivityFilter !== "all") queryParams.set("dataSensitivity", sensitivityFilter);
+
   const { data: systems = [], isLoading } = useQuery<AiSystem[]>({
-    queryKey: ["/api/ai-systems"],
+    queryKey: ["/api/ai-systems", queryParams.toString()],
+    queryFn: async () => {
+      const res = await fetch(`/api/ai-systems?${queryParams.toString()}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch systems");
+      return res.json();
+    },
   });
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      name: "",
-      description: "",
-      owner: "",
-      department: "",
-      vendor: "",
-      modelType: "",
-      riskLevel: "minimal",
-      status: "draft",
-      deploymentContext: "",
-      dataSensitivity: "internal",
-      geography: "",
-      purpose: "",
-      usersImpacted: 0,
+      name: "", description: "", owner: "", department: "", vendor: "",
+      modelType: "", riskLevel: "minimal", status: "draft", deploymentContext: "",
+      dataSensitivity: "internal", geography: "", purpose: "", usersImpacted: 0,
     },
   });
 
@@ -142,14 +148,12 @@ export default function Registry() {
     },
   });
 
-  const filtered = systems.filter((s) => {
-    const matchSearch =
-      s.name.toLowerCase().includes(search.toLowerCase()) ||
-      s.owner.toLowerCase().includes(search.toLowerCase()) ||
-      (s.department?.toLowerCase().includes(search.toLowerCase()) ?? false);
-    const matchRisk = riskFilter === "all" || s.riskLevel === riskFilter;
-    return matchSearch && matchRisk;
-  });
+  const clearFilters = () => {
+    setSearch("");
+    setRiskFilter("all");
+    setStatusFilter("all");
+    setSensitivityFilter("all");
+  };
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="page-registry">
@@ -165,161 +169,214 @@ export default function Registry() {
             <Download className="h-3.5 w-3.5 mr-1.5" />
             Export CSV
           </Button>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-add-system">
-              <Plus className="h-4 w-4 mr-1.5" />
-              Register System
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="text-base">Register New AI System</DialogTitle>
-            </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit((v) => createMutation.mutate(v))} className="space-y-4">
-                <FormField control={form.control} name="name" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs">System Name</FormLabel>
-                    <FormControl><Input {...field} data-testid="input-system-name" /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="description" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs">Description</FormLabel>
-                    <FormControl><Textarea {...field} className="resize-none" data-testid="input-description" /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <div className="grid grid-cols-2 gap-3">
-                  <FormField control={form.control} name="owner" render={({ field }) => (
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-add-system">
+                <Plus className="h-4 w-4 mr-1.5" />
+                Register System
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="text-base">Register New AI System</DialogTitle>
+              </DialogHeader>
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit((v) => createMutation.mutate(v))} className="space-y-4">
+                  <FormField control={form.control} name="name" render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-xs">Owner</FormLabel>
-                      <FormControl><Input {...field} data-testid="input-owner" /></FormControl>
+                      <FormLabel className="text-xs">System Name</FormLabel>
+                      <FormControl><Input {...field} data-testid="input-system-name" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
-                  <FormField control={form.control} name="department" render={({ field }) => (
+                  <FormField control={form.control} name="description" render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-xs">Department</FormLabel>
-                      <FormControl><Input {...field} data-testid="input-department" /></FormControl>
+                      <FormLabel className="text-xs">Description</FormLabel>
+                      <FormControl><Textarea {...field} className="resize-none" data-testid="input-description" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <FormField control={form.control} name="vendor" render={({ field }) => (
+                  <div className="grid grid-cols-2 gap-3">
+                    <FormField control={form.control} name="owner" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Owner</FormLabel>
+                        <FormControl><Input {...field} data-testid="input-owner" /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="department" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Department</FormLabel>
+                        <FormControl><Input {...field} data-testid="input-department" /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <FormField control={form.control} name="vendor" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Vendor</FormLabel>
+                        <FormControl><Input {...field} data-testid="input-vendor" /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="modelType" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Model Type</FormLabel>
+                        <FormControl><Input {...field} placeholder="e.g., LLM, Classification" data-testid="input-model-type" /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <FormField control={form.control} name="riskLevel" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Risk Level</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl><SelectTrigger data-testid="select-risk-level"><SelectValue /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            <SelectItem value="minimal">Minimal</SelectItem>
+                            <SelectItem value="limited">Limited</SelectItem>
+                            <SelectItem value="high">High</SelectItem>
+                            <SelectItem value="unacceptable">Unacceptable</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="dataSensitivity" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Data Sensitivity</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value || "internal"}>
+                          <FormControl><SelectTrigger data-testid="select-data-sensitivity"><SelectValue /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            <SelectItem value="public">Public</SelectItem>
+                            <SelectItem value="internal">Internal</SelectItem>
+                            <SelectItem value="confidential">Confidential</SelectItem>
+                            <SelectItem value="restricted">Restricted</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <FormField control={form.control} name="geography" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Geography</FormLabel>
+                        <FormControl><Input {...field} placeholder="e.g., EU, US, Global" data-testid="input-geography" /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="usersImpacted" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Users Impacted</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            {...field}
+                            onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                            data-testid="input-users-impacted"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
+                  <FormField control={form.control} name="purpose" render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-xs">Vendor</FormLabel>
-                      <FormControl><Input {...field} data-testid="input-vendor" /></FormControl>
+                      <FormLabel className="text-xs">Purpose</FormLabel>
+                      <FormControl><Textarea {...field} className="resize-none" data-testid="input-purpose" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
-                  <FormField control={form.control} name="modelType" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Model Type</FormLabel>
-                      <FormControl><Input {...field} placeholder="e.g., LLM, Classification" data-testid="input-model-type" /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <FormField control={form.control} name="riskLevel" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Risk Level</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl><SelectTrigger data-testid="select-risk-level"><SelectValue /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          <SelectItem value="minimal">Minimal</SelectItem>
-                          <SelectItem value="limited">Limited</SelectItem>
-                          <SelectItem value="high">High</SelectItem>
-                          <SelectItem value="unacceptable">Unacceptable</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="dataSensitivity" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Data Sensitivity</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value || "internal"}>
-                        <FormControl><SelectTrigger data-testid="select-data-sensitivity"><SelectValue /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          <SelectItem value="public">Public</SelectItem>
-                          <SelectItem value="internal">Internal</SelectItem>
-                          <SelectItem value="confidential">Confidential</SelectItem>
-                          <SelectItem value="restricted">Restricted</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <FormField control={form.control} name="geography" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Geography</FormLabel>
-                      <FormControl><Input {...field} placeholder="e.g., EU, US, Global" data-testid="input-geography" /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="usersImpacted" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs">Users Impacted</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          {...field}
-                          onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                          data-testid="input-users-impacted"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                </div>
-                <FormField control={form.control} name="purpose" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs">Purpose</FormLabel>
-                    <FormControl><Textarea {...field} className="resize-none" data-testid="input-purpose" /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-system">
-                  {createMutation.isPending ? "Registering..." : "Register System"}
-                </Button>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
+                  <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-system">
+                    {createMutation.isPending ? "Registering..." : "Register System"}
+                  </Button>
+                </form>
+              </Form>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search systems..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-            data-testid="input-search-systems"
-          />
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, owner, vendor, department..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+              data-testid="input-search-systems"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={showFilters ? "secondary" : "outline"}
+              size="sm"
+              onClick={() => setShowFilters(!showFilters)}
+              data-testid="button-toggle-filters"
+            >
+              <Filter className="h-3.5 w-3.5 mr-1.5" />
+              Filters
+              {hasActiveFilters && (
+                <span className="ml-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] text-primary-foreground font-bold">
+                  {[riskFilter !== "all", statusFilter !== "all", sensitivityFilter !== "all"].filter(Boolean).length}
+                </span>
+              )}
+            </Button>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="button-clear-filters">
+                <X className="h-3.5 w-3.5 mr-1" />
+                Clear
+              </Button>
+            )}
+          </div>
         </div>
-        <Select value={riskFilter} onValueChange={setRiskFilter}>
-          <SelectTrigger className="w-full sm:w-[160px]" data-testid="select-risk-filter">
-            <Filter className="h-3.5 w-3.5 mr-1.5" />
-            <SelectValue placeholder="Risk Level" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Risks</SelectItem>
-            <SelectItem value="minimal">Minimal</SelectItem>
-            <SelectItem value="limited">Limited</SelectItem>
-            <SelectItem value="high">High</SelectItem>
-            <SelectItem value="unacceptable">Unacceptable</SelectItem>
-          </SelectContent>
-        </Select>
+
+        {showFilters && (
+          <div className="flex flex-wrap gap-3 p-3 rounded-lg bg-muted/30 border" data-testid="panel-filters">
+            <Select value={riskFilter} onValueChange={setRiskFilter}>
+              <SelectTrigger className="w-[140px]" data-testid="select-risk-filter">
+                <SelectValue placeholder="Risk Level" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Risks</SelectItem>
+                <SelectItem value="minimal">Minimal</SelectItem>
+                <SelectItem value="limited">Limited</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+                <SelectItem value="unacceptable">Unacceptable</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[140px]" data-testid="select-status-filter">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="under_review">Under Review</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="deprecated">Deprecated</SelectItem>
+                <SelectItem value="draft">Draft</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sensitivityFilter} onValueChange={setSensitivityFilter}>
+              <SelectTrigger className="w-[160px]" data-testid="select-sensitivity-filter">
+                <SelectValue placeholder="Data Sensitivity" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Sensitivity</SelectItem>
+                <SelectItem value="public">Public</SelectItem>
+                <SelectItem value="internal">Internal</SelectItem>
+                <SelectItem value="confidential">Confidential</SelectItem>
+                <SelectItem value="restricted">Restricted</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -334,17 +391,26 @@ export default function Registry() {
             </Card>
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : systems.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Server className="h-12 w-12 text-muted-foreground/30 mb-3" />
-            <h3 className="text-sm font-medium mb-1">No AI systems found</h3>
-            <p className="text-xs text-muted-foreground">Register your first AI system to get started</p>
+            <h3 className="text-sm font-medium mb-1">
+              {hasActiveFilters ? "No systems match your filters" : "No AI systems found"}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {hasActiveFilters ? "Try adjusting your filters" : "Register your first AI system to get started"}
+            </p>
+            {hasActiveFilters && (
+              <Button variant="outline" size="sm" className="mt-3" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((system) => (
+          {systems.map((system) => (
             <Card key={system.id} className="hover-elevate" data-testid={`card-system-${system.id}`}>
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-1 mb-2">
@@ -393,7 +459,6 @@ export default function Registry() {
           ))}
         </div>
       )}
-
     </div>
   );
 }

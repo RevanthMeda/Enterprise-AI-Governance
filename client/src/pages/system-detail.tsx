@@ -17,6 +17,7 @@ import {
   Globe,
   Cpu,
   Download,
+  Paperclip,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import type { AiSystem, SystemControl, ApprovalWorkflow, AuditLog, ComplianceControl } from "@shared/schema";
 import { exportSystemEvidencePdf } from "@/lib/export-utils";
+import { EvidenceUpload } from "@/components/evidence-upload";
 
 const riskColors: Record<string, string> = {
   unacceptable: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
@@ -106,7 +108,7 @@ function OverviewTab({ system }: { system: AiSystem }) {
   );
 }
 
-function ControlsTab({ controls, allComplianceControls }: { controls: SystemControl[]; allComplianceControls: ComplianceControl[] }) {
+function ControlsTab({ controls, allComplianceControls, systemId }: { controls: SystemControl[]; allComplianceControls: ComplianceControl[]; systemId: string }) {
   const verified = controls.filter((c) => c.status === "verified").length;
   const implemented = controls.filter((c) => c.status === "implemented").length;
   const inProgress = controls.filter((c) => c.status === "in_progress").length;
@@ -182,6 +184,7 @@ function ControlsTab({ controls, allComplianceControls }: { controls: SystemCont
                         )}
                       </div>
                     </div>
+                    <EvidenceUpload systemId={systemId} controlId={sc.controlId} compact />
                   </div>
                   {sc.evidence && (
                     <div className="mt-2 rounded bg-muted/30 p-2">
@@ -390,6 +393,10 @@ export default function SystemDetail() {
           <TabsTrigger value="workflows" data-testid="tab-trigger-workflows">
             Workflows ({workflows.length})
           </TabsTrigger>
+          <TabsTrigger value="evidence" data-testid="tab-trigger-evidence">
+            <Paperclip className="h-3 w-3 mr-1" />
+            Evidence
+          </TabsTrigger>
           <TabsTrigger value="audit" data-testid="tab-trigger-audit">
             Audit ({auditLogs.length})
           </TabsTrigger>
@@ -398,10 +405,23 @@ export default function SystemDetail() {
           <OverviewTab system={system} />
         </TabsContent>
         <TabsContent value="controls" className="mt-4">
-          <ControlsTab controls={controls} allComplianceControls={allComplianceControls} />
+          <ControlsTab controls={controls} allComplianceControls={allComplianceControls} systemId={systemId!} />
         </TabsContent>
         <TabsContent value="workflows" className="mt-4">
           <WorkflowsTab workflows={workflows} />
+        </TabsContent>
+        <TabsContent value="evidence" className="mt-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <Paperclip className="h-4 w-4 text-muted-foreground" />
+                System Evidence Files
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <EvidenceUpload systemId={systemId!} />
+            </CardContent>
+          </Card>
         </TabsContent>
         <TabsContent value="audit" className="mt-4">
           <AuditTab logs={auditLogs} />

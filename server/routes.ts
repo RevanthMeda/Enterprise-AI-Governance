@@ -1,11 +1,87 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import passport from "passport";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import { storage } from "./storage";
 import { insertAiSystemSchema, insertApprovalWorkflowSchema, insertSystemControlSchema } from "@shared/schema";
 import { hashPassword } from "./auth";
 import { requireAuth, requireRole } from "./auth";
 import { z } from "zod";
+
+const uploadDir = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const allowedMimeTypes = [
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/plain",
+  "text/csv",
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "application/zip",
+  "application/json",
+];
+
+function sanitizeFilename(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_").substring(0, 200);
+}
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadDir),
+    filename: (_req, file, cb) => {
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+      cb(null, uniqueSuffix + "-" + sanitizeFilename(file.originalname));
+    },
+  }),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (allowedMimeTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type ${file.mimetype} is not allowed`));
+    }
+  },
+});
+
+async function notifyAllAdmins(title: string, message: string, type: string, entityType?: string, entityId?: string) {
+  const allUsers = await storage.getAllUsers();
+  const admins = allUsers.filter((u) => ["admin", "cro", "ciso", "compliance_lead"].includes(u.role));
+  for (const admin of admins) {
+    await storage.createNotification({
+      userId: admin.id,
+      title,
+      message,
+      type,
+      entityType: entityType || null,
+      entityId: entityId || null,
+      read: false,
+    });
+  }
+}
+
+async function notifyUser(userId: string, title: string, message: string, type: string, entityType?: string, entityId?: string) {
+  await storage.createNotification({
+    userId,
+    title,
+    message,
+    type,
+    entityType: entityType || null,
+    entityId: entityId || null,
+    read: false,
+  });
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -69,8 +145,16 @@ export async function registerRoutes(
     res.json(req.user);
   });
 
-  app.get("/api/ai-systems", requireAuth, async (_req, res) => {
-    const systems = await storage.getAiSystems();
+  app.get("/api/ai-systems", requireAuth, async (req, res) => {
+    const filters = {
+      search: req.query.search as string | undefined,
+      riskLevel: req.query.riskLevel as string | undefined,
+      status: req.query.status as string | undefined,
+      dataSensitivity: req.query.dataSensitivity as string | undefined,
+      geography: req.query.geography as string | undefined,
+      department: req.query.department as string | undefined,
+    };
+    const systems = await storage.getAiSystems(filters);
     res.json(systems);
   });
 
@@ -106,6 +190,15 @@ export async function registerRoutes(
         performedBy: req.user!.fullName,
         details: `AI system "${system.name}" registered`,
       });
+      if (system.riskLevel === "high" || system.riskLevel === "unacceptable") {
+        await notifyAllAdmins(
+          "High-Risk System Registered",
+          `"${system.name}" has been registered with ${system.riskLevel} risk level`,
+          "high_risk_created",
+          "ai_system",
+          system.id
+        );
+      }
       res.status(201).json(system);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
@@ -172,8 +265,13 @@ export async function registerRoutes(
     res.json(updated);
   });
 
-  app.get("/api/approval-workflows", requireAuth, async (_req, res) => {
-    const workflows = await storage.getApprovalWorkflows();
+  app.get("/api/approval-workflows", requireAuth, async (req, res) => {
+    const filters = {
+      status: req.query.status as string | undefined,
+      priority: req.query.priority as string | undefined,
+      systemId: req.query.systemId as string | undefined,
+    };
+    const workflows = await storage.getApprovalWorkflows(filters);
     res.json(workflows);
   });
 
@@ -188,6 +286,20 @@ export async function registerRoutes(
         performedBy: req.user!.fullName,
         details: `Approval workflow "${wf.title}" created`,
       });
+      if (wf.reviewer) {
+        const allUsers = await storage.getAllUsers();
+        const reviewer = allUsers.find((u) => u.fullName === wf.reviewer || u.username === wf.reviewer);
+        if (reviewer) {
+          await notifyUser(
+            reviewer.id,
+            "Approval Request Assigned",
+            `You have been assigned to review "${wf.title}"`,
+            "approval_assigned",
+            "approval_workflow",
+            wf.id
+          );
+        }
+      }
       res.status(201).json(wf);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
@@ -205,12 +317,147 @@ export async function registerRoutes(
       performedBy: req.user!.fullName,
       details: `Workflow "${updated.title}" ${action}`,
     });
+    const allUsers = await storage.getAllUsers();
+    const requester = allUsers.find((u) => u.fullName === updated.requestedBy || u.username === updated.requestedBy);
+    if (requester) {
+      await notifyUser(
+        requester.id,
+        `Workflow ${action}`,
+        `Your workflow "${updated.title}" has been ${action}`,
+        "workflow_status_changed",
+        "approval_workflow",
+        updated.id
+      );
+    }
     res.json(updated);
   });
 
-  app.get("/api/audit-logs", requireAuth, async (_req, res) => {
-    const logs = await storage.getAuditLogs();
+  app.get("/api/audit-logs", requireAuth, async (req, res) => {
+    const filters = {
+      action: req.query.action as string | undefined,
+      entityType: req.query.entityType as string | undefined,
+      performedBy: req.query.performedBy as string | undefined,
+      dateFrom: req.query.dateFrom as string | undefined,
+      dateTo: req.query.dateTo as string | undefined,
+    };
+    const logs = await storage.getAuditLogs(filters);
     res.json(logs);
+  });
+
+  app.get("/api/notifications", requireAuth, async (req, res) => {
+    try {
+      const notifs = await storage.getNotificationsByUser(req.user!.id);
+      res.json(notifs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/notifications/unread-count", requireAuth, async (req, res) => {
+    try {
+      const count = await storage.getUnreadNotificationCount(req.user!.id);
+      res.json({ count });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
+    try {
+      const notifs = await storage.getNotificationsByUser(req.user!.id);
+      const owns = notifs.some((n) => n.id === req.params.id);
+      if (!owns) return res.status(403).json({ message: "Not authorized" });
+      const updated = await storage.markNotificationRead(req.params.id);
+      if (!updated) return res.status(404).json({ message: "Notification not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/notifications/read-all", requireAuth, async (req, res) => {
+    await storage.markAllNotificationsRead(req.user!.id);
+    res.json({ message: "All notifications marked as read" });
+  });
+
+  app.get("/api/evidence", requireAuth, async (req, res) => {
+    try {
+      const filters = {
+        systemId: req.query.systemId as string | undefined,
+        controlId: req.query.controlId as string | undefined,
+        workflowId: req.query.workflowId as string | undefined,
+      };
+      const files = await storage.getEvidenceFiles(filters);
+      res.json(files);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/evidence", requireAuth, upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+      const { systemId, controlId, workflowId } = req.body;
+      if (!systemId) {
+        return res.status(400).json({ message: "systemId is required" });
+      }
+      const evidence = await storage.createEvidenceFile({
+        systemId,
+        controlId: controlId || null,
+        workflowId: workflowId || null,
+        fileName: req.file.originalname,
+        fileSize: req.file.size,
+        mimeType: req.file.mimetype,
+        filePath: req.file.filename,
+        uploadedBy: req.user!.fullName,
+      });
+      await storage.createAuditLog({
+        entityType: "evidence_file",
+        entityId: evidence.id,
+        action: "created",
+        performedBy: req.user!.fullName,
+        details: `Evidence file "${req.file.originalname}" uploaded for system ${systemId}`,
+      });
+      res.status(201).json(evidence);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/evidence/:id/download", requireAuth, async (req, res) => {
+    try {
+      const file = await storage.getEvidenceFile(req.params.id);
+      if (!file) return res.status(404).json({ message: "File not found" });
+      const filePath = path.join(uploadDir, file.filePath);
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ message: "File not found on disk" });
+      }
+      res.setHeader("Content-Disposition", `attachment; filename="${sanitizeFilename(file.fileName)}"`);
+      res.setHeader("Content-Type", file.mimeType);
+      res.sendFile(filePath);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/evidence/:id", requireAuth, requireRole("admin", "cro", "ciso", "compliance_lead", "system_owner"), async (req, res) => {
+    const file = await storage.getEvidenceFile(req.params.id);
+    if (!file) return res.status(404).json({ message: "File not found" });
+    const filePath = path.join(uploadDir, file.filePath);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    await storage.deleteEvidenceFile(req.params.id);
+    await storage.createAuditLog({
+      entityType: "evidence_file",
+      entityId: req.params.id,
+      action: "deleted",
+      performedBy: req.user!.fullName,
+      details: `Evidence file "${file.fileName}" deleted`,
+    });
+    res.status(204).send();
   });
 
   return httpServer;
