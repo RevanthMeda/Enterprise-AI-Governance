@@ -20,12 +20,14 @@ import AuditLogPage from "@/pages/audit-log";
 import SettingsPage from "@/pages/settings";
 import SystemDetail from "@/pages/system-detail";
 import BulkControls from "@/pages/bulk-controls";
+import MyActivity from "@/pages/my-activity";
 import AuthPage from "@/pages/auth-page";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/activity" component={MyActivity} />
       <Route path="/registry" component={Registry} />
       <Route path="/systems/:id" component={SystemDetail} />
       <Route path="/risk" component={RiskAssessment} />

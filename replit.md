@@ -25,8 +25,9 @@ Enterprise AI governance platform for managing AI systems compliance with EU AI 
 9. **Notification System** - In-app notifications for approval assignments, workflow status changes, high-risk system registration; bell icon with unread count, mark-as-read, mark-all-read; 30s polling
 10. **Evidence File Uploads** - Upload evidence files against systems, controls, or workflows; drag-and-drop zone; file download/delete; per-control attach buttons on system detail page; file type validation and filename sanitization
 11. **Bulk Control Assignment** - Multi-select systems and controls, preview impact, batch assign with deduplication, audit trail for bulk operations
-12. **Settings** - Platform configuration and compliance settings
-13. **Export/Reporting** - PDF evidence reports per system, CSV exports for registry, compliance, and audit trail
+12. **Activity Dashboard** - Role-aware personal work surface showing pending reviews, owned systems, overdue controls, tasks due this week, high-risk changes, approval bottlenecks, missing evidence, control gaps, recent activity, and submitted requests
+13. **Settings** - Platform configuration and compliance settings
+14. **Export/Reporting** - PDF evidence reports per system, CSV exports for registry, compliance, and audit trail
 
 ## Data Models
 - `users` - User accounts with roles (admin, cro, ciso, compliance_lead, reviewer, system_owner, auditor)
@@ -94,6 +95,7 @@ Enterprise AI governance platform for managing AI systems compliance with EU AI 
 - `GET /api/risk-assessments/system/:systemId` - Get assessments for a system
 - `POST /api/risk-assessments` - Submit risk assessment (validated with Zod schema, runs deterministic rules engine)
 - `GET /api/dashboard/trends` - Get 12-week trend data for charts
+- `GET /api/activity-dashboard` - Get role-aware personal activity data (pending reviews, systems, controls, tasks due this week)
 
 ## Default Admin
 - Username: `admin`

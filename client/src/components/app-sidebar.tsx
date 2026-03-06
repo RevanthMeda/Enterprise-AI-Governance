@@ -10,6 +10,7 @@ import {
   Shield,
   User,
   Layers,
+  UserCircle,
 } from "lucide-react";
 import {
   Sidebar,
@@ -28,6 +29,7 @@ import { useAuth } from "@/hooks/use-auth";
 
 const mainNav = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "My Activity", url: "/activity", icon: UserCircle },
   { title: "AI Registry", url: "/registry", icon: Server },
   { title: "Risk Assessment", url: "/risk", icon: ShieldCheck },
   { title: "Compliance", url: "/compliance", icon: ClipboardCheck },

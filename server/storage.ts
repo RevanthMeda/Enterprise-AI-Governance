@@ -334,6 +334,27 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  async getSystemControlsByAssignee(assignee: string): Promise<SystemControl[]> {
+    return db.select().from(systemControls).where(
+      or(ilike(systemControls.assignee, assignee))!
+    );
+  }
+
+  async getApprovalWorkflowsByReviewer(reviewer: string): Promise<ApprovalWorkflow[]> {
+    return db.select().from(approvalWorkflows).where(
+      and(
+        or(eq(approvalWorkflows.reviewer, reviewer))!,
+        or(eq(approvalWorkflows.status, "pending"), eq(approvalWorkflows.status, "in_review"))!
+      )
+    ).orderBy(desc(approvalWorkflows.createdAt));
+  }
+
+  async getAiSystemsByOwner(owner: string): Promise<AiSystem[]> {
+    return db.select().from(aiSystems).where(
+      or(ilike(aiSystems.owner, owner))!
+    ).orderBy(desc(aiSystems.createdAt));
+  }
+
   async bulkCreateSystemControls(items: { systemId: string; controlId: string }[]): Promise<SystemControl[]> {
     if (items.length === 0) return [];
     const values = items.map((item) => ({

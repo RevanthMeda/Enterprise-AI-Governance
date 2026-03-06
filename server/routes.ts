@@ -618,6 +618,114 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/activity-dashboard", requireAuth, async (req, res) => {
+    try {
+      const user = req.user!;
+      const userName = user.fullName;
+      const userRole = user.role;
+
+      const [mySystems, pendingMyReview, myAssignedControls, notifications, allEvidence] = await Promise.all([
+        storage.getAiSystemsByOwner(userName),
+        storage.getApprovalWorkflowsByReviewer(userName),
+        storage.getSystemControlsByAssignee(userName),
+        storage.getNotificationsByUser(user.id),
+        storage.getEvidenceFiles(),
+      ]);
+
+      const mySystemIds = new Set(mySystems.map((s) => s.id));
+
+      const systemControls = await Promise.all(
+        mySystems.map((s) => storage.getSystemControlsBySystem(s.id))
+      );
+      const mySystemControls = systemControls.flat();
+
+      const allMyControls = [...myAssignedControls];
+      const assignedIds = new Set(myAssignedControls.map((c) => c.id));
+      for (const sc of mySystemControls) {
+        if (!assignedIds.has(sc.id)) allMyControls.push(sc);
+      }
+
+      const now = new Date();
+      const overdueControls = allMyControls.filter(
+        (c) => c.dueDate && new Date(c.dueDate) < now && c.status !== "verified" && c.status !== "implemented"
+      );
+      const controlsInProgress = allMyControls.filter((c) => c.status === "in_progress");
+      const controlsNotStarted = allMyControls.filter((c) => c.status === "not_started");
+
+      const oneWeekFromNow = new Date();
+      oneWeekFromNow.setDate(oneWeekFromNow.getDate() + 7);
+      const tasksDueThisWeek = allMyControls.filter(
+        (c) => c.dueDate && new Date(c.dueDate) >= now && new Date(c.dueDate) <= oneWeekFromNow &&
+          c.status !== "verified" && c.status !== "implemented"
+      );
+
+      const unreadNotifications = notifications.filter((n) => !n.read);
+
+      const highRiskSystems = (userRole === "admin" || userRole === "cro" || userRole === "ciso")
+        ? (await storage.getAiSystems()).filter((s) => s.riskLevel === "high" || s.riskLevel === "unacceptable")
+        : mySystems.filter((s) => s.riskLevel === "high" || s.riskLevel === "unacceptable");
+
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+      const recentlyChangedHighRisk = highRiskSystems.filter(
+        (s) => s.updatedAt && new Date(s.updatedAt) > oneWeekAgo
+      );
+
+      const systemsWithoutEvidence = mySystems.filter(
+        (s) => !allEvidence.some((e) => e.systemId === s.id)
+      );
+
+      const recentAuditLogs = (await storage.getAuditLogs({ performedBy: userName })).slice(0, 10);
+
+      const myRequestedWorkflows = (await storage.getApprovalWorkflows()).filter(
+        (w) => w.requestedBy === userName || w.requestedBy === user.username
+      );
+
+      const approvalBottlenecks = (userRole === "admin" || userRole === "cro" || userRole === "ciso")
+        ? (await storage.getApprovalWorkflows()).filter((w) => {
+            if (w.status !== "pending" && w.status !== "in_review") return false;
+            if (!w.createdAt) return false;
+            const daysPending = (Date.now() - new Date(w.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+            return daysPending > 3;
+          })
+        : [];
+
+      const controlGaps = (userRole === "admin" || userRole === "compliance_lead" || userRole === "ciso")
+        ? (await storage.getSystemControls()).filter((c) => c.status === "not_started")
+        : controlsNotStarted;
+
+      res.json({
+        summary: {
+          mySystemsCount: mySystems.length,
+          pendingReviewCount: pendingMyReview.length,
+          myControlsCount: allMyControls.length,
+          overdueControlsCount: overdueControls.length,
+          unreadNotificationsCount: unreadNotifications.length,
+          controlsInProgressCount: controlsInProgress.length,
+          controlsNotStartedCount: controlsNotStarted.length,
+          highRiskSystemsCount: highRiskSystems.length,
+          evidenceMissingCount: systemsWithoutEvidence.length,
+          tasksDueThisWeekCount: tasksDueThisWeek.length,
+        },
+        pendingMyReview: pendingMyReview.slice(0, 10),
+        mySystems: mySystems.slice(0, 10),
+        overdueControls: overdueControls.slice(0, 10),
+        controlsInProgress: controlsInProgress.slice(0, 10),
+        tasksDueThisWeek: tasksDueThisWeek.slice(0, 10),
+        recentlyChangedHighRisk: recentlyChangedHighRisk.slice(0, 10),
+        systemsWithoutEvidence: systemsWithoutEvidence.slice(0, 10),
+        approvalBottlenecks: approvalBottlenecks.slice(0, 10),
+        controlGaps: controlGaps.slice(0, 10),
+        myRequestedWorkflows: myRequestedWorkflows.slice(0, 5),
+        recentActivity: recentAuditLogs,
+        userRole,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/system-controls/bulk", requireAuth, requireRole("admin", "cro", "ciso", "compliance_lead"), async (req, res) => {
     try {
       const { systemIds, controlIds } = req.body;
