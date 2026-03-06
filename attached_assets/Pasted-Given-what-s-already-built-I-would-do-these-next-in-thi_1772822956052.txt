@@ -1,0 +1,184 @@
+Given what’s already built, I would do these next, in this order:
+
+## 1. User Authentication
+
+This is the first thing I’d implement.
+
+Why it matters:
+
+* Your product is now beyond a demo. Audit logs, approvals, compliance mapping, and regulator-facing workflows are much more credible when actions are tied to real identities and roles.
+* AI governance is inherently cross-functional, involving security, compliance, legal, and engineering teams, so role-based access is a core product capability, not just an add-on.
+* Governance programs also depend on access management and controlled sharing to reduce risk and support trusted operations.
+
+What to build:
+
+* login
+* org roles: Admin, CRO, CISO, Compliance Lead, Reviewer, System Owner, Auditor
+* route/page guards
+* audit attribution by user
+* role-aware dashboards and actions
+
+Why now:
+Without auth, a lot of the later features are weaker:
+
+* notifications need recipients
+* exports need access control
+* evidence uploads need ownership
+* activity dashboards per user need identity
+* multi-tenant support becomes messy later if auth is bolted on afterward
+
+## 2. System Detail Page
+
+This should be next, immediately after auth.
+
+Why:
+You already have registry, controls, workflows, and audit logs. Right now, the product likely has these as separate surfaces. A strong system detail page becomes the operational center of the app.
+
+What it should show:
+
+* system profile
+* owner
+* risk classification
+* mapped controls
+* approval workflow state
+* audit timeline
+* linked evidence
+* outstanding actions
+
+Why it matters commercially:
+This is the page a buyer will remember in a demo. It makes the platform feel like a real control tower rather than a collection of modules.
+
+## 3. Export / Reporting
+
+This is the third thing I’d prioritize.
+
+Why:
+Enterprise buyers love dashboards, but they buy when they can produce evidence for regulators, internal audit, procurement, and customers. Current governance expectations emphasize documentation, monitoring, and demonstrable control over AI systems.
+
+What to support first:
+
+* CSV export for system inventory, controls, workflow status
+* PDF audit pack for one AI system
+* PDF governance summary for all high-risk systems
+* exportable approval history and evidence register
+
+Best initial export set:
+
+* “AI System Evidence Report”
+* “High-Risk AI Register”
+* “Control Compliance Summary”
+* “Approval Workflow Audit Trail”
+
+## 4. Search & Filtering Across All Pages
+
+This is less flashy, but extremely valuable.
+
+Why:
+Once realistic seed data becomes real customer data, usability drops fast without filtering. Governance tools become painful if users cannot answer:
+
+* show me all high-risk systems
+* show overdue controls
+* show approvals pending with legal
+* show systems using personal data
+* show audit entries from the last 30 days
+
+This improves daily retention more than many “smart” features.
+
+## 5. Dashboard Charts
+
+Worth doing, but after the above.
+
+Why:
+You already have executive metrics and charts. Adding trend analysis is useful, especially for:
+
+* compliance coverage over time
+* pending approvals aging
+* risk distribution changes
+* control completion velocity
+
+But charts are stronger when auth, system detail pages, and exports already exist, because then the charts connect to operational workflows instead of being just presentation.
+
+---
+
+# My recommended priority stack
+
+## Best product sequence
+
+1. User Authentication
+2. System Detail Page
+3. Export / Reporting
+4. Search & Filtering
+5. Dashboard Charts
+
+That is the best path if you want the product to feel:
+
+* enterprise-ready
+* demo-ready
+* procurement-friendly
+* audit-friendly
+
+---
+
+# What I would not do yet
+
+## Not yet: AI-powered features
+
+They sound impressive, but they should come later.
+
+Reason:
+If the foundation is not strong, AI suggestions feel gimmicky. In governance software, buyers trust:
+
+* role control
+* traceability
+* evidence
+* repeatable workflows
+
+before they trust “AI suggests classification.”
+
+## Not yet: Multi-tenant support
+
+Only do this early if you are already serving multiple customers in one deployment. Otherwise, it adds complexity to auth, data models, and permissions too soon.
+
+## Not yet: Integration connectors
+
+Very valuable later, especially Jira, ServiceNow, Microsoft, cloud audit feeds. But first make the core product internally complete.
+
+---
+
+# If your goal is fastest path to enterprise credibility
+
+Build this bundle next:
+
+* User Authentication
+* System Detail Page
+* Export / Reporting
+
+That trio gives you:
+
+* accountable actions
+* a strong operational hub
+* audit-ready outputs
+
+That is the most important jump from MVP to serious product.
+
+# If your goal is fastest path to daily usability
+
+Build this bundle next:
+
+* User Authentication
+* Search & Filtering
+* Notification System
+
+That improves adoption inside customer teams.
+
+# If your goal is strongest demo for buyers
+
+Build this bundle next:
+
+* System Detail Page
+* Export / Reporting
+* Dashboard Charts
+
+That gives you the most visually convincing story.
+
+My honest recommendation: **start with User Authentication first**, then **System Detail Page**, then **Export / Reporting**. That is the highest-leverage sequence. If you want, I’ll turn that into a concrete implementation plan with data model changes, API routes, and UI components for the next feature.

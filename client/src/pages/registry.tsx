@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useLocation } from "wouter";
 import {
   Plus,
   Search,
@@ -10,8 +11,8 @@ import {
   Filter,
   MoreHorizontal,
   Eye,
-  Pencil,
   Trash2,
+  Download,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { exportSystemRegistryCsv } from "@/lib/export-utils";
 import type { AiSystem } from "@shared/schema";
 
 const formSchema = z.object({
@@ -84,81 +86,11 @@ const statusColors: Record<string, string> = {
   draft: "bg-slate-100 text-slate-800 dark:bg-slate-900/30 dark:text-slate-300",
 };
 
-function SystemDetailDialog({ system }: { system: AiSystem }) {
-  return (
-    <DialogContent className="max-w-lg">
-      <DialogHeader>
-        <DialogTitle className="text-base">{system.name}</DialogTitle>
-      </DialogHeader>
-      <div className="space-y-4 text-sm">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <span className="text-[11px] text-muted-foreground block">Owner</span>
-            <span className="font-medium">{system.owner}</span>
-          </div>
-          <div>
-            <span className="text-[11px] text-muted-foreground block">Department</span>
-            <span className="font-medium">{system.department || "N/A"}</span>
-          </div>
-          <div>
-            <span className="text-[11px] text-muted-foreground block">Risk Level</span>
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${riskColors[system.riskLevel]}`}>
-              {system.riskLevel}
-            </span>
-          </div>
-          <div>
-            <span className="text-[11px] text-muted-foreground block">Status</span>
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${statusColors[system.status]}`}>
-              {system.status.replace("_", " ")}
-            </span>
-          </div>
-          <div>
-            <span className="text-[11px] text-muted-foreground block">Vendor</span>
-            <span className="font-medium">{system.vendor || "Internal"}</span>
-          </div>
-          <div>
-            <span className="text-[11px] text-muted-foreground block">Model Type</span>
-            <span className="font-medium">{system.modelType || "N/A"}</span>
-          </div>
-          <div>
-            <span className="text-[11px] text-muted-foreground block">Data Sensitivity</span>
-            <span className="font-medium">{system.dataSensitivity || "N/A"}</span>
-          </div>
-          <div>
-            <span className="text-[11px] text-muted-foreground block">Geography</span>
-            <span className="font-medium">{system.geography || "N/A"}</span>
-          </div>
-          <div>
-            <span className="text-[11px] text-muted-foreground block">Users Impacted</span>
-            <span className="font-medium">{system.usersImpacted?.toLocaleString() || "0"}</span>
-          </div>
-          <div>
-            <span className="text-[11px] text-muted-foreground block">Deployment</span>
-            <span className="font-medium">{system.deploymentContext || "N/A"}</span>
-          </div>
-        </div>
-        {system.description && (
-          <div>
-            <span className="text-[11px] text-muted-foreground block mb-1">Description</span>
-            <p className="text-sm">{system.description}</p>
-          </div>
-        )}
-        {system.purpose && (
-          <div>
-            <span className="text-[11px] text-muted-foreground block mb-1">Purpose</span>
-            <p className="text-sm">{system.purpose}</p>
-          </div>
-        )}
-      </div>
-    </DialogContent>
-  );
-}
-
 export default function Registry() {
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [detailSystem, setDetailSystem] = useState<AiSystem | null>(null);
+  const [, navigate] = useLocation();
   const { toast } = useToast();
 
   const { data: systems = [], isLoading } = useQuery<AiSystem[]>({
@@ -228,6 +160,11 @@ export default function Registry() {
             Inventory of all AI systems across the organization
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => exportSystemRegistryCsv(systems)} data-testid="button-export-registry">
+            <Download className="h-3.5 w-3.5 mr-1.5" />
+            Export CSV
+          </Button>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button data-testid="button-add-system">
@@ -356,6 +293,7 @@ export default function Registry() {
             </Form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -421,13 +359,9 @@ export default function Registry() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <DropdownMenuItem onSelect={(e) => { e.preventDefault(); setDetailSystem(system); }} data-testid={`button-view-${system.id}`}>
-                            <Eye className="h-3.5 w-3.5 mr-1.5" /> View Details
-                          </DropdownMenuItem>
-                        </DialogTrigger>
-                      </Dialog>
+                      <DropdownMenuItem onSelect={() => navigate(`/systems/${system.id}`)} data-testid={`button-view-${system.id}`}>
+                        <Eye className="h-3.5 w-3.5 mr-1.5" /> View Details
+                      </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive"
                         onSelect={() => deleteMutation.mutate(system.id)}
@@ -460,9 +394,6 @@ export default function Registry() {
         </div>
       )}
 
-      <Dialog open={!!detailSystem} onOpenChange={(open) => !open && setDetailSystem(null)}>
-        {detailSystem && <SystemDetailDialog system={detailSystem} />}
-      </Dialog>
     </div>
   );
 }

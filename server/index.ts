@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedDatabase } from "./seed";
+import { setupAuth } from "./auth";
 
 const app = express();
 const httpServer = createServer(app);
@@ -61,6 +62,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  setupAuth(app);
   await seedDatabase().catch((err) => {
     console.error("Failed to seed database:", err);
   });

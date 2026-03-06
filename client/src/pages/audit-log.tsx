@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { Activity, FileText, Server, ShieldCheck, ClipboardCheck } from "lucide-react";
+import { Activity, FileText, Server, ShieldCheck, ClipboardCheck, Download } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { exportAuditTrailCsv } from "@/lib/export-utils";
 import type { AuditLog } from "@shared/schema";
 
 const entityIcons: Record<string, any> = {
@@ -38,11 +40,17 @@ export default function AuditLogPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="page-audit-log">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight">Audit Log</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Complete audit trail of all governance activities
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">Audit Log</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Complete audit trail of all governance activities
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => exportAuditTrailCsv(logs)} data-testid="button-export-audit">
+          <Download className="h-3.5 w-3.5 mr-1.5" />
+          Export CSV
+        </Button>
       </div>
 
       <Card>

@@ -8,6 +8,7 @@ import {
   Activity,
   Settings,
   Shield,
+  User,
 } from "lucide-react";
 import {
   Sidebar,
@@ -22,6 +23,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/hooks/use-auth";
 
 const mainNav = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -38,6 +40,7 @@ const settingsNav = [
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { user } = useAuth();
 
   return (
     <Sidebar>
@@ -99,8 +102,19 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="p-4">
+        {user && (
+          <div className="flex items-center gap-2 mb-2" data-testid="sidebar-user-info">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10">
+              <User className="h-3.5 w-3.5 text-primary" />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-xs font-medium truncate">{user.fullName}</span>
+              <span className="text-[10px] text-muted-foreground capitalize">{user.role.replace("_", " ")}</span>
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-[10px]" data-testid="badge-version">v1.0.0</Badge>
+          <Badge variant="outline" className="text-[10px]" data-testid="badge-version">v2.0.0</Badge>
           <span className="text-[10px] text-muted-foreground">EU AI Act Ready</span>
         </div>
       </SidebarFooter>

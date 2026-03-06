@@ -1,8 +1,22 @@
 import { db } from "./db";
-import { aiSystems, complianceControls, systemControls, approvalWorkflows, auditLogs } from "@shared/schema";
+import { aiSystems, complianceControls, systemControls, approvalWorkflows, auditLogs, users } from "@shared/schema";
 import { sql } from "drizzle-orm";
+import { hashPassword } from "./auth";
 
 export async function seedDatabase() {
+  const existingUsers = await db.select().from(users);
+  if (existingUsers.length === 0) {
+    const hashed = await hashPassword("admin123");
+    await db.insert(users).values({
+      username: "admin",
+      password: hashed,
+      fullName: "Platform Administrator",
+      email: "admin@aicontroltower.com",
+      role: "admin",
+    });
+    console.log("Default admin user created (admin / admin123)");
+  }
+
   const existingSystems = await db.select().from(aiSystems);
   if (existingSystems.length > 0) return;
 

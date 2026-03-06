@@ -8,12 +8,13 @@ import {
   users, aiSystems, complianceControls, systemControls, approvalWorkflows, auditLogs,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  getAllUsers(): Promise<User[]>;
 
   getAiSystems(): Promise<AiSystem[]>;
   getAiSystem(id: string): Promise<AiSystem | undefined>;
@@ -32,10 +33,12 @@ export interface IStorage {
 
   getApprovalWorkflows(): Promise<ApprovalWorkflow[]>;
   getApprovalWorkflow(id: string): Promise<ApprovalWorkflow | undefined>;
+  getApprovalWorkflowsBySystem(systemId: string): Promise<ApprovalWorkflow[]>;
   createApprovalWorkflow(wf: InsertApprovalWorkflow): Promise<ApprovalWorkflow>;
   updateApprovalWorkflow(id: string, data: Partial<InsertApprovalWorkflow>): Promise<ApprovalWorkflow | undefined>;
 
   getAuditLogs(): Promise<AuditLog[]>;
+  getAuditLogsByEntity(entityId: string): Promise<AuditLog[]>;
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
 }
 
@@ -53,6 +56,10 @@ export class DatabaseStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
     return user;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return db.select().from(users);
   }
 
   async getAiSystems(): Promise<AiSystem[]> {
@@ -119,6 +126,10 @@ export class DatabaseStorage implements IStorage {
     return wf;
   }
 
+  async getApprovalWorkflowsBySystem(systemId: string): Promise<ApprovalWorkflow[]> {
+    return db.select().from(approvalWorkflows).where(eq(approvalWorkflows.systemId, systemId)).orderBy(desc(approvalWorkflows.createdAt));
+  }
+
   async createApprovalWorkflow(wf: InsertApprovalWorkflow): Promise<ApprovalWorkflow> {
     const [created] = await db.insert(approvalWorkflows).values(wf).returning();
     return created;
@@ -131,6 +142,10 @@ export class DatabaseStorage implements IStorage {
 
   async getAuditLogs(): Promise<AuditLog[]> {
     return db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt));
+  }
+
+  async getAuditLogsByEntity(entityId: string): Promise<AuditLog[]> {
+    return db.select().from(auditLogs).where(eq(auditLogs.entityId, entityId)).orderBy(desc(auditLogs.createdAt));
   }
 
   async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {

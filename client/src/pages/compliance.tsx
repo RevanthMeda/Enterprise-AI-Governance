@@ -7,6 +7,7 @@ import {
   XCircle,
   ShieldCheck,
   Filter,
+  Download,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +32,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { exportComplianceSummaryCsv } from "@/lib/export-utils";
 import type { ComplianceControl, SystemControl, AiSystem } from "@shared/schema";
 
 const frameworkLabels: Record<string, string> = {
@@ -164,11 +166,17 @@ export default function Compliance() {
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="page-compliance">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight">Compliance Management</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Control mapping across EU AI Act, NIST AI RMF, and ISO/IEC 42001
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">Compliance Management</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Control mapping across EU AI Act, NIST AI RMF, and ISO/IEC 42001
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => exportComplianceSummaryCsv(systems, systemControls, controls)} data-testid="button-export-compliance">
+          <Download className="h-3.5 w-3.5 mr-1.5" />
+          Export CSV
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
