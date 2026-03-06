@@ -188,3 +188,24 @@ export const insertEvidenceFileSchema = createInsertSchema(evidenceFiles).omit({
 
 export type InsertEvidenceFile = z.infer<typeof insertEvidenceFileSchema>;
 export type EvidenceFile = typeof evidenceFiles.$inferSelect;
+
+export const riskAssessments = pgTable("risk_assessments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  systemId: varchar("system_id"),
+  systemName: text("system_name").notNull(),
+  answers: jsonb("answers").notNull(),
+  riskOutcome: text("risk_outcome").notNull(),
+  riskScore: integer("risk_score").notNull().default(0),
+  riskExplanation: text("risk_explanation").notNull(),
+  suggestedControls: jsonb("suggested_controls"),
+  completedBy: text("completed_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertRiskAssessmentSchema = createInsertSchema(riskAssessments).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertRiskAssessment = z.infer<typeof insertRiskAssessmentSchema>;
+export type RiskAssessment = typeof riskAssessments.$inferSelect;

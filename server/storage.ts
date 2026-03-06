@@ -7,8 +7,9 @@ import {
   type AuditLog, type InsertAuditLog,
   type Notification, type InsertNotification,
   type EvidenceFile, type InsertEvidenceFile,
+  type RiskAssessment, type InsertRiskAssessment,
   users, aiSystems, complianceControls, systemControls, approvalWorkflows, auditLogs,
-  notifications, evidenceFiles,
+  notifications, evidenceFiles, riskAssessments,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, or, ilike, gte, lte, SQL } from "drizzle-orm";
@@ -54,6 +55,12 @@ export interface IStorage {
   getEvidenceFile(id: string): Promise<EvidenceFile | undefined>;
   createEvidenceFile(file: InsertEvidenceFile): Promise<EvidenceFile>;
   deleteEvidenceFile(id: string): Promise<void>;
+
+  getRiskAssessments(): Promise<RiskAssessment[]>;
+  getRiskAssessmentsBySystem(systemId: string): Promise<RiskAssessment[]>;
+  createRiskAssessment(assessment: InsertRiskAssessment): Promise<RiskAssessment>;
+
+  bulkCreateSystemControls(items: { systemId: string; controlId: string }[]): Promise<SystemControl[]>;
 }
 
 export interface AiSystemFilters {
@@ -312,6 +319,29 @@ export class DatabaseStorage implements IStorage {
 
   async deleteEvidenceFile(id: string): Promise<void> {
     await db.delete(evidenceFiles).where(eq(evidenceFiles.id, id));
+  }
+
+  async getRiskAssessments(): Promise<RiskAssessment[]> {
+    return db.select().from(riskAssessments).orderBy(desc(riskAssessments.createdAt));
+  }
+
+  async getRiskAssessmentsBySystem(systemId: string): Promise<RiskAssessment[]> {
+    return db.select().from(riskAssessments).where(eq(riskAssessments.systemId, systemId)).orderBy(desc(riskAssessments.createdAt));
+  }
+
+  async createRiskAssessment(assessment: InsertRiskAssessment): Promise<RiskAssessment> {
+    const [created] = await db.insert(riskAssessments).values(assessment).returning();
+    return created;
+  }
+
+  async bulkCreateSystemControls(items: { systemId: string; controlId: string }[]): Promise<SystemControl[]> {
+    if (items.length === 0) return [];
+    const values = items.map((item) => ({
+      systemId: item.systemId,
+      controlId: item.controlId,
+      status: "not_started" as const,
+    }));
+    return db.insert(systemControls).values(values).returning();
   }
 }
 

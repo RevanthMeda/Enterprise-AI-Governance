@@ -10,11 +10,16 @@ import {
   XCircle,
   Activity,
   BarChart3,
+  FileText,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AreaChart, Area, BarChart, Bar, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+} from "recharts";
 import type { AiSystem, ApprovalWorkflow, SystemControl } from "@shared/schema";
 
 function StatCard({
@@ -261,6 +266,115 @@ function RecentSystems({ systems }: { systems: AiSystem[] }) {
   );
 }
 
+interface TrendData {
+  riskTrends: { week: string; high: number; limited: number; minimal: number }[];
+  approvalTrends: { week: string; submitted: number; approved: number; rejected: number }[];
+  auditTrends: { week: string; events: number }[];
+  evidenceTrends: { week: string; total: number }[];
+}
+
+function RiskTrendChart({ data }: { data: TrendData["riskTrends"] }) {
+  return (
+    <Card data-testid="chart-risk-trends">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+          Systems by Risk Level
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={240}>
+          <AreaChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+            <XAxis dataKey="week" tick={{ fontSize: 10 }} className="text-muted-foreground" />
+            <YAxis tick={{ fontSize: 10 }} allowDecimals={false} className="text-muted-foreground" />
+            <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Area type="monotone" dataKey="high" stackId="1" stroke="#f97316" fill="#f97316" fillOpacity={0.3} name="High/Unacceptable" />
+            <Area type="monotone" dataKey="limited" stackId="1" stroke="#eab308" fill="#eab308" fillOpacity={0.3} name="Limited" />
+            <Area type="monotone" dataKey="minimal" stackId="1" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} name="Minimal" />
+          </AreaChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ApprovalTrendChart({ data }: { data: TrendData["approvalTrends"] }) {
+  return (
+    <Card data-testid="chart-approval-trends">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <FileText className="h-4 w-4 text-muted-foreground" />
+          Approval Throughput
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+            <XAxis dataKey="week" tick={{ fontSize: 10 }} />
+            <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+            <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Bar dataKey="submitted" fill="hsl(var(--primary))" name="Submitted" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="approved" fill="#22c55e" name="Approved" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="rejected" fill="#ef4444" name="Rejected" radius={[2, 2, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AuditTrendChart({ data }: { data: TrendData["auditTrends"] }) {
+  return (
+    <Card data-testid="chart-audit-trends">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          Audit Activity
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={240}>
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+            <XAxis dataKey="week" tick={{ fontSize: 10 }} />
+            <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+            <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+            <Line type="monotone" dataKey="events" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} name="Events" />
+          </LineChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EvidenceTrendChart({ data }: { data: TrendData["evidenceTrends"] }) {
+  return (
+    <Card data-testid="chart-evidence-trends">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-muted-foreground" />
+          Evidence Attachments
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={240}>
+          <AreaChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+            <XAxis dataKey="week" tick={{ fontSize: 10 }} />
+            <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+            <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+            <Area type="monotone" dataKey="total" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.15} strokeWidth={2} name="Total Files" />
+          </AreaChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  );
+}
+
 function DashboardSkeleton() {
   return (
     <div className="space-y-6">
@@ -294,6 +408,10 @@ export default function Dashboard() {
 
   const { data: systemControls = [], isLoading: loadingControls } = useQuery<SystemControl[]>({
     queryKey: ["/api/system-controls"],
+  });
+
+  const { data: trends } = useQuery<TrendData>({
+    queryKey: ["/api/dashboard/trends"],
   });
 
   const isLoading = loadingSystems || loadingWorkflows || loadingControls;
@@ -366,6 +484,21 @@ export default function Dashboard() {
         <RecentSystems systems={systems} />
         <RecentWorkflows workflows={workflows} />
       </div>
+
+      {trends && (
+        <>
+          <div>
+            <h2 className="text-base font-semibold tracking-tight mb-1" data-testid="heading-trends">Trend Analytics</h2>
+            <p className="text-xs text-muted-foreground">12-week operational trends across the platform</p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <RiskTrendChart data={trends.riskTrends} />
+            <ApprovalTrendChart data={trends.approvalTrends} />
+            <AuditTrendChart data={trends.auditTrends} />
+            <EvidenceTrendChart data={trends.evidenceTrends} />
+          </div>
+        </>
+      )}
     </div>
   );
 }

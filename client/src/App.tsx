@@ -19,6 +19,7 @@ import Approvals from "@/pages/approvals";
 import AuditLogPage from "@/pages/audit-log";
 import SettingsPage from "@/pages/settings";
 import SystemDetail from "@/pages/system-detail";
+import BulkControls from "@/pages/bulk-controls";
 import AuthPage from "@/pages/auth-page";
 
 function Router() {
@@ -31,6 +32,7 @@ function Router() {
       <Route path="/compliance" component={Compliance} />
       <Route path="/approvals" component={Approvals} />
       <Route path="/audit" component={AuditLogPage} />
+      <Route path="/bulk-controls" component={BulkControls} />
       <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />
     </Switch>

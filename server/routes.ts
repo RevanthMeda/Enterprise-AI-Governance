@@ -5,7 +5,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { storage } from "./storage";
-import { insertAiSystemSchema, insertApprovalWorkflowSchema, insertSystemControlSchema } from "@shared/schema";
+import { insertAiSystemSchema, insertApprovalWorkflowSchema, insertSystemControlSchema, insertRiskAssessmentSchema } from "@shared/schema";
 import { hashPassword } from "./auth";
 import { requireAuth, requireRole } from "./auth";
 import { z } from "zod";
@@ -460,5 +460,338 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  app.get("/api/risk-assessments", requireAuth, async (_req, res) => {
+    try {
+      const assessments = await storage.getRiskAssessments();
+      res.json(assessments);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/risk-assessments/system/:systemId", requireAuth, async (req, res) => {
+    try {
+      const assessments = await storage.getRiskAssessmentsBySystem(req.params.systemId);
+      res.json(assessments);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  const riskAssessmentAnswersSchema = z.object({
+    intendedUse: z.enum(["autonomous_decisions", "decision_support", "automation", "analytics"]),
+    domain: z.enum(["healthcare", "law_enforcement", "finance", "employment", "education", "critical_infrastructure", "general"]),
+    personalData: z.enum(["special_category", "sensitive", "basic", "none"]),
+    usersImpacted: z.enum(["over_100k", "10k_100k", "1k_10k", "under_1k"]),
+    decisionImpact: z.enum(["legal_significant", "material", "minor", "none"]),
+    humanOversight: z.enum(["none", "post_hoc", "in_loop", "full_control"]),
+    geography: z.enum(["eu", "global", "us", "other"]).optional(),
+    biometricUse: z.enum(["yes", "no"]).optional(),
+    vulnerableGroups: z.enum(["yes", "no"]).optional(),
+    purpose: z.string().optional(),
+  });
+
+  const riskAssessmentBodySchema = z.object({
+    systemName: z.string().min(1, "System name is required"),
+    systemId: z.string().nullable().optional(),
+    answers: riskAssessmentAnswersSchema,
+  });
+
+  app.post("/api/risk-assessments", requireAuth, requireRole("admin", "cro", "ciso", "compliance_lead", "system_owner"), async (req, res) => {
+    try {
+      const parsed = riskAssessmentBodySchema.parse(req.body);
+      const { answers, systemId, systemName } = parsed;
+
+      if (systemId) {
+        const system = await storage.getAiSystem(systemId);
+        if (!system) {
+          return res.status(404).json({ message: "System not found" });
+        }
+      }
+
+      const { riskLevel, score, explanation, suggestedControls } = computeRiskClassification(answers);
+
+      const assessment = await storage.createRiskAssessment({
+        systemId: systemId || null,
+        systemName,
+        answers,
+        riskOutcome: riskLevel,
+        riskScore: score,
+        riskExplanation: explanation,
+        suggestedControls,
+        completedBy: req.user!.fullName,
+      });
+
+      if (systemId) {
+        await storage.updateAiSystem(systemId, { riskLevel });
+        await storage.createAuditLog({
+          entityType: "ai_system",
+          entityId: systemId,
+          action: "risk_assessed",
+          performedBy: req.user!.fullName,
+          details: `Risk assessment completed: ${riskLevel} (score: ${score})`,
+        });
+      }
+
+      await storage.createAuditLog({
+        entityType: "risk_assessment",
+        entityId: assessment.id,
+        action: "created",
+        performedBy: req.user!.fullName,
+        details: `Risk assessment for "${systemName}" completed: ${riskLevel}`,
+      });
+
+      res.status(201).json(assessment);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/dashboard/trends", requireAuth, async (_req, res) => {
+    try {
+      const [systems, workflows, logs, evidence] = await Promise.all([
+        storage.getAiSystems(),
+        storage.getApprovalWorkflows(),
+        storage.getAuditLogs(),
+        storage.getEvidenceFiles(),
+      ]);
+
+      const now = new Date();
+      const weekLabels: string[] = [];
+      const weekStarts: Date[] = [];
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i * 7);
+        d.setHours(0, 0, 0, 0);
+        const dayOfWeek = d.getDay();
+        d.setDate(d.getDate() - dayOfWeek);
+        weekStarts.push(new Date(d));
+        weekLabels.push(`${d.getMonth() + 1}/${d.getDate()}`);
+      }
+
+      const getWeekIndex = (date: Date | string | null) => {
+        if (!date) return -1;
+        const d = new Date(date);
+        for (let i = weekStarts.length - 1; i >= 0; i--) {
+          if (d >= weekStarts[i]) return i;
+        }
+        return -1;
+      };
+
+      const riskTrends = weekLabels.map((label, i) => {
+        const beforeEnd = i < weekStarts.length - 1 ? weekStarts[i + 1] : new Date();
+        const sysBefore = systems.filter((s) => s.createdAt && new Date(s.createdAt) < beforeEnd);
+        return {
+          week: label,
+          high: sysBefore.filter((s) => s.riskLevel === "high" || s.riskLevel === "unacceptable").length,
+          limited: sysBefore.filter((s) => s.riskLevel === "limited").length,
+          minimal: sysBefore.filter((s) => s.riskLevel === "minimal").length,
+        };
+      });
+
+      const approvalTrends = weekLabels.map((label, i) => {
+        const weekWfs = workflows.filter((w) => getWeekIndex(w.createdAt) === i);
+        return {
+          week: label,
+          submitted: weekWfs.length,
+          approved: weekWfs.filter((w) => w.status === "approved").length,
+          rejected: weekWfs.filter((w) => w.status === "rejected").length,
+        };
+      });
+
+      const auditTrends = weekLabels.map((label, i) => ({
+        week: label,
+        events: logs.filter((l) => getWeekIndex(l.createdAt) === i).length,
+      }));
+
+      const evidenceTrends = weekLabels.map((label, i) => {
+        const beforeEnd = i < weekStarts.length - 1 ? weekStarts[i + 1] : new Date();
+        return {
+          week: label,
+          total: evidence.filter((e) => e.createdAt && new Date(e.createdAt) < beforeEnd).length,
+        };
+      });
+
+      res.json({ riskTrends, approvalTrends, auditTrends, evidenceTrends });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/system-controls/bulk", requireAuth, requireRole("admin", "cro", "ciso", "compliance_lead"), async (req, res) => {
+    try {
+      const { systemIds, controlIds } = req.body;
+      if (!Array.isArray(systemIds) || !Array.isArray(controlIds) || systemIds.length === 0 || controlIds.length === 0) {
+        return res.status(400).json({ message: "systemIds and controlIds arrays are required" });
+      }
+
+      const [allSystems, allControls] = await Promise.all([
+        storage.getAiSystems(),
+        storage.getComplianceControls(),
+      ]);
+      const validSystemIds = new Set(allSystems.map((s) => s.id));
+      const validControlIds = new Set(allControls.map((c) => c.id));
+
+      const invalidSystems = systemIds.filter((id: string) => !validSystemIds.has(id));
+      const invalidControls = controlIds.filter((id: string) => !validControlIds.has(id));
+      if (invalidSystems.length > 0 || invalidControls.length > 0) {
+        return res.status(400).json({
+          message: "Some IDs do not exist",
+          invalidSystems,
+          invalidControls,
+        });
+      }
+
+      const existingControls = await storage.getSystemControls();
+      const existingSet = new Set(existingControls.map((c) => `${c.systemId}:${c.controlId}`));
+
+      const items: { systemId: string; controlId: string }[] = [];
+      for (const sysId of systemIds) {
+        for (const ctrlId of controlIds) {
+          const key = `${sysId}:${ctrlId}`;
+          if (!existingSet.has(key)) {
+            items.push({ systemId: sysId, controlId: ctrlId });
+          }
+        }
+      }
+
+      if (items.length === 0) {
+        return res.json({ created: [], message: "All assignments already exist", skipped: systemIds.length * controlIds.length });
+      }
+
+      const created = await storage.bulkCreateSystemControls(items);
+
+      await storage.createAuditLog({
+        entityType: "system_control",
+        entityId: "bulk",
+        action: "bulk_assigned",
+        performedBy: req.user!.fullName,
+        details: `Bulk assigned ${controlIds.length} controls to ${systemIds.length} systems (${created.length} new assignments)`,
+      });
+
+      res.status(201).json({ created, total: created.length, skipped: (systemIds.length * controlIds.length) - created.length });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   return httpServer;
+}
+
+function computeRiskClassification(answers: any): {
+  riskLevel: string;
+  score: number;
+  explanation: string;
+  suggestedControls: string[];
+} {
+  let score = 0;
+  const factors: string[] = [];
+  const suggestedControls: string[] = [];
+
+  if (answers.intendedUse === "autonomous_decisions") {
+    score += 30;
+    factors.push("System makes autonomous decisions affecting individuals");
+  } else if (answers.intendedUse === "decision_support") {
+    score += 15;
+    factors.push("System supports human decision-making");
+  } else if (answers.intendedUse === "automation") {
+    score += 10;
+    factors.push("System automates routine tasks");
+  }
+
+  if (answers.domain === "healthcare" || answers.domain === "law_enforcement") {
+    score += 25;
+    factors.push(`Deployed in high-stakes domain: ${answers.domain}`);
+  } else if (answers.domain === "finance" || answers.domain === "employment" || answers.domain === "education") {
+    score += 20;
+    factors.push(`Deployed in regulated domain: ${answers.domain}`);
+  } else if (answers.domain === "critical_infrastructure") {
+    score += 25;
+    factors.push("Used in critical infrastructure");
+  } else if (answers.domain === "general") {
+    score += 5;
+    factors.push("General-purpose application domain");
+  }
+
+  if (answers.personalData === "special_category") {
+    score += 20;
+    factors.push("Processes special category personal data (biometric, health, etc.)");
+  } else if (answers.personalData === "sensitive") {
+    score += 15;
+    factors.push("Processes sensitive personal data");
+  } else if (answers.personalData === "basic") {
+    score += 8;
+    factors.push("Processes basic personal data");
+  }
+
+  if (answers.usersImpacted === "over_100k") {
+    score += 15;
+    factors.push("Impacts over 100,000 users");
+  } else if (answers.usersImpacted === "10k_100k") {
+    score += 10;
+    factors.push("Impacts 10,000-100,000 users");
+  } else if (answers.usersImpacted === "1k_10k") {
+    score += 5;
+    factors.push("Impacts 1,000-10,000 users");
+  }
+
+  if (answers.decisionImpact === "legal_significant") {
+    score += 20;
+    factors.push("Decisions produce legal or similarly significant effects");
+  } else if (answers.decisionImpact === "material") {
+    score += 12;
+    factors.push("Decisions have material impact on individuals");
+  } else if (answers.decisionImpact === "minor") {
+    score += 4;
+    factors.push("Decisions have minor impact");
+  }
+
+  if (answers.humanOversight === "none") {
+    score += 15;
+    factors.push("No human oversight in decision loop");
+  } else if (answers.humanOversight === "post_hoc") {
+    score += 8;
+    factors.push("Human oversight only after decisions are made");
+  } else if (answers.humanOversight === "in_loop") {
+    score -= 5;
+    factors.push("Human-in-the-loop oversight (risk mitigated)");
+  }
+
+  if (answers.geography === "eu" || answers.geography === "global") {
+    score += 5;
+    factors.push(`Operating in ${answers.geography === "eu" ? "EU" : "global"} jurisdiction`);
+  }
+
+  if (answers.biometricUse === "yes") {
+    score += 15;
+    factors.push("Uses biometric identification or categorization");
+  }
+
+  if (answers.vulnerableGroups === "yes") {
+    score += 10;
+    factors.push("Affects vulnerable groups (children, elderly, disabled)");
+  }
+
+  let riskLevel: string;
+  if (score >= 80) {
+    riskLevel = "unacceptable";
+  } else if (score >= 50) {
+    riskLevel = "high";
+  } else if (score >= 25) {
+    riskLevel = "limited";
+  } else {
+    riskLevel = "minimal";
+  }
+
+  if (riskLevel === "unacceptable" || riskLevel === "high") {
+    suggestedControls.push("Risk Management System", "Data Governance Framework", "Technical Documentation", "Record-Keeping & Logging", "Human Oversight Mechanism", "Accuracy & Robustness Testing", "Cybersecurity Assessment", "Conformity Assessment");
+  } else if (riskLevel === "limited") {
+    suggestedControls.push("Transparency Disclosure", "User Notification", "AI Content Labeling", "Basic Documentation");
+  } else {
+    suggestedControls.push("Voluntary Code of Conduct", "Best Practice Guidelines");
+  }
+
+  const explanation = `Risk Score: ${score}/100 — Classification: ${riskLevel.toUpperCase()}\n\nFactors considered:\n${factors.map((f) => `• ${f}`).join("\n")}`;
+
+  return { riskLevel, score, explanation, suggestedControls };
 }

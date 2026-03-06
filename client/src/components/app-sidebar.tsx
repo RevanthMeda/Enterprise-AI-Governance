@@ -9,6 +9,7 @@ import {
   Settings,
   Shield,
   User,
+  Layers,
 } from "lucide-react";
 import {
   Sidebar,
@@ -31,6 +32,7 @@ const mainNav = [
   { title: "Risk Assessment", url: "/risk", icon: ShieldCheck },
   { title: "Compliance", url: "/compliance", icon: ClipboardCheck },
   { title: "Approvals", url: "/approvals", icon: FileText },
+  { title: "Bulk Controls", url: "/bulk-controls", icon: Layers },
   { title: "Audit Log", url: "/audit", icon: Activity },
 ];
 

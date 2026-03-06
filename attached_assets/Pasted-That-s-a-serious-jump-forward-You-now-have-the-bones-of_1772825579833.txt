@@ -1,0 +1,136 @@
+That’s a serious jump forward. You now have the bones of a real enterprise governance product, not just an MVP.
+
+Based on the current state, I’d move next in this order:
+
+## 1. Risk Assessment Wizard
+
+This should be next.
+
+Why:
+
+* You already have registry, controls, workflows, evidence, audit logs, auth, and notifications.
+* The biggest remaining leverage is improving the **quality of system intake**.
+* A wizard reduces bad data entry, improves consistency, and makes the product easier for non-expert users.
+
+What to include:
+
+* step-by-step intake
+* intended use
+* affected users
+* decision impact
+* personal/sensitive data usage
+* geography
+* model/vendor
+* human oversight questions
+* risk outcome with explanation
+* suggested controls/workflow based on answers
+
+Important design choice:
+
+* use a **deterministic rules engine first**
+* store the explanation for every classification
+* treat AI suggestions as optional later, not authoritative
+
+That makes it defensible in audits.
+
+## 2. Dashboard Trend Charts
+
+Now they become meaningful.
+
+Why now:
+
+* you already have enough event data: systems, workflows, notifications, evidence, audit logs
+* trend charts will now reflect real operational activity instead of static seed metrics
+
+Best charts to add:
+
+* systems by risk level over time
+* approval throughput and aging
+* overdue controls trend
+* evidence attachment growth
+* audit activity volume by week
+* compliance completion by framework over time
+
+This helps with exec demos and customer reporting.
+
+## 3. Bulk Control Assignment
+
+This is probably the next operational multiplier.
+
+Why:
+
+* once teams start onboarding many systems, control mapping becomes repetitive
+* it will save time immediately for compliance teams
+
+Good first version:
+
+* multi-select systems
+* assign one or more controls/framework mappings in batch
+* preview impact before applying
+* audit every bulk action
+* permission-check every affected system
+
+---
+
+# After that
+
+## 4. Activity Dashboard per User
+
+This becomes strong now that you have:
+
+* auth
+* notifications
+* workflows
+* evidence tasks
+
+Show each user:
+
+* pending approvals
+* unread notifications
+* assigned controls
+* overdue evidence requests
+* recently touched systems
+
+This improves daily engagement.
+
+## 5. One integration connector
+
+Do only one first.
+
+Best first choices:
+
+* **Jira** if your buyers are product/engineering-heavy
+* **ServiceNow** if your buyers are enterprise risk/compliance-heavy
+
+Reason:
+one solid connector is far better than three shallow ones.
+
+---
+
+# What I would delay a bit longer
+
+## AI-powered suggestions
+
+Useful later, but now the main opportunity is to make the platform more structured and operationally efficient.
+
+## Multi-tenant support
+
+Only prioritize this if you are about to host multiple customers in one environment.
+
+## Compliance calendar
+
+Helpful, but lower impact than wizard, trends, and bulk assignment.
+
+---
+
+# Best roadmap from here
+
+1. Risk Assessment Wizard
+2. Dashboard Trend Charts
+3. Bulk Control Assignment
+4. Activity Dashboard per User
+5. First external connector
+
+That is the cleanest path from **enterprise-ready MVP** to **pilot-ready product with operational depth**.
+
+The most important one is **Risk Assessment Wizard**. It improves data quality, user guidance, and compliance consistency all at once.
