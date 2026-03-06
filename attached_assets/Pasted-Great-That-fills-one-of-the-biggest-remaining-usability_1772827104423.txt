@@ -1,0 +1,92 @@
+Great. That fills one of the biggest remaining usability gaps.
+
+With **My Activity** complete, I’d make the next priority:
+
+## 1. First external connector
+
+Pick **one** and do it deeply.
+
+My recommendation:
+
+* **Jira** first if your target users sit close to product, engineering, or platform teams
+* **ServiceNow** first if you’re aiming at larger enterprise risk/compliance buyers
+
+### Best first scope
+
+* create a ticket from an approval workflow
+* sync external status back into your workflow
+* link ticket ID on system detail, workflow, and activity views
+* optional rule: auto-create tickets for overdue controls or missing evidence
+
+### Why this is next
+
+You now have a strong internal operating model. The next commercial jump is showing that your platform fits into the tools companies already use.
+
+---
+
+## 2. Multi-tenant foundation
+
+This should be next after the first connector, unless you’re about to onboard multiple customers into one shared deployment right now.
+
+### Why now
+
+Your product has enough depth that multiple orgs could use it. Delaying tenancy too long makes later retrofitting painful across:
+
+* users
+* notifications
+* evidence
+* exports
+* dashboards
+* integrations
+
+### What to implement
+
+* organization table
+* tenant_id on every business entity
+* tenant-scoped auth and RBAC
+* tenant-safe file storage paths
+* tenant-safe exports and queries
+* middleware/enforcement layer so tenant filtering is automatic, not manual
+
+---
+
+## 3. Compliance Calendar
+
+This becomes much more useful now that you have personal dashboards, workflows, evidence, and due dates.
+
+### Include
+
+* internal review deadlines
+* evidence due dates
+* overdue controls
+* reassessment reminders
+* EU AI Act milestone dates
+* workflow deadlines by owner/reviewer
+
+This is a strong feature for compliance leads and auditors.
+
+---
+
+# Recommended order now
+
+1. **Jira or ServiceNow connector**
+2. **Multi-tenant support**
+3. **Compliance Calendar**
+
+# Why this order
+
+You’ve already built:
+
+* governance core
+* operational workflows
+* personal productivity surface
+
+Now the next step is:
+
+* **ecosystem fit**
+* **deployment readiness**
+* **time-based compliance management**
+
+That’s the right transition from pilot-ready product to sellable SaaS.
+
+My strongest recommendation: **build the Jira connector next** unless you already know your buyers live in ServiceNow-heavy environments.
