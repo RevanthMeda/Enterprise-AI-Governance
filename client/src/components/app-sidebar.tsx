@@ -11,6 +11,7 @@ import {
   User,
   Layers,
   UserCircle,
+  CalendarDays,
 } from "lucide-react";
 import {
   Sidebar,
@@ -33,6 +34,7 @@ const mainNav = [
   { title: "AI Registry", url: "/registry", icon: Server },
   { title: "Risk Assessment", url: "/risk", icon: ShieldCheck },
   { title: "Compliance", url: "/compliance", icon: ClipboardCheck },
+  { title: "Calendar", url: "/calendar", icon: CalendarDays },
   { title: "Approvals", url: "/approvals", icon: FileText },
   { title: "Bulk Controls", url: "/bulk-controls", icon: Layers },
   { title: "Audit Log", url: "/audit", icon: Activity },

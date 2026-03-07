@@ -26,8 +26,9 @@ Enterprise AI governance platform for managing AI systems compliance with EU AI 
 10. **Evidence File Uploads** - Upload evidence files against systems, controls, or workflows; drag-and-drop zone; file download/delete; per-control attach buttons on system detail page; file type validation and filename sanitization
 11. **Bulk Control Assignment** - Multi-select systems and controls, preview impact, batch assign with deduplication, audit trail for bulk operations
 12. **Activity Dashboard** - Role-aware personal work surface showing pending reviews, owned systems, overdue controls, tasks due this week, high-risk changes, approval bottlenecks, missing evidence, control gaps, recent activity, and submitted requests
-13. **Settings** - Platform configuration and compliance settings
-14. **Export/Reporting** - PDF evidence reports per system, CSV exports for registry, compliance, and audit trail
+13. **Compliance Calendar** - Monthly calendar view of all compliance deadlines, milestones, and events. Shows control due dates, overdue controls, approval deadlines, evidence uploads, risk reassessment reminders, and EU AI Act regulatory milestones. Filter by event type, click days to see details, navigate between months.
+14. **Settings** - Platform configuration and compliance settings
+15. **Export/Reporting** - PDF evidence reports per system, CSV exports for registry, compliance, and audit trail
 
 ## Data Models
 - `users` - User accounts with roles (admin, cro, ciso, compliance_lead, reviewer, system_owner, auditor)
@@ -54,6 +55,7 @@ Enterprise AI governance platform for managing AI systems compliance with EU AI 
 - `client/src/pages/registry.tsx` - AI system registry with filtering
 - `client/src/pages/risk-assessment.tsx` - Risk assessment wizard (6-step flow)
 - `client/src/pages/bulk-controls.tsx` - Bulk control assignment page
+- `client/src/pages/compliance-calendar.tsx` - Compliance calendar with monthly view
 - `client/src/pages/system-detail.tsx` - Per-system detail page with tabs
 - `client/src/components/notification-bell.tsx` - Notification bell with popover dropdown
 - `client/src/components/evidence-upload.tsx` - Evidence upload with drag-and-drop, file list, compact mode
@@ -96,6 +98,7 @@ Enterprise AI governance platform for managing AI systems compliance with EU AI 
 - `POST /api/risk-assessments` - Submit risk assessment (validated with Zod schema, runs deterministic rules engine)
 - `GET /api/dashboard/trends` - Get 12-week trend data for charts
 - `GET /api/activity-dashboard` - Get role-aware personal activity data (pending reviews, systems, controls, tasks due this week)
+- `GET /api/calendar-events?month=YYYY-MM&type=` - Get calendar events (control deadlines, overdue, approvals, evidence, reassessments, EU AI Act milestones)
 
 ## Default Admin
 - Username: `admin`
@@ -110,3 +113,4 @@ Enterprise AI governance platform for managing AI systems compliance with EU AI 
 - Evidence files stored in /uploads directory with unique filenames, max 50MB per file
 - Risk assessment uses deterministic rules engine (not AI): scores based on intended use, domain, data sensitivity, users impacted, decision impact, human oversight, geography, biometric use, vulnerable groups
 - Bulk control assignment validates all system and control IDs exist before creating, deduplicates against existing assignments
+- Jira integration: Replit connector available (connector:ccfg_jira_8D0B4B1730F64429A4FC3ACB88) but user dismissed OAuth flow. Can be retried later or credentials provided manually.

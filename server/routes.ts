@@ -726,6 +726,182 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/calendar-events", requireAuth, async (req, res) => {
+    try {
+      const user = req.user!;
+      const userName = user.fullName;
+      const userRole = user.role;
+      const isExecutive = ["admin", "cro", "ciso", "compliance_lead"].includes(userRole);
+
+      const monthParam = req.query.month as string | undefined;
+      const typeFilter = req.query.type as string | undefined;
+
+      let rangeStart: Date;
+      let rangeEnd: Date;
+      if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+        const [year, month] = monthParam.split("-").map(Number);
+        rangeStart = new Date(year, month - 1, 1);
+        rangeEnd = new Date(year, month, 0, 23, 59, 59);
+        rangeStart.setDate(rangeStart.getDate() - 7);
+        rangeEnd.setDate(rangeEnd.getDate() + 7);
+      } else {
+        const now = new Date();
+        rangeStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        rangeEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0, 23, 59, 59);
+      }
+
+      const [allSystems, allControls, allWorkflows, allEvidence] = await Promise.all([
+        storage.getAiSystems(),
+        storage.getSystemControls(),
+        storage.getApprovalWorkflows(),
+        storage.getEvidenceFiles(),
+      ]);
+
+      const events: any[] = [];
+      const now = new Date();
+
+      const mySystems = isExecutive ? allSystems : allSystems.filter(
+        (s) => s.owner === userName || s.owner === user.username
+      );
+      const mySystemIds = new Set(mySystems.map((s) => s.id));
+      const systemNameMap = new Map(allSystems.map((s) => [s.id, s.name]));
+
+      const myControls = isExecutive ? allControls : allControls.filter(
+        (c) => c.assignee === userName || c.assignee === user.username || mySystemIds.has(c.systemId)
+      );
+
+      for (const ctrl of myControls) {
+        if (ctrl.dueDate) {
+          const dueDate = new Date(ctrl.dueDate);
+          if (dueDate >= rangeStart && dueDate <= rangeEnd) {
+            const isOverdue = dueDate < now && ctrl.status !== "verified" && ctrl.status !== "implemented";
+            const isCompleted = ctrl.status === "verified" || ctrl.status === "implemented";
+            events.push({
+              id: `ctrl-${ctrl.id}`,
+              title: `Control due: ${systemNameMap.get(ctrl.systemId) || "Unknown System"}`,
+              date: ctrl.dueDate,
+              type: isOverdue ? "overdue_control" : "control_deadline",
+              priority: isOverdue ? "high" : (dueDate.getTime() - now.getTime() < 7 * 86400000 ? "medium" : "low"),
+              status: isCompleted ? "completed" : (isOverdue ? "overdue" : "upcoming"),
+              entityId: ctrl.systemId,
+              entityType: "system",
+              description: `${ctrl.assignee ? `Assigned to ${ctrl.assignee}` : "Unassigned"} · Status: ${ctrl.status.replace("_", " ")}`,
+            });
+          }
+        }
+      }
+
+      const myWorkflows = isExecutive ? allWorkflows : allWorkflows.filter(
+        (w) => w.reviewer === userName || w.reviewer === user.username ||
+          w.requestedBy === userName || w.requestedBy === user.username
+      );
+
+      for (const wf of myWorkflows) {
+        if ((wf.status === "pending" || wf.status === "in_review") && wf.createdAt) {
+          const created = new Date(wf.createdAt);
+          const deadlineDate = new Date(created);
+          deadlineDate.setDate(deadlineDate.getDate() + 7);
+          if (deadlineDate >= rangeStart && deadlineDate <= rangeEnd) {
+            const daysPending = (now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24);
+            events.push({
+              id: `wf-${wf.id}`,
+              title: `Review deadline: ${wf.systemName || "Approval Workflow"}`,
+              date: deadlineDate.toISOString(),
+              type: "approval_deadline",
+              priority: daysPending > 5 ? "high" : "medium",
+              status: daysPending > 7 ? "overdue" : "upcoming",
+              entityId: wf.id,
+              entityType: "workflow",
+              description: `Requested by ${wf.requestedBy || "Unknown"} · Priority: ${wf.priority || "normal"}`,
+            });
+          }
+        }
+      }
+
+      for (const ev of allEvidence) {
+        if (ev.createdAt) {
+          const uploadDate = new Date(ev.createdAt);
+          if (uploadDate >= rangeStart && uploadDate <= rangeEnd) {
+            if (isExecutive || ev.uploadedBy === userName || ev.uploadedBy === user.username || mySystemIds.has(ev.systemId)) {
+              events.push({
+                id: `ev-${ev.id}`,
+                title: `Evidence uploaded: ${ev.fileName}`,
+                date: ev.createdAt,
+                type: "evidence_uploaded",
+                priority: "low",
+                status: "completed",
+                entityId: ev.systemId,
+                entityType: "system",
+                description: `Uploaded by ${ev.uploadedBy || "Unknown"} · ${systemNameMap.get(ev.systemId) || ""}`,
+              });
+            }
+          }
+        }
+      }
+
+      for (const sys of mySystems) {
+        const lastAssess = sys.lastAssessment ? new Date(sys.lastAssessment) : null;
+        const daysSinceAssessment = lastAssess
+          ? (now.getTime() - lastAssess.getTime()) / (1000 * 60 * 60 * 24)
+          : 999;
+        if (daysSinceAssessment >= 90 || !lastAssess) {
+          const reassessDate = lastAssess
+            ? new Date(lastAssess.getTime() + 90 * 86400000)
+            : now;
+          if (reassessDate >= rangeStart && reassessDate <= rangeEnd) {
+            events.push({
+              id: `reassess-${sys.id}`,
+              title: `Reassessment due: ${sys.name}`,
+              date: reassessDate.toISOString(),
+              type: "reassessment_due",
+              priority: daysSinceAssessment > 120 ? "high" : "medium",
+              status: "upcoming",
+              entityId: sys.id,
+              entityType: "system",
+              description: `Last assessed: ${lastAssess ? lastAssess.toLocaleDateString() : "Never"} · Risk: ${sys.riskLevel}`,
+            });
+          }
+        }
+      }
+
+      const euAiActMilestones = [
+        { date: "2025-02-02", title: "EU AI Act: Prohibited AI practices take effect", description: "Article 5 prohibitions enforced — unacceptable risk AI systems must be discontinued" },
+        { date: "2025-08-02", title: "EU AI Act: GPAI model obligations begin", description: "General-purpose AI model providers must comply with transparency and documentation requirements" },
+        { date: "2026-08-02", title: "EU AI Act: High-risk AI obligations begin", description: "Full compliance required for high-risk AI systems including conformity assessments, CE marking, and EU database registration" },
+        { date: "2027-08-02", title: "EU AI Act: Annex I systems compliance", description: "High-risk AI systems in Annex I (safety components) must comply with all requirements" },
+      ];
+
+      for (const milestone of euAiActMilestones) {
+        const milestoneDate = new Date(milestone.date);
+        if (milestoneDate >= rangeStart && milestoneDate <= rangeEnd) {
+          const isPast = milestoneDate < now;
+          events.push({
+            id: `reg-${milestone.date}`,
+            title: milestone.title,
+            date: milestone.date,
+            type: "regulatory_milestone",
+            priority: isPast ? "low" : "high",
+            status: isPast ? "completed" : "upcoming",
+            entityId: null,
+            entityType: null,
+            description: milestone.description,
+          });
+        }
+      }
+
+      let filteredEvents = events;
+      if (typeFilter && typeFilter !== "all") {
+        filteredEvents = events.filter((e) => e.type === typeFilter);
+      }
+
+      filteredEvents.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      res.json(filteredEvents);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/system-controls/bulk", requireAuth, requireRole("admin", "cro", "ciso", "compliance_lead"), async (req, res) => {
     try {
       const { systemIds, controlIds } = req.body;

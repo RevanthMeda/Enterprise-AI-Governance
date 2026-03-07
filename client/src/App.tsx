@@ -21,6 +21,7 @@ import SettingsPage from "@/pages/settings";
 import SystemDetail from "@/pages/system-detail";
 import BulkControls from "@/pages/bulk-controls";
 import MyActivity from "@/pages/my-activity";
+import ComplianceCalendar from "@/pages/compliance-calendar";
 import AuthPage from "@/pages/auth-page";
 
 function Router() {
@@ -32,6 +33,7 @@ function Router() {
       <Route path="/systems/:id" component={SystemDetail} />
       <Route path="/risk" component={RiskAssessment} />
       <Route path="/compliance" component={Compliance} />
+      <Route path="/calendar" component={ComplianceCalendar} />
       <Route path="/approvals" component={Approvals} />
       <Route path="/audit" component={AuditLogPage} />
       <Route path="/bulk-controls" component={BulkControls} />
