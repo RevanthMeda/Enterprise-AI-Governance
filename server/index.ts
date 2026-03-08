@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedDatabase } from "./seed";
 import { setupAuth } from "./auth";
+import { applySecurityHeaders, createCsrfMiddleware } from "./security";
 
 const app = express();
 const httpServer = createServer(app);
@@ -23,6 +24,8 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+applySecurityHeaders(app);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -63,6 +66,13 @@ app.use((req, res, next) => {
 
 (async () => {
   setupAuth(app);
+  app.use(
+    createCsrfMiddleware({
+      enforced: process.env.CSRF_ENFORCED === "true",
+      exemptPaths: ["/api/track", "/api/leads"],
+    }),
+  );
+
   await seedDatabase().catch((err) => {
     console.error("Failed to seed database:", err);
   });
@@ -96,14 +106,20 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
+  if (process.platform === "win32") {
+    httpServer.listen(port, "0.0.0.0", () => {
       log(`serving on port ${port}`);
-    },
-  );
+    });
+  } else {
+    httpServer.listen(
+      {
+        port,
+        host: "0.0.0.0",
+        reusePort: true,
+      },
+      () => {
+        log(`serving on port ${port}`);
+      },
+    );
+  }
 })();

@@ -1,7 +1,14 @@
 import { db } from "./db";
-import { aiSystems, complianceControls, systemControls, approvalWorkflows, auditLogs, users } from "@shared/schema";
-import { sql } from "drizzle-orm";
+import {
+  aiSystems,
+  approvalWorkflows,
+  auditLogs,
+  complianceControls,
+  systemControls,
+  users,
+} from "@shared/schema";
 import { hashPassword } from "./auth";
+import { backfillTenantBoundRows, ensureTenantBootstrap } from "./tenant-bootstrap";
 
 export async function seedDatabase() {
   const existingUsers = await db.select().from(users);
@@ -16,6 +23,8 @@ export async function seedDatabase() {
     });
     console.log("Default admin user created (admin / admin123)");
   }
+
+  const { organizationId: defaultOrganizationId } = await ensureTenantBootstrap();
 
   const existingSystems = await db.select().from(aiSystems);
   if (existingSystems.length > 0) return;
@@ -247,6 +256,8 @@ export async function seedDatabase() {
     { entityType: "ai_system", entityId: systems[3].id, action: "created", performedBy: "Lisa Andersson", details: 'AI system "Employee Performance Analyzer" registered' },
     { entityType: "approval_workflow", entityId: systems[3].id, action: "created", performedBy: "Lisa Andersson", details: "Initial risk assessment requested for Employee Performance Analyzer" },
   ]);
+
+  await backfillTenantBoundRows(defaultOrganizationId);
 
   console.log("Database seeded successfully!");
 }

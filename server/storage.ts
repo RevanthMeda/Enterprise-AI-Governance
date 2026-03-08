@@ -1,5 +1,7 @@
 import {
   type User, type InsertUser,
+  type Organization, type InsertOrganization,
+  type Membership, type InsertMembership,
   type AiSystem, type InsertAiSystem,
   type ComplianceControl, type InsertComplianceControl,
   type SystemControl, type InsertSystemControl,
@@ -8,17 +10,66 @@ import {
   type Notification, type InsertNotification,
   type EvidenceFile, type InsertEvidenceFile,
   type RiskAssessment, type InsertRiskAssessment,
+  organizations, memberships,
   users, aiSystems, complianceControls, systemControls, approvalWorkflows, auditLogs,
   notifications, evidenceFiles, riskAssessments,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, or, ilike, gte, lte, SQL } from "drizzle-orm";
+import { eq, desc, and, or, ilike, gte, lte, inArray, SQL } from "drizzle-orm";
+
+function throwUnscopedTenantMethod(method: string, scopedAlternative: string): never {
+  throw new Error(
+    `[TENANT_GUARD] Unscoped storage method "${method}" is disabled. Use "${scopedAlternative}" with organizationId.`,
+  );
+}
+
+export interface UserMembershipContext {
+  id: string;
+  userId: string;
+  organizationId: string;
+  role: string;
+  membershipState: string;
+  isDefault: boolean;
+  invitedBy: string | null;
+  organizationName: string;
+  organizationSlug: string;
+  organizationStatus: string;
+}
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUserPassword(
+    userId: string,
+    data: {
+      password: string;
+      passwordChangedAt: Date;
+      passwordExpiresAt: Date;
+      passwordHistory: string[];
+    },
+  ): Promise<User | undefined>;
+  updateUserMfa(
+    userId: string,
+    data: {
+      mfaEnabled: boolean;
+      mfaSecret: string | null;
+      mfaRecoveryCodes: string[];
+    },
+  ): Promise<User | undefined>;
   getAllUsers(): Promise<User[]>;
+  getOrganizationBySlug(slug: string): Promise<Organization | undefined>;
+  createOrganization(org: InsertOrganization): Promise<Organization>;
+  getMembershipsByUserId(userId: string): Promise<UserMembershipContext[]>;
+  createMembership(membership: InsertMembership): Promise<Membership>;
+  getUsersByOrganization(organizationId: string): Promise<User[]>;
+  getUsersByOrganizationRoles(organizationId: string, roles: string[]): Promise<User[]>;
+
+  getAiSystemsByOrg(organizationId: string, filters?: AiSystemFilters): Promise<AiSystem[]>;
+  getAiSystemById(organizationId: string, id: string): Promise<AiSystem | undefined>;
+  createAiSystemForOrg(organizationId: string, system: InsertAiSystem): Promise<AiSystem>;
+  updateAiSystemByOrg(organizationId: string, id: string, data: Partial<InsertAiSystem>): Promise<AiSystem | undefined>;
+  deleteAiSystemByOrg(organizationId: string, id: string): Promise<void>;
 
   getAiSystems(filters?: AiSystemFilters): Promise<AiSystem[]>;
   getAiSystem(id: string): Promise<AiSystem | undefined>;
@@ -31,36 +82,89 @@ export interface IStorage {
   createComplianceControl(control: InsertComplianceControl): Promise<ComplianceControl>;
 
   getSystemControls(): Promise<SystemControl[]>;
+  getSystemControlsByOrg(organizationId: string, filters?: SystemControlFilters): Promise<SystemControl[]>;
   getSystemControlsBySystem(systemId: string): Promise<SystemControl[]>;
+  getSystemControlsBySystemForOrg(organizationId: string, systemId: string): Promise<SystemControl[]>;
+  getSystemControlsByAssigneeForOrg(organizationId: string, assignee: string): Promise<SystemControl[]>;
+  getSystemControlByIdForOrg(organizationId: string, id: string): Promise<SystemControl | undefined>;
+  getSystemControlBySystemAndControlForOrg(
+    organizationId: string,
+    systemId: string,
+    controlId: string,
+  ): Promise<SystemControl | undefined>;
+  createSystemControlForOrg(organizationId: string, sc: InsertSystemControl): Promise<SystemControl>;
+  updateSystemControlForOrg(
+    organizationId: string,
+    id: string,
+    data: Partial<InsertSystemControl>,
+  ): Promise<SystemControl | undefined>;
+  deleteSystemControlForOrg(organizationId: string, id: string): Promise<void>;
   createSystemControl(sc: InsertSystemControl): Promise<SystemControl>;
   updateSystemControl(id: string, data: Partial<InsertSystemControl>): Promise<SystemControl | undefined>;
 
   getApprovalWorkflows(filters?: ApprovalWorkflowFilters): Promise<ApprovalWorkflow[]>;
   getApprovalWorkflow(id: string): Promise<ApprovalWorkflow | undefined>;
+  getApprovalWorkflowsByOrg(organizationId: string, filters?: ApprovalWorkflowFilters): Promise<ApprovalWorkflow[]>;
+  getApprovalWorkflowById(organizationId: string, id: string): Promise<ApprovalWorkflow | undefined>;
+  getApprovalWorkflowsByReviewerForOrg(organizationId: string, reviewer: string): Promise<ApprovalWorkflow[]>;
+  getApprovalWorkflowsBySystemForOrg(organizationId: string, systemId: string): Promise<ApprovalWorkflow[]>;
+  createApprovalWorkflowForOrg(organizationId: string, wf: InsertApprovalWorkflow): Promise<ApprovalWorkflow>;
+  updateApprovalWorkflowByOrg(organizationId: string, id: string, data: Partial<InsertApprovalWorkflow>): Promise<ApprovalWorkflow | undefined>;
+  deleteApprovalWorkflowByOrg(organizationId: string, id: string): Promise<void>;
   getApprovalWorkflowsBySystem(systemId: string): Promise<ApprovalWorkflow[]>;
   createApprovalWorkflow(wf: InsertApprovalWorkflow): Promise<ApprovalWorkflow>;
   updateApprovalWorkflow(id: string, data: Partial<InsertApprovalWorkflow>): Promise<ApprovalWorkflow | undefined>;
 
   getAuditLogs(filters?: AuditLogFilters): Promise<AuditLog[]>;
+  getAuditLogsByOrg(organizationId: string, filters?: AuditLogFilters): Promise<AuditLog[]>;
+  getAuditLogsByEntityForOrg(organizationId: string, entityId: string): Promise<AuditLog[]>;
+  createAuditLogForOrg(organizationId: string, log: Omit<InsertAuditLog, "organizationId">): Promise<AuditLog>;
   getAuditLogsByEntity(entityId: string): Promise<AuditLog[]>;
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
 
   getNotificationsByUser(userId: string): Promise<Notification[]>;
+  getNotificationsByOrgUser(organizationId: string, userId: string): Promise<Notification[]>;
+  getNotificationByIdForOrgUser(organizationId: string, userId: string, id: string): Promise<Notification | undefined>;
+  createNotificationForOrg(organizationId: string, notification: Omit<InsertNotification, "organizationId">): Promise<Notification>;
+  markNotificationReadByOrgUser(organizationId: string, userId: string, id: string): Promise<Notification | undefined>;
+  markAllNotificationsReadByOrgUser(organizationId: string, userId: string): Promise<void>;
+  getUnreadNotificationCountByOrgUser(organizationId: string, userId: string): Promise<number>;
   createNotification(notification: InsertNotification): Promise<Notification>;
   markNotificationRead(id: string): Promise<Notification | undefined>;
   markAllNotificationsRead(userId: string): Promise<void>;
   getUnreadNotificationCount(userId: string): Promise<number>;
 
   getEvidenceFiles(filters?: EvidenceFileFilters): Promise<EvidenceFile[]>;
+  getEvidenceFilesByOrg(organizationId: string, filters?: EvidenceFileFilters): Promise<EvidenceFile[]>;
+  getEvidenceFilesBySystemForOrg(organizationId: string, systemId: string): Promise<EvidenceFile[]>;
+  getEvidenceFileByIdForOrg(organizationId: string, id: string): Promise<EvidenceFile | undefined>;
+  createEvidenceFileForOrg(organizationId: string, file: Omit<InsertEvidenceFile, "organizationId">): Promise<EvidenceFile>;
+  deleteEvidenceFileForOrg(organizationId: string, id: string): Promise<void>;
   getEvidenceFile(id: string): Promise<EvidenceFile | undefined>;
   createEvidenceFile(file: InsertEvidenceFile): Promise<EvidenceFile>;
   deleteEvidenceFile(id: string): Promise<void>;
 
   getRiskAssessments(): Promise<RiskAssessment[]>;
+  getRiskAssessmentsByOrg(organizationId: string): Promise<RiskAssessment[]>;
+  getRiskAssessmentsBySystemForOrg(organizationId: string, systemId: string): Promise<RiskAssessment[]>;
+  getRiskAssessmentByIdForOrg(organizationId: string, id: string): Promise<RiskAssessment | undefined>;
+  createRiskAssessmentForOrg(
+    organizationId: string,
+    assessment: Omit<InsertRiskAssessment, "organizationId">,
+  ): Promise<RiskAssessment>;
+  updateRiskAssessmentForOrg(
+    organizationId: string,
+    id: string,
+    data: Partial<Omit<InsertRiskAssessment, "organizationId">>,
+  ): Promise<RiskAssessment | undefined>;
   getRiskAssessmentsBySystem(systemId: string): Promise<RiskAssessment[]>;
   createRiskAssessment(assessment: InsertRiskAssessment): Promise<RiskAssessment>;
 
   bulkCreateSystemControls(items: { systemId: string; controlId: string }[]): Promise<SystemControl[]>;
+  bulkCreateSystemControlsForOrg(
+    organizationId: string,
+    items: { systemId: string; controlId: string }[],
+  ): Promise<SystemControl[]>;
 }
 
 export interface AiSystemFilters {
@@ -86,6 +190,12 @@ export interface ApprovalWorkflowFilters {
   systemId?: string;
 }
 
+export interface SystemControlFilters {
+  status?: string;
+  systemId?: string;
+  assignee?: string;
+}
+
 export interface EvidenceFileFilters {
   systemId?: string;
   controlId?: string;
@@ -108,12 +218,142 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async updateUserPassword(
+    userId: string,
+    data: {
+      password: string;
+      passwordChangedAt: Date;
+      passwordExpiresAt: Date;
+      passwordHistory: string[];
+    },
+  ): Promise<User | undefined> {
+    const [updated] = await db
+      .update(users)
+      .set({
+        password: data.password,
+        passwordHistory: data.passwordHistory,
+        passwordChangedAt: data.passwordChangedAt,
+        passwordExpiresAt: data.passwordExpiresAt,
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    return updated;
+  }
+
+  async updateUserMfa(
+    userId: string,
+    data: {
+      mfaEnabled: boolean;
+      mfaSecret: string | null;
+      mfaRecoveryCodes: string[];
+    },
+  ): Promise<User | undefined> {
+    const [updated] = await db
+      .update(users)
+      .set({
+        mfaEnabled: data.mfaEnabled,
+        mfaSecret: data.mfaSecret,
+        mfaRecoveryCodes: data.mfaRecoveryCodes,
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    return updated;
+  }
+
   async getAllUsers(): Promise<User[]> {
     return db.select().from(users);
   }
 
-  async getAiSystems(filters?: AiSystemFilters): Promise<AiSystem[]> {
-    const conditions: SQL[] = [];
+  async getOrganizationBySlug(slug: string): Promise<Organization | undefined> {
+    const [organization] = await db.select().from(organizations).where(eq(organizations.slug, slug));
+    return organization;
+  }
+
+  async createOrganization(org: InsertOrganization): Promise<Organization> {
+    const [organization] = await db.insert(organizations).values(org).returning();
+    return organization;
+  }
+
+  async getMembershipsByUserId(userId: string): Promise<UserMembershipContext[]> {
+    return db
+      .select({
+        id: memberships.id,
+        userId: memberships.userId,
+        organizationId: memberships.organizationId,
+        role: memberships.role,
+        membershipState: memberships.membershipState,
+        isDefault: memberships.isDefault,
+        invitedBy: memberships.invitedBy,
+        organizationName: organizations.name,
+        organizationSlug: organizations.slug,
+        organizationStatus: organizations.status,
+      })
+      .from(memberships)
+      .innerJoin(organizations, eq(memberships.organizationId, organizations.id))
+      .where(eq(memberships.userId, userId));
+  }
+
+  async createMembership(membership: InsertMembership): Promise<Membership> {
+    const [created] = await db.insert(memberships).values(membership).returning();
+    return created;
+  }
+
+  async getUsersByOrganization(organizationId: string): Promise<User[]> {
+    return db
+      .select({
+        id: users.id,
+        username: users.username,
+        password: users.password,
+        passwordHistory: users.passwordHistory,
+        passwordChangedAt: users.passwordChangedAt,
+        passwordExpiresAt: users.passwordExpiresAt,
+        mfaEnabled: users.mfaEnabled,
+        mfaSecret: users.mfaSecret,
+        mfaRecoveryCodes: users.mfaRecoveryCodes,
+        fullName: users.fullName,
+        email: users.email,
+        role: users.role,
+      })
+      .from(users)
+      .innerJoin(memberships, eq(users.id, memberships.userId))
+      .where(
+        and(
+          eq(memberships.organizationId, organizationId),
+          eq(memberships.membershipState, "active"),
+        ),
+      );
+  }
+
+  async getUsersByOrganizationRoles(organizationId: string, roles: string[]): Promise<User[]> {
+    if (roles.length === 0) return [];
+    return db
+      .select({
+        id: users.id,
+        username: users.username,
+        password: users.password,
+        passwordHistory: users.passwordHistory,
+        passwordChangedAt: users.passwordChangedAt,
+        passwordExpiresAt: users.passwordExpiresAt,
+        mfaEnabled: users.mfaEnabled,
+        mfaSecret: users.mfaSecret,
+        mfaRecoveryCodes: users.mfaRecoveryCodes,
+        fullName: users.fullName,
+        email: users.email,
+        role: users.role,
+      })
+      .from(users)
+      .innerJoin(memberships, eq(users.id, memberships.userId))
+      .where(
+        and(
+          eq(memberships.organizationId, organizationId),
+          eq(memberships.membershipState, "active"),
+          inArray(memberships.role, roles),
+        ),
+      );
+  }
+
+  async getAiSystemsByOrg(organizationId: string, filters?: AiSystemFilters): Promise<AiSystem[]> {
+    const conditions: SQL[] = [eq(aiSystems.organizationId, organizationId)];
     if (filters?.search) {
       const term = `%${filters.search}%`;
       conditions.push(or(
@@ -138,30 +378,58 @@ export class DatabaseStorage implements IStorage {
     if (filters?.department && filters.department !== "all") {
       conditions.push(ilike(aiSystems.department, `%${filters.department}%`));
     }
-    const query = db.select().from(aiSystems);
-    if (conditions.length > 0) {
-      return query.where(and(...conditions)).orderBy(desc(aiSystems.createdAt));
-    }
-    return query.orderBy(desc(aiSystems.createdAt));
+    return db
+      .select()
+      .from(aiSystems)
+      .where(and(...conditions))
+      .orderBy(desc(aiSystems.createdAt));
   }
 
-  async getAiSystem(id: string): Promise<AiSystem | undefined> {
-    const [system] = await db.select().from(aiSystems).where(eq(aiSystems.id, id));
+  async getAiSystemById(organizationId: string, id: string): Promise<AiSystem | undefined> {
+    const [system] = await db
+      .select()
+      .from(aiSystems)
+      .where(and(eq(aiSystems.id, id), eq(aiSystems.organizationId, organizationId)));
     return system;
   }
 
-  async createAiSystem(system: InsertAiSystem): Promise<AiSystem> {
-    const [created] = await db.insert(aiSystems).values(system).returning();
+  async createAiSystemForOrg(organizationId: string, system: InsertAiSystem): Promise<AiSystem> {
+    const [created] = await db.insert(aiSystems).values({ ...system, organizationId }).returning();
     return created;
   }
 
-  async updateAiSystem(id: string, data: Partial<InsertAiSystem>): Promise<AiSystem | undefined> {
-    const [updated] = await db.update(aiSystems).set({ ...data, updatedAt: new Date() }).where(eq(aiSystems.id, id)).returning();
+  async updateAiSystemByOrg(organizationId: string, id: string, data: Partial<InsertAiSystem>): Promise<AiSystem | undefined> {
+    const { organizationId: _ignoredOrganizationId, ...safeData } = data as Partial<InsertAiSystem> & { organizationId?: string };
+    const [updated] = await db
+      .update(aiSystems)
+      .set({ ...safeData, updatedAt: new Date() })
+      .where(and(eq(aiSystems.id, id), eq(aiSystems.organizationId, organizationId)))
+      .returning();
     return updated;
   }
 
-  async deleteAiSystem(id: string): Promise<void> {
-    await db.delete(aiSystems).where(eq(aiSystems.id, id));
+  async deleteAiSystemByOrg(organizationId: string, id: string): Promise<void> {
+    await db.delete(aiSystems).where(and(eq(aiSystems.id, id), eq(aiSystems.organizationId, organizationId)));
+  }
+
+  async getAiSystems(_filters?: AiSystemFilters): Promise<AiSystem[]> {
+    throwUnscopedTenantMethod("getAiSystems", "getAiSystemsByOrg");
+  }
+
+  async getAiSystem(_id: string): Promise<AiSystem | undefined> {
+    throwUnscopedTenantMethod("getAiSystem", "getAiSystemById");
+  }
+
+  async createAiSystem(_system: InsertAiSystem): Promise<AiSystem> {
+    throwUnscopedTenantMethod("createAiSystem", "createAiSystemForOrg");
+  }
+
+  async updateAiSystem(_id: string, _data: Partial<InsertAiSystem>): Promise<AiSystem | undefined> {
+    throwUnscopedTenantMethod("updateAiSystem", "updateAiSystemByOrg");
+  }
+
+  async deleteAiSystem(_id: string): Promise<void> {
+    throwUnscopedTenantMethod("deleteAiSystem", "deleteAiSystemByOrg");
   }
 
   async getComplianceControls(): Promise<ComplianceControl[]> {
@@ -179,25 +447,116 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSystemControls(): Promise<SystemControl[]> {
-    return db.select().from(systemControls);
+    throwUnscopedTenantMethod("getSystemControls", "getSystemControlsByOrg");
   }
 
-  async getSystemControlsBySystem(systemId: string): Promise<SystemControl[]> {
-    return db.select().from(systemControls).where(eq(systemControls.systemId, systemId));
+  async getSystemControlsByOrg(
+    organizationId: string,
+    filters?: SystemControlFilters,
+  ): Promise<SystemControl[]> {
+    const conditions: SQL[] = [eq(systemControls.organizationId, organizationId)];
+    if (filters?.status && filters.status !== "all") {
+      conditions.push(eq(systemControls.status, filters.status));
+    }
+    if (filters?.systemId && filters.systemId !== "all") {
+      conditions.push(eq(systemControls.systemId, filters.systemId));
+    }
+    if (filters?.assignee && filters.assignee !== "all") {
+      conditions.push(ilike(systemControls.assignee, `%${filters.assignee}%`));
+    }
+    return db.select().from(systemControls).where(and(...conditions));
   }
 
-  async createSystemControl(sc: InsertSystemControl): Promise<SystemControl> {
-    const [created] = await db.insert(systemControls).values(sc).returning();
+  async getSystemControlsBySystem(_systemId: string): Promise<SystemControl[]> {
+    throwUnscopedTenantMethod("getSystemControlsBySystem", "getSystemControlsBySystemForOrg");
+  }
+
+  async getSystemControlsBySystemForOrg(organizationId: string, systemId: string): Promise<SystemControl[]> {
+    return db
+      .select()
+      .from(systemControls)
+      .where(and(eq(systemControls.organizationId, organizationId), eq(systemControls.systemId, systemId)));
+  }
+
+  async getSystemControlsByAssigneeForOrg(organizationId: string, assignee: string): Promise<SystemControl[]> {
+    return db
+      .select()
+      .from(systemControls)
+      .where(
+        and(
+          eq(systemControls.organizationId, organizationId),
+          or(ilike(systemControls.assignee, assignee))!,
+        ),
+      );
+  }
+
+  async getSystemControlByIdForOrg(organizationId: string, id: string): Promise<SystemControl | undefined> {
+    const [control] = await db
+      .select()
+      .from(systemControls)
+      .where(and(eq(systemControls.organizationId, organizationId), eq(systemControls.id, id)));
+    return control;
+  }
+
+  async getSystemControlBySystemAndControlForOrg(
+    organizationId: string,
+    systemId: string,
+    controlId: string,
+  ): Promise<SystemControl | undefined> {
+    const [control] = await db
+      .select()
+      .from(systemControls)
+      .where(
+        and(
+          eq(systemControls.organizationId, organizationId),
+          eq(systemControls.systemId, systemId),
+          eq(systemControls.controlId, controlId),
+        ),
+      );
+    return control;
+  }
+
+  async createSystemControlForOrg(organizationId: string, sc: InsertSystemControl): Promise<SystemControl> {
+    const [created] = await db.insert(systemControls).values({ ...sc, organizationId }).returning();
     return created;
   }
 
-  async updateSystemControl(id: string, data: Partial<InsertSystemControl>): Promise<SystemControl | undefined> {
-    const [updated] = await db.update(systemControls).set(data).where(eq(systemControls.id, id)).returning();
+  async updateSystemControlForOrg(
+    organizationId: string,
+    id: string,
+    data: Partial<InsertSystemControl>,
+  ): Promise<SystemControl | undefined> {
+    const { organizationId: _ignoredOrganizationId, ...safeData } = data as Partial<InsertSystemControl> & { organizationId?: string };
+    const [updated] = await db
+      .update(systemControls)
+      .set(safeData)
+      .where(and(eq(systemControls.organizationId, organizationId), eq(systemControls.id, id)))
+      .returning();
     return updated;
   }
 
-  async getApprovalWorkflows(filters?: ApprovalWorkflowFilters): Promise<ApprovalWorkflow[]> {
-    const conditions: SQL[] = [];
+  async deleteSystemControlForOrg(organizationId: string, id: string): Promise<void> {
+    await db.delete(systemControls).where(and(eq(systemControls.organizationId, organizationId), eq(systemControls.id, id)));
+  }
+
+  async createSystemControl(_sc: InsertSystemControl): Promise<SystemControl> {
+    throwUnscopedTenantMethod("createSystemControl", "createSystemControlForOrg");
+  }
+
+  async updateSystemControl(_id: string, _data: Partial<InsertSystemControl>): Promise<SystemControl | undefined> {
+    throwUnscopedTenantMethod("updateSystemControl", "updateSystemControlForOrg");
+  }
+
+  async getApprovalWorkflows(_filters?: ApprovalWorkflowFilters): Promise<ApprovalWorkflow[]> {
+    throwUnscopedTenantMethod("getApprovalWorkflows", "getApprovalWorkflowsByOrg");
+  }
+
+  async getApprovalWorkflow(_id: string): Promise<ApprovalWorkflow | undefined> {
+    throwUnscopedTenantMethod("getApprovalWorkflow", "getApprovalWorkflowById");
+  }
+
+  async getApprovalWorkflowsByOrg(organizationId: string, filters?: ApprovalWorkflowFilters): Promise<ApprovalWorkflow[]> {
+    const conditions: SQL[] = [eq(approvalWorkflows.organizationId, organizationId)];
     if (filters?.status && filters.status !== "all") {
       conditions.push(eq(approvalWorkflows.status, filters.status));
     }
@@ -207,34 +566,86 @@ export class DatabaseStorage implements IStorage {
     if (filters?.systemId && filters.systemId !== "all") {
       conditions.push(eq(approvalWorkflows.systemId, filters.systemId));
     }
-    const query = db.select().from(approvalWorkflows);
-    if (conditions.length > 0) {
-      return query.where(and(...conditions)).orderBy(desc(approvalWorkflows.createdAt));
-    }
-    return query.orderBy(desc(approvalWorkflows.createdAt));
+    return db
+      .select()
+      .from(approvalWorkflows)
+      .where(and(...conditions))
+      .orderBy(desc(approvalWorkflows.createdAt));
   }
 
-  async getApprovalWorkflow(id: string): Promise<ApprovalWorkflow | undefined> {
-    const [wf] = await db.select().from(approvalWorkflows).where(eq(approvalWorkflows.id, id));
-    return wf;
+  async getApprovalWorkflowById(organizationId: string, id: string): Promise<ApprovalWorkflow | undefined> {
+    const [workflow] = await db
+      .select()
+      .from(approvalWorkflows)
+      .where(and(eq(approvalWorkflows.id, id), eq(approvalWorkflows.organizationId, organizationId)));
+    return workflow;
   }
 
-  async getApprovalWorkflowsBySystem(systemId: string): Promise<ApprovalWorkflow[]> {
-    return db.select().from(approvalWorkflows).where(eq(approvalWorkflows.systemId, systemId)).orderBy(desc(approvalWorkflows.createdAt));
+  async getApprovalWorkflowsByReviewerForOrg(organizationId: string, reviewer: string): Promise<ApprovalWorkflow[]> {
+    return db
+      .select()
+      .from(approvalWorkflows)
+      .where(
+        and(
+          eq(approvalWorkflows.organizationId, organizationId),
+          or(eq(approvalWorkflows.reviewer, reviewer))!,
+          or(eq(approvalWorkflows.status, "pending"), eq(approvalWorkflows.status, "in_review"))!,
+        ),
+      )
+      .orderBy(desc(approvalWorkflows.createdAt));
   }
 
-  async createApprovalWorkflow(wf: InsertApprovalWorkflow): Promise<ApprovalWorkflow> {
-    const [created] = await db.insert(approvalWorkflows).values(wf).returning();
+  async getApprovalWorkflowsBySystemForOrg(organizationId: string, systemId: string): Promise<ApprovalWorkflow[]> {
+    return db
+      .select()
+      .from(approvalWorkflows)
+      .where(and(eq(approvalWorkflows.organizationId, organizationId), eq(approvalWorkflows.systemId, systemId)))
+      .orderBy(desc(approvalWorkflows.createdAt));
+  }
+
+  async createApprovalWorkflowForOrg(organizationId: string, wf: InsertApprovalWorkflow): Promise<ApprovalWorkflow> {
+    const [created] = await db.insert(approvalWorkflows).values({ ...wf, organizationId }).returning();
     return created;
   }
 
-  async updateApprovalWorkflow(id: string, data: Partial<InsertApprovalWorkflow>): Promise<ApprovalWorkflow | undefined> {
-    const [updated] = await db.update(approvalWorkflows).set({ ...data, updatedAt: new Date() }).where(eq(approvalWorkflows.id, id)).returning();
+  async updateApprovalWorkflowByOrg(
+    organizationId: string,
+    id: string,
+    data: Partial<InsertApprovalWorkflow>,
+  ): Promise<ApprovalWorkflow | undefined> {
+    const { organizationId: _ignoredOrganizationId, ...safeData } = data as Partial<InsertApprovalWorkflow> & { organizationId?: string };
+    const [updated] = await db
+      .update(approvalWorkflows)
+      .set({ ...safeData, updatedAt: new Date() })
+      .where(and(eq(approvalWorkflows.id, id), eq(approvalWorkflows.organizationId, organizationId)))
+      .returning();
     return updated;
   }
 
-  async getAuditLogs(filters?: AuditLogFilters): Promise<AuditLog[]> {
-    const conditions: SQL[] = [];
+  async deleteApprovalWorkflowByOrg(organizationId: string, id: string): Promise<void> {
+    await db
+      .delete(approvalWorkflows)
+      .where(and(eq(approvalWorkflows.id, id), eq(approvalWorkflows.organizationId, organizationId)));
+  }
+
+  async getApprovalWorkflowsBySystem(_systemId: string): Promise<ApprovalWorkflow[]> {
+    throwUnscopedTenantMethod("getApprovalWorkflowsBySystem", "getApprovalWorkflowsBySystemForOrg");
+  }
+
+  async createApprovalWorkflow(_wf: InsertApprovalWorkflow): Promise<ApprovalWorkflow> {
+    throwUnscopedTenantMethod("createApprovalWorkflow", "createApprovalWorkflowForOrg");
+  }
+
+  async updateApprovalWorkflow(_id: string, _data: Partial<InsertApprovalWorkflow>): Promise<ApprovalWorkflow | undefined> {
+    throwUnscopedTenantMethod("updateApprovalWorkflow", "updateApprovalWorkflowByOrg");
+  }
+
+  async getAuditLogs(_filters?: AuditLogFilters): Promise<AuditLog[]> {
+    throwUnscopedTenantMethod("getAuditLogs", "getAuditLogsByOrg");
+  }
+
+  async getAuditLogsByOrg(organizationId: string, filters?: AuditLogFilters): Promise<AuditLog[]> {
+    const conditions: SQL[] = [eq(auditLogs.organizationId, organizationId)];
     if (filters?.action && filters.action !== "all") {
       conditions.push(eq(auditLogs.action, filters.action));
     }
@@ -250,47 +661,136 @@ export class DatabaseStorage implements IStorage {
     if (filters?.dateTo) {
       conditions.push(lte(auditLogs.createdAt, new Date(filters.dateTo)));
     }
-    const query = db.select().from(auditLogs);
-    if (conditions.length > 0) {
-      return query.where(and(...conditions)).orderBy(desc(auditLogs.createdAt));
-    }
-    return query.orderBy(desc(auditLogs.createdAt));
+    return db
+      .select()
+      .from(auditLogs)
+      .where(and(...conditions))
+      .orderBy(desc(auditLogs.createdAt));
   }
 
-  async getAuditLogsByEntity(entityId: string): Promise<AuditLog[]> {
-    return db.select().from(auditLogs).where(eq(auditLogs.entityId, entityId)).orderBy(desc(auditLogs.createdAt));
+  async getAuditLogsByEntityForOrg(organizationId: string, entityId: string): Promise<AuditLog[]> {
+    return db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.organizationId, organizationId), eq(auditLogs.entityId, entityId)))
+      .orderBy(desc(auditLogs.createdAt));
   }
 
-  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
-    const [created] = await db.insert(auditLogs).values(log).returning();
+  async createAuditLogForOrg(organizationId: string, log: Omit<InsertAuditLog, "organizationId">): Promise<AuditLog> {
+    const [created] = await db.insert(auditLogs).values({ ...log, organizationId }).returning();
     return created;
   }
 
-  async getNotificationsByUser(userId: string): Promise<Notification[]> {
-    return db.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(desc(notifications.createdAt));
+  async getAuditLogsByEntity(_entityId: string): Promise<AuditLog[]> {
+    throwUnscopedTenantMethod("getAuditLogsByEntity", "getAuditLogsByEntityForOrg");
   }
 
-  async createNotification(notification: InsertNotification): Promise<Notification> {
-    const [created] = await db.insert(notifications).values(notification).returning();
+  async createAuditLog(_log: InsertAuditLog): Promise<AuditLog> {
+    throwUnscopedTenantMethod("createAuditLog", "createAuditLogForOrg");
+  }
+
+  async getNotificationsByUser(_userId: string): Promise<Notification[]> {
+    throwUnscopedTenantMethod("getNotificationsByUser", "getNotificationsByOrgUser");
+  }
+
+  async getNotificationsByOrgUser(organizationId: string, userId: string): Promise<Notification[]> {
+    return db
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.organizationId, organizationId), eq(notifications.userId, userId)))
+      .orderBy(desc(notifications.createdAt));
+  }
+
+  async getNotificationByIdForOrgUser(organizationId: string, userId: string, id: string): Promise<Notification | undefined> {
+    const [notification] = await db
+      .select()
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.id, id),
+          eq(notifications.organizationId, organizationId),
+          eq(notifications.userId, userId),
+        ),
+      );
+    return notification;
+  }
+
+  async createNotificationForOrg(
+    organizationId: string,
+    notification: Omit<InsertNotification, "organizationId">,
+  ): Promise<Notification> {
+    const [created] = await db.insert(notifications).values({ ...notification, organizationId }).returning();
     return created;
   }
 
-  async markNotificationRead(id: string): Promise<Notification | undefined> {
-    const [updated] = await db.update(notifications).set({ read: true }).where(eq(notifications.id, id)).returning();
+  async markNotificationReadByOrgUser(
+    organizationId: string,
+    userId: string,
+    id: string,
+  ): Promise<Notification | undefined> {
+    const [updated] = await db
+      .update(notifications)
+      .set({ read: true })
+      .where(
+        and(
+          eq(notifications.id, id),
+          eq(notifications.organizationId, organizationId),
+          eq(notifications.userId, userId),
+        ),
+      )
+      .returning();
     return updated;
   }
 
-  async markAllNotificationsRead(userId: string): Promise<void> {
-    await db.update(notifications).set({ read: true }).where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
+  async markAllNotificationsReadByOrgUser(organizationId: string, userId: string): Promise<void> {
+    await db
+      .update(notifications)
+      .set({ read: true })
+      .where(
+        and(
+          eq(notifications.organizationId, organizationId),
+          eq(notifications.userId, userId),
+          eq(notifications.read, false),
+        ),
+      );
   }
 
-  async getUnreadNotificationCount(userId: string): Promise<number> {
-    const result = await db.select().from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
+  async getUnreadNotificationCountByOrgUser(organizationId: string, userId: string): Promise<number> {
+    const result = await db
+      .select()
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.organizationId, organizationId),
+          eq(notifications.userId, userId),
+          eq(notifications.read, false),
+        ),
+      );
     return result.length;
   }
 
-  async getEvidenceFiles(filters?: EvidenceFileFilters): Promise<EvidenceFile[]> {
-    const conditions: SQL[] = [];
+  async createNotification(_notification: InsertNotification): Promise<Notification> {
+    throwUnscopedTenantMethod("createNotification", "createNotificationForOrg");
+  }
+
+  async markNotificationRead(_id: string): Promise<Notification | undefined> {
+    throwUnscopedTenantMethod("markNotificationRead", "markNotificationReadByOrgUser");
+  }
+
+  async markAllNotificationsRead(_userId: string): Promise<void> {
+    throwUnscopedTenantMethod("markAllNotificationsRead", "markAllNotificationsReadByOrgUser");
+  }
+
+  async getUnreadNotificationCount(_userId: string): Promise<number> {
+    throwUnscopedTenantMethod("getUnreadNotificationCount", "getUnreadNotificationCountByOrgUser");
+  }
+
+  async getEvidenceFiles(_filters?: EvidenceFileFilters): Promise<EvidenceFile[]> {
+    throwUnscopedTenantMethod("getEvidenceFiles", "getEvidenceFilesByOrg");
+  }
+
+  async getEvidenceFilesByOrg(organizationId: string, filters?: EvidenceFileFilters): Promise<EvidenceFile[]> {
+    const conditions: SQL[] = [eq(evidenceFiles.organizationId, organizationId)];
     if (filters?.systemId) {
       conditions.push(eq(evidenceFiles.systemId, filters.systemId));
     }
@@ -300,64 +800,136 @@ export class DatabaseStorage implements IStorage {
     if (filters?.workflowId) {
       conditions.push(eq(evidenceFiles.workflowId, filters.workflowId));
     }
-    const query = db.select().from(evidenceFiles);
-    if (conditions.length > 0) {
-      return query.where(and(...conditions)).orderBy(desc(evidenceFiles.createdAt));
-    }
-    return query.orderBy(desc(evidenceFiles.createdAt));
+    return db
+      .select()
+      .from(evidenceFiles)
+      .where(and(...conditions))
+      .orderBy(desc(evidenceFiles.createdAt));
   }
 
-  async getEvidenceFile(id: string): Promise<EvidenceFile | undefined> {
-    const [file] = await db.select().from(evidenceFiles).where(eq(evidenceFiles.id, id));
+  async getEvidenceFilesBySystemForOrg(organizationId: string, systemId: string): Promise<EvidenceFile[]> {
+    return db
+      .select()
+      .from(evidenceFiles)
+      .where(and(eq(evidenceFiles.organizationId, organizationId), eq(evidenceFiles.systemId, systemId)))
+      .orderBy(desc(evidenceFiles.createdAt));
+  }
+
+  async getEvidenceFileByIdForOrg(organizationId: string, id: string): Promise<EvidenceFile | undefined> {
+    const [file] = await db
+      .select()
+      .from(evidenceFiles)
+      .where(and(eq(evidenceFiles.organizationId, organizationId), eq(evidenceFiles.id, id)));
     return file;
   }
 
-  async createEvidenceFile(file: InsertEvidenceFile): Promise<EvidenceFile> {
-    const [created] = await db.insert(evidenceFiles).values(file).returning();
+  async createEvidenceFileForOrg(
+    organizationId: string,
+    file: Omit<InsertEvidenceFile, "organizationId">,
+  ): Promise<EvidenceFile> {
+    const [created] = await db.insert(evidenceFiles).values({ ...file, organizationId }).returning();
     return created;
   }
 
-  async deleteEvidenceFile(id: string): Promise<void> {
-    await db.delete(evidenceFiles).where(eq(evidenceFiles.id, id));
+  async deleteEvidenceFileForOrg(organizationId: string, id: string): Promise<void> {
+    await db
+      .delete(evidenceFiles)
+      .where(and(eq(evidenceFiles.organizationId, organizationId), eq(evidenceFiles.id, id)));
+  }
+
+  async getEvidenceFile(_id: string): Promise<EvidenceFile | undefined> {
+    throwUnscopedTenantMethod("getEvidenceFile", "getEvidenceFileByIdForOrg");
+  }
+
+  async createEvidenceFile(_file: InsertEvidenceFile): Promise<EvidenceFile> {
+    throwUnscopedTenantMethod("createEvidenceFile", "createEvidenceFileForOrg");
+  }
+
+  async deleteEvidenceFile(_id: string): Promise<void> {
+    throwUnscopedTenantMethod("deleteEvidenceFile", "deleteEvidenceFileForOrg");
   }
 
   async getRiskAssessments(): Promise<RiskAssessment[]> {
-    return db.select().from(riskAssessments).orderBy(desc(riskAssessments.createdAt));
+    throwUnscopedTenantMethod("getRiskAssessments", "getRiskAssessmentsByOrg");
   }
 
-  async getRiskAssessmentsBySystem(systemId: string): Promise<RiskAssessment[]> {
-    return db.select().from(riskAssessments).where(eq(riskAssessments.systemId, systemId)).orderBy(desc(riskAssessments.createdAt));
+  async getRiskAssessmentsByOrg(organizationId: string): Promise<RiskAssessment[]> {
+    return db
+      .select()
+      .from(riskAssessments)
+      .where(eq(riskAssessments.organizationId, organizationId))
+      .orderBy(desc(riskAssessments.createdAt));
   }
 
-  async createRiskAssessment(assessment: InsertRiskAssessment): Promise<RiskAssessment> {
-    const [created] = await db.insert(riskAssessments).values(assessment).returning();
+  async getRiskAssessmentsBySystemForOrg(organizationId: string, systemId: string): Promise<RiskAssessment[]> {
+    return db
+      .select()
+      .from(riskAssessments)
+      .where(and(eq(riskAssessments.organizationId, organizationId), eq(riskAssessments.systemId, systemId)))
+      .orderBy(desc(riskAssessments.createdAt));
+  }
+
+  async getRiskAssessmentByIdForOrg(organizationId: string, id: string): Promise<RiskAssessment | undefined> {
+    const [assessment] = await db
+      .select()
+      .from(riskAssessments)
+      .where(and(eq(riskAssessments.organizationId, organizationId), eq(riskAssessments.id, id)));
+    return assessment;
+  }
+
+  async createRiskAssessmentForOrg(
+    organizationId: string,
+    assessment: Omit<InsertRiskAssessment, "organizationId">,
+  ): Promise<RiskAssessment> {
+    const [created] = await db.insert(riskAssessments).values({ ...assessment, organizationId }).returning();
     return created;
   }
 
-  async getSystemControlsByAssignee(assignee: string): Promise<SystemControl[]> {
-    return db.select().from(systemControls).where(
-      or(ilike(systemControls.assignee, assignee))!
-    );
+  async updateRiskAssessmentForOrg(
+    organizationId: string,
+    id: string,
+    data: Partial<Omit<InsertRiskAssessment, "organizationId">>,
+  ): Promise<RiskAssessment | undefined> {
+    const { organizationId: _ignoredOrganizationId, ...safeData } = data as Partial<InsertRiskAssessment> & { organizationId?: string };
+    const [updated] = await db
+      .update(riskAssessments)
+      .set(safeData)
+      .where(and(eq(riskAssessments.organizationId, organizationId), eq(riskAssessments.id, id)))
+      .returning();
+    return updated;
   }
 
-  async getApprovalWorkflowsByReviewer(reviewer: string): Promise<ApprovalWorkflow[]> {
-    return db.select().from(approvalWorkflows).where(
-      and(
-        or(eq(approvalWorkflows.reviewer, reviewer))!,
-        or(eq(approvalWorkflows.status, "pending"), eq(approvalWorkflows.status, "in_review"))!
-      )
-    ).orderBy(desc(approvalWorkflows.createdAt));
+  async getRiskAssessmentsBySystem(_systemId: string): Promise<RiskAssessment[]> {
+    throwUnscopedTenantMethod("getRiskAssessmentsBySystem", "getRiskAssessmentsBySystemForOrg");
   }
 
-  async getAiSystemsByOwner(owner: string): Promise<AiSystem[]> {
-    return db.select().from(aiSystems).where(
-      or(ilike(aiSystems.owner, owner))!
-    ).orderBy(desc(aiSystems.createdAt));
+  async createRiskAssessment(_assessment: InsertRiskAssessment): Promise<RiskAssessment> {
+    throwUnscopedTenantMethod("createRiskAssessment", "createRiskAssessmentForOrg");
   }
 
-  async bulkCreateSystemControls(items: { systemId: string; controlId: string }[]): Promise<SystemControl[]> {
+  async getSystemControlsByAssignee(_assignee: string): Promise<SystemControl[]> {
+    throwUnscopedTenantMethod("getSystemControlsByAssignee", "getSystemControlsByAssigneeForOrg");
+  }
+
+  async getApprovalWorkflowsByReviewer(_reviewer: string): Promise<ApprovalWorkflow[]> {
+    throwUnscopedTenantMethod("getApprovalWorkflowsByReviewer", "getApprovalWorkflowsByReviewerForOrg");
+  }
+
+  async getAiSystemsByOwner(_owner: string): Promise<AiSystem[]> {
+    throwUnscopedTenantMethod("getAiSystemsByOwner", "getAiSystemsByOrg");
+  }
+
+  async bulkCreateSystemControls(_items: { systemId: string; controlId: string }[]): Promise<SystemControl[]> {
+    throwUnscopedTenantMethod("bulkCreateSystemControls", "bulkCreateSystemControlsForOrg");
+  }
+
+  async bulkCreateSystemControlsForOrg(
+    organizationId: string,
+    items: { systemId: string; controlId: string }[],
+  ): Promise<SystemControl[]> {
     if (items.length === 0) return [];
     const values = items.map((item) => ({
+      organizationId,
       systemId: item.systemId,
       controlId: item.controlId,
       status: "not_started" as const,

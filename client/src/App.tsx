@@ -1,4 +1,5 @@
-import { Switch, Route } from "wouter";
+import { useEffect } from "react";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -23,30 +24,138 @@ import BulkControls from "@/pages/bulk-controls";
 import MyActivity from "@/pages/my-activity";
 import ComplianceCalendar from "@/pages/compliance-calendar";
 import AuthPage from "@/pages/auth-page";
+import InviteAcceptPage from "@/pages/invite-accept-page";
+import LandingPage from "@/pages/landing-page";
+import BookDemoPage, { StartPilotPage } from "@/pages/lead-capture";
+import ThankYouPage from "@/pages/thank-you";
+import PrivacyPage from "@/pages/privacy";
+import TermsPage from "@/pages/terms";
+import SecurityPage from "@/pages/security-page";
 
-function Router() {
+const PUBLIC_PATHS = new Set([
+  "/",
+  "/auth",
+  "/auth/login",
+  "/login",
+  "/auth/invite",
+  "/invite/accept",
+  "/book-demo",
+  "/start-pilot",
+  "/thank-you",
+  "/privacy",
+  "/terms",
+  "/security",
+]);
+
+function isPublicPath(path: string): boolean {
+  return PUBLIC_PATHS.has(path);
+}
+
+function AuthenticatedRouter({ isAdmin }: { isAdmin: boolean }) {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/dashboard" component={Dashboard} />
       <Route path="/activity" component={MyActivity} />
+      <Route path="/my-activity" component={ActivityAliasRedirect} />
       <Route path="/registry" component={Registry} />
       <Route path="/systems/:id" component={SystemDetail} />
       <Route path="/risk" component={RiskAssessment} />
+      <Route path="/risk-assessment" component={RiskAliasRedirect} />
       <Route path="/compliance" component={Compliance} />
       <Route path="/calendar" component={ComplianceCalendar} />
       <Route path="/approvals" component={Approvals} />
       <Route path="/audit" component={AuditLogPage} />
       <Route path="/bulk-controls" component={BulkControls} />
-      <Route path="/settings" component={SettingsPage} />
+      <Route path="/settings" component={isAdmin ? SettingsPage : Dashboard} />
+      <Route path="/auth" component={Dashboard} />
+      <Route path="/auth/login" component={Dashboard} />
+      <Route path="/login" component={Dashboard} />
+      <Route path="/auth/invite" component={Dashboard} />
+      <Route path="/invite/accept" component={Dashboard} />
       <Route component={NotFound} />
+    </Switch>
+  );
+}
+
+function PublicFallback() {
+  const [location, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (!isPublicPath(location)) {
+      setLocation(`/auth/login?next=${encodeURIComponent(location)}`);
+    }
+  }, [location, setLocation]);
+
+  if (!isPublicPath(location)) {
+    return null;
+  }
+
+  return <LandingPage />;
+}
+
+function LoginAliasRedirect() {
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    const queryString = typeof window === "undefined" ? "" : window.location.search;
+    setLocation(`/auth/login${queryString}`);
+  }, [setLocation]);
+
+  return null;
+}
+
+function RiskAliasRedirect() {
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    const queryString = typeof window === "undefined" ? "" : window.location.search;
+    setLocation(`/risk${queryString}`);
+  }, [setLocation]);
+
+  return null;
+}
+
+function ActivityAliasRedirect() {
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    const queryString = typeof window === "undefined" ? "" : window.location.search;
+    setLocation(`/activity${queryString}`);
+  }, [setLocation]);
+
+  return null;
+}
+
+function PublicRouter() {
+  return (
+    <Switch>
+      <Route path="/" component={LandingPage} />
+      <Route path="/auth" component={AuthPage} />
+      <Route path="/auth/login" component={AuthPage} />
+      <Route path="/login" component={LoginAliasRedirect} />
+      <Route path="/risk-assessment" component={RiskAliasRedirect} />
+      <Route path="/my-activity" component={ActivityAliasRedirect} />
+      <Route path="/auth/invite" component={InviteAcceptPage} />
+      <Route path="/invite/accept" component={InviteAcceptPage} />
+      <Route path="/book-demo" component={BookDemoPage} />
+      <Route path="/start-pilot" component={StartPilotPage} />
+      <Route path="/thank-you" component={ThankYouPage} />
+      <Route path="/privacy" component={PrivacyPage} />
+      <Route path="/terms" component={TermsPage} />
+      <Route path="/security" component={SecurityPage} />
+      <Route component={PublicFallback} />
     </Switch>
   );
 }
 
 function AuthenticatedApp() {
   const { user, isLoading, logout } = useAuth();
+  const [location] = useLocation();
+  const isPublic = isPublicPath(location);
+  const isAdmin = user?.role === "admin";
 
-  if (isLoading) {
+  if (isLoading && !isPublic) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-center space-y-3">
@@ -58,7 +167,7 @@ function AuthenticatedApp() {
   }
 
   if (!user) {
-    return <AuthPage />;
+    return <PublicRouter />;
   }
 
   const style = {
@@ -90,7 +199,7 @@ function AuthenticatedApp() {
             </div>
           </header>
           <main className="flex-1 overflow-auto">
-            <Router />
+            <AuthenticatedRouter isAdmin={isAdmin} />
           </main>
         </div>
       </div>

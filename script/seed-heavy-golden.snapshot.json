@@ -1,0 +1,16 @@
+{
+  "batchTag": "golden-v1",
+  "orgCount": 1,
+  "extraUsersPerOrg": 24,
+  "systemsPerOrg": 100,
+  "systemControlsPerSystem": 18,
+  "workflowsPerSystem": 3,
+  "riskAssessmentsPerSystem": 2,
+  "evidenceFilesPerSystem": 2,
+  "auditLogsPerSystem": 8,
+  "notificationsPerUser": 30,
+  "leadsCount": 1500,
+  "marketingEventsCount": 4000,
+  "chunkSize": 250
+}
+

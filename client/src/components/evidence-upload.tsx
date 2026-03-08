@@ -10,7 +10,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient } from "@/lib/queryClient";
+import { captureCsrfTokenFromResponse, getCsrfToken, queryClient } from "@/lib/queryClient";
 import type { EvidenceFile } from "@shared/schema";
 
 function formatFileSize(bytes: number): string {
@@ -44,6 +44,7 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
     queryKey,
     queryFn: async () => {
       const res = await fetch(`/api/evidence?${queryParams.toString()}`, { credentials: "include" });
+      captureCsrfTokenFromResponse(res);
       if (!res.ok) throw new Error("Failed to fetch evidence");
       return res.json();
     },
@@ -56,11 +57,14 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
       formData.append("systemId", systemId);
       if (controlId) formData.append("controlId", controlId);
       if (workflowId) formData.append("workflowId", workflowId);
+      const csrfToken = getCsrfToken();
       const res = await fetch("/api/evidence", {
         method: "POST",
+        headers: csrfToken ? { "X-CSRF-Token": csrfToken } : undefined,
         body: formData,
         credentials: "include",
       });
+      captureCsrfTokenFromResponse(res);
       if (!res.ok) {
         const error = await res.json();
         throw new Error(error.message || "Upload failed");
@@ -78,10 +82,13 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      const csrfToken = getCsrfToken();
       const res = await fetch(`/api/evidence/${id}`, {
         method: "DELETE",
+        headers: csrfToken ? { "X-CSRF-Token": csrfToken } : undefined,
         credentials: "include",
       });
+      captureCsrfTokenFromResponse(res);
       if (!res.ok) throw new Error("Delete failed");
     },
     onSuccess: () => {
@@ -247,6 +254,7 @@ export function EvidenceCount({ systemId }: { systemId: string }) {
     queryKey: ["/api/evidence", `systemId=${systemId}`],
     queryFn: async () => {
       const res = await fetch(`/api/evidence?systemId=${systemId}`, { credentials: "include" });
+      captureCsrfTokenFromResponse(res);
       if (!res.ok) throw new Error("Failed to fetch evidence");
       return res.json();
     },
