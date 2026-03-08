@@ -9,6 +9,24 @@ import { applySecurityHeaders, createCsrfMiddleware } from "./security";
 const app = express();
 const httpServer = createServer(app);
 
+function parseAllowedOrigins(origins: string | undefined): Set<string> {
+  if (!origins) return new Set();
+  return new Set(
+    origins
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter((origin) => origin.length > 0),
+  );
+}
+
+const allowedCorsOrigins = parseAllowedOrigins(
+  process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_ORIGINS,
+);
+
+if (process.env.TRUST_PROXY === "true" || process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -24,6 +42,28 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+if (allowedCorsOrigins.size > 0) {
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (!origin || !allowedCorsOrigins.has(origin)) {
+      return next();
+    }
+
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token");
+    res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS,POST,PUT,PATCH,DELETE");
+    res.setHeader("Access-Control-Expose-Headers", "X-CSRF-Token");
+    res.append("Vary", "Origin");
+
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(204);
+    }
+
+    return next();
+  });
+}
 
 applySecurityHeaders(app);
 

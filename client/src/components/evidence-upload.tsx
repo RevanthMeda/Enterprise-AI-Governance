@@ -10,6 +10,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { resolveApiUrl } from "@/lib/api-url";
 import { captureCsrfTokenFromResponse, getCsrfToken, queryClient } from "@/lib/queryClient";
 import type { EvidenceFile } from "@shared/schema";
 
@@ -227,7 +228,7 @@ function EvidenceContent({
               </div>
               <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                 <a
-                  href={`/api/evidence/${file.id}/download`}
+                  href={resolveApiUrl(`/api/evidence/${file.id}/download`)}
                   className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-background"
                   data-testid={`button-download-evidence-${file.id}`}
                 >

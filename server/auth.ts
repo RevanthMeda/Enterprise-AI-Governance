@@ -351,6 +351,17 @@ export function setupAuth(app: Express) {
   });
 
   const isProduction = process.env.NODE_ENV === "production";
+  const envSameSite = process.env.SESSION_COOKIE_SAME_SITE?.toLowerCase();
+  const cookieSameSite: "lax" | "strict" | "none" =
+    envSameSite === "lax" || envSameSite === "strict" || envSameSite === "none"
+      ? envSameSite
+      : isProduction
+        ? "strict"
+        : "lax";
+  const configuredSecure = process.env.SESSION_COOKIE_SECURE
+    ? process.env.SESSION_COOKIE_SECURE === "true"
+    : isProduction;
+  const cookieSecure = cookieSameSite === "none" ? true : configuredSecure;
 
   app.use(
     session({
@@ -362,8 +373,8 @@ export function setupAuth(app: Express) {
       cookie: {
         maxAge: IDLE_TIMEOUT_MS,
         httpOnly: true,
-        secure: isProduction,
-        sameSite: isProduction ? "strict" : "lax",
+        secure: cookieSecure,
+        sameSite: cookieSameSite,
       },
     })
   );

@@ -15,6 +15,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { useAuth } from "@/hooks/use-auth";
+import { resolveApiUrl } from "@/lib/api-url";
 
 const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -84,7 +85,9 @@ export default function AuthPage() {
         : new URLSearchParams(window.location.search).get("next") || "/";
     setSsoLoading(true);
     window.location.assign(
-      `/api/auth/sso/start?org=${encodeURIComponent(orgSlug)}&next=${encodeURIComponent(nextPath)}`,
+      resolveApiUrl(
+        `/api/auth/sso/start?org=${encodeURIComponent(orgSlug)}&next=${encodeURIComponent(nextPath)}`,
+      ),
     );
   };
 

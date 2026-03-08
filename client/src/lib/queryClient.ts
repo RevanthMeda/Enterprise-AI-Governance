@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { resolveApiUrl } from "@/lib/api-url";
 
 let csrfToken: string | null = null;
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -32,7 +33,7 @@ export async function apiRequest(
     headers["X-CSRF-Token"] = csrfToken;
   }
 
-  const res = await fetch(url, {
+  const res = await fetch(resolveApiUrl(url), {
     method: upperMethod,
     headers,
     body: data ? JSON.stringify(data) : undefined,
@@ -50,7 +51,7 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
+    const res = await fetch(resolveApiUrl(queryKey.join("/") as string), {
       credentials: "include",
     });
     captureCsrfTokenFromResponse(res);

@@ -1,3 +1,5 @@
+import { resolveApiUrl } from "@/lib/api-url";
+
 type NullableString = string | null;
 
 export type MarketingEventPayload = {
@@ -73,7 +75,7 @@ export async function trackMarketingEvent(
   try {
     if (navigator.sendBeacon) {
       const blob = new Blob([json], { type: "application/json" });
-      navigator.sendBeacon("/api/track", blob);
+      navigator.sendBeacon(resolveApiUrl("/api/track"), blob);
       return;
     }
   } catch {
@@ -81,7 +83,7 @@ export async function trackMarketingEvent(
   }
 
   try {
-    await fetch("/api/track", {
+    await fetch(resolveApiUrl("/api/track"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: json,
