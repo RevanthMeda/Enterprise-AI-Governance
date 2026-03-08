@@ -29,6 +29,8 @@ Optional (if used in your flows):
 - `LEAD_WEBHOOK_URL=<webhook-url>`
 - `ALLOW_SELF_SIGNUP=false`
 - `CSRF_ENFORCED=true`
+- `SEED_TEST_USERS=true`
+- `TEST_USER_PASSWORD=<strong-temp-password>`
 
 Run database schema sync once backend env is ready:
 - `npm run db:push -- --force`
@@ -66,4 +68,3 @@ After deploy, verify:
     - `SESSION_COOKIE_SAME_SITE=none`
     - `SESSION_COOKIE_SECURE=true`
     - `TRUST_PROXY=true`
-

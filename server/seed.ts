@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { inArray } from "drizzle-orm";
 import {
   aiSystems,
   approvalWorkflows,
@@ -9,6 +10,91 @@ import {
 } from "@shared/schema";
 import { hashPassword } from "./auth";
 import { backfillTenantBoundRows, ensureTenantBootstrap } from "./tenant-bootstrap";
+
+type BaselineTestUser = {
+  username: string;
+  fullName: string;
+  email: string;
+  role: string;
+};
+
+const BASELINE_TEST_USERS: BaselineTestUser[] = [
+  {
+    username: "admin_test",
+    fullName: "Admin Test User",
+    email: "admin_test@aicontroltower.local",
+    role: "admin",
+  },
+  {
+    username: "cro_test",
+    fullName: "CRO Test User",
+    email: "cro_test@aicontroltower.local",
+    role: "cro",
+  },
+  {
+    username: "ciso_test",
+    fullName: "CISO Test User",
+    email: "ciso_test@aicontroltower.local",
+    role: "ciso",
+  },
+  {
+    username: "compliance_lead_test",
+    fullName: "Compliance Lead Test User",
+    email: "compliance_lead_test@aicontroltower.local",
+    role: "compliance_lead",
+  },
+  {
+    username: "reviewer_test",
+    fullName: "Reviewer Test User",
+    email: "reviewer_test@aicontroltower.local",
+    role: "reviewer",
+  },
+  {
+    username: "system_owner_test",
+    fullName: "System Owner Test User",
+    email: "system_owner_test@aicontroltower.local",
+    role: "system_owner",
+  },
+  {
+    username: "auditor_test",
+    fullName: "Auditor Test User",
+    email: "auditor_test@aicontroltower.local",
+    role: "auditor",
+  },
+];
+
+async function ensureBaselineTestUsers() {
+  const shouldSeedTestUsers =
+    process.env.SEED_TEST_USERS === "true" || process.env.NODE_ENV !== "production";
+  if (!shouldSeedTestUsers) {
+    return;
+  }
+
+  const usernames = BASELINE_TEST_USERS.map((user) => user.username);
+  const existingUsers = await db
+    .select({ username: users.username })
+    .from(users)
+    .where(inArray(users.username, usernames));
+  const existingUsernames = new Set(existingUsers.map((user) => user.username));
+
+  const testUserPassword = process.env.TEST_USER_PASSWORD || "TestUser123!";
+  const hashedPassword = await hashPassword(testUserPassword);
+
+  const missingUsers = BASELINE_TEST_USERS
+    .filter((user) => !existingUsernames.has(user.username))
+    .map((user) => ({
+      username: user.username,
+      password: hashedPassword,
+      fullName: user.fullName,
+      email: user.email,
+      role: user.role,
+    }));
+
+  if (missingUsers.length > 0) {
+    await db.insert(users).values(missingUsers);
+    console.log(`[seed] Added ${missingUsers.length} missing baseline test users.`);
+  }
+}
 
 export async function seedDatabase() {
   const existingUsers = await db.select().from(users);
@@ -23,6 +109,8 @@ export async function seedDatabase() {
     });
     console.log("Default admin user created (admin / admin123)");
   }
+
+  await ensureBaselineTestUsers();
 
   const { organizationId: defaultOrganizationId } = await ensureTenantBootstrap();
 
