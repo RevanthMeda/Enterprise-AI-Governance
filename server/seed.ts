@@ -8,7 +8,7 @@ import {
   systemControls,
   users,
 } from "@shared/schema";
-import { hashPassword } from "./auth";
+import { getPasswordExpiryDate, hashPassword } from "./auth";
 import { backfillTenantBoundRows, ensureTenantBootstrap } from "./tenant-bootstrap";
 
 type BaselineTestUser = {
@@ -69,6 +69,7 @@ async function ensureBaselineTestUsers() {
   if (!shouldSeedTestUsers) {
     return;
   }
+  const resetTestUserPasswords = process.env.RESET_TEST_USER_PASSWORDS === "true";
 
   const usernames = BASELINE_TEST_USERS.map((user) => user.username);
   const existingUsers = await db
@@ -93,6 +94,20 @@ async function ensureBaselineTestUsers() {
   if (missingUsers.length > 0) {
     await db.insert(users).values(missingUsers);
     console.log(`[seed] Added ${missingUsers.length} missing baseline test users.`);
+  }
+
+  if (resetTestUserPasswords) {
+    const now = new Date();
+    await db
+      .update(users)
+      .set({
+        password: hashedPassword,
+        passwordHistory: [],
+        passwordChangedAt: now,
+        passwordExpiresAt: getPasswordExpiryDate(now),
+      })
+      .where(inArray(users.username, usernames));
+    console.log("[seed] Reset baseline test-user passwords from env.");
   }
 }
 
