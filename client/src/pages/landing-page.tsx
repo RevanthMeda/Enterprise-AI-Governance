@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  ShieldCheck,
   Menu,
   X,
   CheckCircle2,
@@ -188,6 +187,22 @@ function Section({
   );
 }
 
+function BrandGlyph({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
+      <path
+        d="M12 2.8 19.2 6.9v8.2L12 19.2l-7.2-4.1V6.9L12 2.8Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="11" r="3.2" stroke="currentColor" strokeWidth="1.5" opacity="0.9" />
+      <path d="M12 7.7v6.6M8.7 11h6.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.95" />
+      <circle cx="17.7" cy="6.3" r="1.6" fill="currentColor" opacity="0.7" />
+    </svg>
+  );
+}
+
 export default function LandingPage() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const trackedPath = (path: string, cta: string) => buildTrackedPath(path, { cta });
@@ -250,7 +265,7 @@ export default function LandingPage() {
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
           <a href="/" className="flex items-center gap-2 font-semibold tracking-tight">
             <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/15 text-primary">
-              <ShieldCheck className="h-4 w-4" />
+              <BrandGlyph className="h-4 w-4" />
             </span>
             <span>AI Control Tower</span>
           </a>
@@ -318,7 +333,7 @@ export default function LandingPage() {
         <div className="mx-auto grid w-full max-w-6xl gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-2 lg:items-center lg:px-8">
           <div className="space-y-6">
             <p className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-muted/40 px-3 py-1 text-xs font-medium text-muted-foreground">
-              <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+              <BrandGlyph className="h-3.5 w-3.5 text-primary" />
               Enterprise AI Governance Platform
             </p>
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
@@ -602,7 +617,7 @@ export default function LandingPage() {
         <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 sm:px-6 md:grid-cols-3 lg:px-8">
           <div className="space-y-2">
             <p className="flex items-center gap-2 font-semibold">
-              <ShieldCheck className="h-4 w-4 text-primary" />
+              <BrandGlyph className="h-4 w-4 text-primary" />
               AI Control Tower
             </p>
             <p className="text-xs text-muted-foreground">
