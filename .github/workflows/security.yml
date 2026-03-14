@@ -29,6 +29,9 @@ jobs:
       - name: Static checks
         run: npm run security:sast
 
+      - name: OpenAPI lint
+        run: npm run openapi:lint
+
       - name: CSP header smoke test
         run: npm run test:security:csp
 

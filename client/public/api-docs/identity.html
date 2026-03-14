@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Control Tower API Docs - Enterprise Identity</title>
+    <style>
+      body { margin: 0; background: #ffffff; }
+      #redoc-root { min-height: 100vh; }
+      .redoc-error {
+        display: none;
+        max-width: 720px;
+        margin: 48px auto;
+        padding: 20px;
+        border: 1px solid #fecaca;
+        border-radius: 12px;
+        background: #fff1f2;
+        color: #9f1239;
+        font: 14px/1.5 system-ui, sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="redoc-root"></div>
+    <div id="redoc-error" class="redoc-error">
+      API docs failed to load. Check that the Redoc bundle and YAML spec are reachable.
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/redoc@2/bundles/redoc.standalone.js"></script>
+    <script>
+      if (window.Redoc) {
+        window.Redoc.init("/api-docs/identity.yaml", { scrollYOffset: 16 }, document.getElementById("redoc-root"));
+      } else {
+        document.getElementById("redoc-error").style.display = "block";
+      }
+    </script>
+  </body>
+</html>

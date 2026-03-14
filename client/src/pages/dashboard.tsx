@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Server,
   ShieldAlert,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -21,6 +23,8 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 import type { AiSystem, ApprovalWorkflow, SystemControl } from "@shared/schema";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth, type AuthOnboardingState, type AuthUser } from "@/hooks/use-auth";
 
 function StatCard({
   title,
@@ -273,6 +277,20 @@ interface TrendData {
   evidenceTrends: { week: string; total: number }[];
 }
 
+interface ReadyStatus {
+  ok: boolean;
+  ready: boolean;
+  service: string;
+  timestamp: string;
+  queue: {
+    workerEnabled: boolean;
+    pending: number;
+    processing: number;
+    succeeded: number;
+    failed: number;
+  };
+}
+
 function RiskTrendChart({ data }: { data: TrendData["riskTrends"] }) {
   return (
     <Card data-testid="chart-risk-trends">
@@ -397,7 +415,604 @@ function DashboardSkeleton() {
   );
 }
 
+function OperationalReadiness({ ready }: { ready?: ReadyStatus }) {
+  const queue = ready?.queue;
+  const queueBacklog = (queue?.pending ?? 0) + (queue?.processing ?? 0) + (queue?.failed ?? 0);
+  const queuePressure = Math.min(queueBacklog * 20, 100);
+
+  return (
+    <Card data-testid="card-operational-readiness">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+          Operational Readiness
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={ready?.ready ? "default" : "secondary"}>
+            {ready?.ready ? "Platform ready" : "Readiness pending"}
+          </Badge>
+          <Badge variant={queue?.workerEnabled ? "outline" : "secondary"}>
+            {queue?.workerEnabled ? "Queue worker enabled" : "Queue worker disabled"}
+          </Badge>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div className="rounded-md border border-border/70 bg-muted/30 p-3">
+            <p className="text-muted-foreground">Pending jobs</p>
+            <p className="mt-1 text-lg font-semibold">{queue?.pending ?? 0}</p>
+          </div>
+          <div className="rounded-md border border-border/70 bg-muted/30 p-3">
+            <p className="text-muted-foreground">Failed jobs</p>
+            <p className="mt-1 text-lg font-semibold">{queue?.failed ?? 0}</p>
+          </div>
+          <div className="rounded-md border border-border/70 bg-muted/30 p-3">
+            <p className="text-muted-foreground">Processing</p>
+            <p className="mt-1 text-lg font-semibold">{queue?.processing ?? 0}</p>
+          </div>
+          <div className="rounded-md border border-border/70 bg-muted/30 p-3">
+            <p className="text-muted-foreground">Succeeded</p>
+            <p className="mt-1 text-lg font-semibold">{queue?.succeeded ?? 0}</p>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Queue pressure</span>
+            <span>{queueBacklog === 0 ? "Healthy" : `${queueBacklog} active/failing job${queueBacklog === 1 ? "" : "s"}`}</span>
+          </div>
+          <Progress value={queuePressure} aria-label="Queue pressure" />
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Use the readiness probe, background job health, and audit trail together before promoting changes or chasing a user-reported failure.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ActionBoard({
+  workflows,
+  systems,
+  controls,
+}: {
+  workflows: ApprovalWorkflow[];
+  systems: AiSystem[];
+  controls: SystemControl[];
+}) {
+  const inReview = workflows.filter((workflow) => workflow.status === "in_review").length;
+  const rejected = workflows.filter((workflow) => workflow.status === "rejected").length;
+  const highRisk = systems.filter((system) => system.riskLevel === "high" || system.riskLevel === "unacceptable").length;
+  const notStartedControls = controls.filter((control) => control.status === "not_started").length;
+
+  const actions = [
+    { label: "In review now", value: inReview, href: "/approvals", tone: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300" },
+    { label: "High-scrutiny systems", value: highRisk, href: "/registry", tone: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300" },
+    { label: "Controls not started", value: notStartedControls, href: "/compliance", tone: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300" },
+    { label: "Rejected workflows", value: rejected, href: "/audit", tone: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300" },
+  ];
+
+  return (
+    <Card data-testid="card-action-board">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          Action Board
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {actions.map((action) => (
+          <a
+            key={action.label}
+            href={action.href}
+            className="flex items-center justify-between rounded-md border border-border/70 bg-muted/30 px-3 py-2 transition-colors hover:bg-muted/50"
+          >
+            <div>
+              <p className="text-xs text-muted-foreground">{action.label}</p>
+              <p className="text-sm font-medium">Open {action.label.toLowerCase()}</p>
+            </div>
+            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${action.tone}`}>
+              {action.value}
+            </span>
+          </a>
+        ))}
+
+        <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+          <a href="/activity" className="rounded-md border border-border/70 bg-background px-3 py-2 text-center text-muted-foreground transition-colors hover:text-foreground">
+            My activity
+          </a>
+          <a href="/api-docs" className="rounded-md border border-border/70 bg-background px-3 py-2 text-center text-muted-foreground transition-colors hover:text-foreground">
+            API docs
+          </a>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SetupGuide({
+  systems,
+  workflows,
+  controls,
+  ready,
+  onboarding,
+}: {
+  systems: AiSystem[];
+  workflows: ApprovalWorkflow[];
+  controls: SystemControl[];
+  ready?: ReadyStatus;
+  onboarding: AuthOnboardingState | null;
+}) {
+  const pendingApprovals = workflows.filter((workflow) => workflow.status === "pending" || workflow.status === "in_review").length;
+  const failedJobs = ready?.queue.failed ?? 0;
+  const highRiskSystems = systems.filter((system) => system.riskLevel === "high" || system.riskLevel === "unacceptable").length;
+  const tasks = [
+    {
+      id: "inventory",
+      label: "Stand up system inventory",
+      summary: systems.length > 0 ? `${systems.length} systems are already registered.` : "Start with the first AI system record.",
+      description: "Get every in-scope AI system into the registry with owner, vendor, and risk context.",
+      href: "/registry",
+      cta: systems.length > 0 ? "Review registry" : "Register systems",
+      complete: systems.length > 0,
+    },
+    {
+      id: "controls",
+      label: "Map controls and risk posture",
+      summary: controls.length > 0 ? `${controls.length} controls are already mapped.` : "Load framework controls and assignments.",
+      description: highRiskSystems > 0
+        ? `${highRiskSystems} systems are high or unacceptable risk and should stay under enhanced control coverage.`
+        : "Start assigning controls and validating coverage before approvals scale.",
+      href: "/compliance",
+      cta: "Open compliance",
+      complete: controls.length > 0,
+    },
+    {
+      id: "approvals",
+      label: "Triage approval workload",
+      summary: pendingApprovals > 0 ? `${pendingApprovals} workflows still need review.` : "No approval backlog right now.",
+      description: "Keep approval queues and reviewers under control so governance work does not disappear into inboxes.",
+      href: "/approvals",
+      cta: "Review approvals",
+      complete: pendingApprovals === 0,
+    },
+    {
+      id: "readiness",
+      label: "Validate runtime readiness",
+      summary: ready?.ready ? "Readiness probe is green." : "Investigate readiness before rollout.",
+      description: failedJobs > 0
+        ? `${failedJobs} background job${failedJobs === 1 ? "" : "s"} failed and should be retried from Settings.`
+        : "Use readiness, queue health, and smoke checks before promoting changes or onboarding more users.",
+      href: failedJobs > 0 ? "/settings" : "/api-docs",
+      cta: failedJobs > 0 ? "Open settings" : "Review API and probes",
+      complete: Boolean(ready?.ready),
+    },
+  ];
+
+  const getResolvedStepIndex = (state: AuthOnboardingState | null) => {
+    if (state && Number.isInteger(state.currentStep) && state.currentStep >= 0 && state.currentStep < tasks.length) {
+      return state.currentStep;
+    }
+    const firstIncomplete = tasks.findIndex((task) => !task.complete);
+    return firstIncomplete >= 0 ? firstIncomplete : 0;
+  };
+
+  const [currentStep, setCurrentStep] = useState(() => {
+    return getResolvedStepIndex(onboarding);
+  });
+
+  const completed = tasks.filter((task) => task.complete).length;
+  const completion = Math.round((completed / tasks.length) * 100);
+  const activeTask = tasks[currentStep] ?? tasks[0];
+  const completedStepIds = tasks.filter((task) => task.complete).map((task) => task.id);
+
+  useEffect(() => {
+    setCurrentStep(getResolvedStepIndex(onboarding));
+  }, [onboarding?.currentStep, systems.length, controls.length, pendingApprovals, ready?.ready, failedJobs]);
+
+  const saveOnboardingMutation = useMutation({
+    mutationFn: async (nextStep: number) => {
+      const res = await apiRequest("POST", "/api/auth/onboarding-state", {
+        currentStep: nextStep,
+        completedSteps: completedStepIds,
+        dismissedAlerts: onboarding?.dismissedAlerts ?? [],
+        snoozedAlerts: onboarding?.snoozedAlerts ?? {},
+      });
+      return (await res.json()) as AuthUser;
+    },
+    onSuccess: (updatedUser) => {
+      queryClient.setQueryData(["/api/auth/user"], updatedUser);
+    },
+  });
+
+  const moveToStep = (nextStep: number) => {
+    if (nextStep < 0 || nextStep >= tasks.length) return;
+    setCurrentStep(nextStep);
+    saveOnboardingMutation.mutate(nextStep);
+  };
+
+  return (
+    <Card data-testid="card-setup-guide">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+          Program Launch Wizard
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Completion</span>
+            <span>{completed}/{tasks.length} complete</span>
+          </div>
+          <Progress value={completion} aria-label="Program setup completion" />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {tasks.map((task, index) => (
+            <button
+              key={task.label}
+              type="button"
+              onClick={() => moveToStep(index)}
+              className={`rounded-md border px-3 py-2 text-left transition-colors ${
+                index === currentStep
+                  ? "border-primary bg-primary/10"
+                  : "border-border/70 bg-muted/30 hover:bg-muted/50"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium">{task.label}</span>
+                <Badge variant={task.complete ? "default" : "secondary"} className="shrink-0">
+                  {task.complete ? "Done" : "Open"}
+                </Badge>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div className="rounded-md border border-border/70 bg-muted/20 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Step {currentStep + 1} of {tasks.length}</p>
+              <h3 className="mt-1 text-base font-semibold">{activeTask.label}</h3>
+            </div>
+            <Badge variant={activeTask.complete ? "default" : "secondary"}>
+              {activeTask.complete ? "Complete" : "Needs action"}
+            </Badge>
+          </div>
+          <p className="mt-3 text-sm font-medium">{activeTask.summary}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{activeTask.description}</p>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button asChild size="sm">
+              <a href={activeTask.href}>{activeTask.cta}</a>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <a href="/settings">Admin setup</a>
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={currentStep === 0}
+            onClick={() => moveToStep(Math.max(currentStep - 1, 0))}
+          >
+            Previous
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={currentStep === tasks.length - 1}
+            onClick={() => moveToStep(Math.min(currentStep + 1, tasks.length - 1))}
+          >
+            Next step
+          </Button>
+        </div>
+
+        <div className="rounded-md border border-border/70 bg-background/70 p-3 text-xs text-muted-foreground">
+          Admin-owned setup still lives in <a href="/settings" className="font-medium text-foreground underline underline-offset-4">Settings</a>:
+          SAML/OIDC, verified domains, invites, member roles, and background job recovery.
+        </div>
+        {saveOnboardingMutation.isSuccess ? (
+          <p className="text-xs text-muted-foreground">Progress is saved for your current organization.</p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function OperationalWatchlist({
+  ready,
+  workflows,
+  systems,
+  controls,
+  onboarding,
+}: {
+  ready?: ReadyStatus;
+  workflows: ApprovalWorkflow[];
+  systems: AiSystem[];
+  controls: SystemControl[];
+  onboarding: AuthOnboardingState | null;
+}) {
+  const latestWorkflowAt = workflows
+    .filter((workflow) => workflow.status === "pending" || workflow.status === "in_review")
+    .map((workflow) => workflow.createdAt)
+    .filter(Boolean)
+    .sort((a, b) => new Date(String(b)).getTime() - new Date(String(a)).getTime())[0];
+  const latestHighRiskAssessmentAt = systems
+    .filter((system) => system.riskLevel === "high" || system.riskLevel === "unacceptable")
+    .map((system) => system.lastAssessment)
+    .filter(Boolean)
+    .sort((a, b) => new Date(String(b)).getTime() - new Date(String(a)).getTime())[0];
+  const formatRelativeTime = (value?: string | Date | null) => {
+    if (!value) return "Observed recently";
+    const timestamp = new Date(value).getTime();
+    if (Number.isNaN(timestamp)) return "Observed recently";
+    const minutes = Math.max(Math.round((Date.now() - timestamp) / 60000), 0);
+    if (minutes < 1) return "Observed just now";
+    if (minutes < 60) return `Observed ${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `Observed ${hours} hour${hours === 1 ? "" : "s"} ago`;
+    const days = Math.round(hours / 24);
+    return `Observed ${days} day${days === 1 ? "" : "s"} ago`;
+  };
+
+  const pendingApprovals = workflows.filter((workflow) => workflow.status === "pending" || workflow.status === "in_review").length;
+  const failedJobs = ready?.queue.failed ?? 0;
+  const queuePending = ready?.queue.pending ?? 0;
+  const highRiskSystems = systems.filter((system) => system.riskLevel === "high" || system.riskLevel === "unacceptable").length;
+  const unstartedControls = controls.filter((control) => control.status === "not_started").length;
+  const dismissedAlerts = onboarding?.dismissedAlerts ?? [];
+  const snoozedAlerts = onboarding?.snoozedAlerts ?? {};
+  const severityOrder = {
+    critical: 0,
+    warning: 1,
+    info: 2,
+  } as const;
+
+  const alerts = [
+    !ready?.ready
+      ? {
+          key: "readiness_degraded",
+          label: "Readiness degraded",
+          description: "The platform is not reporting ready. Check readiness and infrastructure before rollout.",
+          href: "/api-docs",
+          tone: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+          detectedAt: ready?.timestamp ?? null,
+          severity: "critical",
+        }
+      : null,
+    failedJobs > 0
+      ? {
+          key: "failed_background_jobs",
+          label: "Failed background jobs",
+          description: `${failedJobs} queued delivery or monitoring job${failedJobs === 1 ? "" : "s"} need attention in Settings.`,
+          href: "/settings",
+          tone: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+          detectedAt: ready?.timestamp ?? null,
+          severity: "critical",
+        }
+      : null,
+    queuePending > 10
+      ? {
+          key: "queue_backlog",
+          label: "Queue backlog building",
+          description: `${queuePending} jobs are pending. Check worker throughput before that grows into user-visible delay.`,
+          href: "/settings",
+          tone: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+          detectedAt: ready?.timestamp ?? null,
+          severity: "warning",
+        }
+      : null,
+    pendingApprovals > 25
+      ? {
+          key: "approval_backlog",
+          label: "Approval backlog",
+          description: `${pendingApprovals} workflows are still pending or in review.`,
+          href: "/approvals",
+          tone: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+          detectedAt: latestWorkflowAt ?? null,
+          severity: "warning",
+        }
+      : null,
+    highRiskSystems > 0
+      ? {
+          key: "high_risk_systems",
+          label: "High-scrutiny systems in scope",
+          description: `${highRiskSystems} systems are marked high or unacceptable risk and should stay under enhanced control review.`,
+          href: "/registry",
+          tone: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+          detectedAt: latestHighRiskAssessmentAt ?? ready?.timestamp ?? null,
+          severity: "info",
+        }
+      : null,
+    unstartedControls > 50
+      ? {
+          key: "control_gaps",
+          label: "Control coverage gaps",
+          description: `${unstartedControls} controls are still not started.`,
+          href: "/compliance",
+          tone: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+          detectedAt: ready?.timestamp ?? null,
+          severity: "warning",
+        }
+      : null,
+  ].filter(Boolean) as Array<{
+    key: string;
+    label: string;
+    description: string;
+    href: string;
+    tone: string;
+    detectedAt: string | Date | null;
+    severity: keyof typeof severityOrder;
+  }>;
+
+  const visibleAlerts = alerts.filter((alert) => {
+    if (dismissedAlerts.includes(alert.key)) return false;
+    const snoozedUntil = snoozedAlerts[alert.key];
+    return !(snoozedUntil && new Date(snoozedUntil).getTime() > Date.now());
+  });
+  const sortedAlerts = [...visibleAlerts].sort((a, b) => {
+    const severityDelta = severityOrder[a.severity] - severityOrder[b.severity];
+    if (severityDelta !== 0) return severityDelta;
+    const aTime = a.detectedAt ? new Date(a.detectedAt).getTime() : 0;
+    const bTime = b.detectedAt ? new Date(b.detectedAt).getTime() : 0;
+    return bTime - aTime;
+  });
+  const groupedAlerts = [
+    {
+      key: "critical",
+      title: "Critical",
+      description: "Address these before onboarding more users or promoting changes.",
+      items: sortedAlerts.filter((alert) => alert.severity === "critical"),
+    },
+    {
+      key: "warning",
+      title: "Warnings",
+      description: "These are not outages yet, but they will turn into operational drag if they accumulate.",
+      items: sortedAlerts.filter((alert) => alert.severity === "warning"),
+    },
+    {
+      key: "info",
+      title: "Informational",
+      description: "Signals that still deserve visibility even when no immediate action is required.",
+      items: sortedAlerts.filter((alert) => alert.severity === "info"),
+    },
+  ].filter((group) => group.items.length > 0);
+
+  const persistWatchlistMutation = useMutation({
+    mutationFn: async (next: { dismissedAlerts: string[]; snoozedAlerts: Record<string, string> }) => {
+      const res = await apiRequest("POST", "/api/auth/onboarding-state", {
+        currentStep: onboarding?.currentStep ?? 0,
+        completedSteps: onboarding?.completedSteps ?? [],
+        dismissedAlerts: next.dismissedAlerts,
+        snoozedAlerts: next.snoozedAlerts,
+      });
+      return (await res.json()) as AuthUser;
+    },
+    onSuccess: (updatedUser) => {
+      queryClient.setQueryData(["/api/auth/user"], updatedUser);
+    },
+  });
+
+  const dismissAlert = (key: string) => {
+    const nextDismissed = Array.from(new Set([...(onboarding?.dismissedAlerts ?? []), key]));
+    persistWatchlistMutation.mutate({
+      dismissedAlerts: nextDismissed,
+      snoozedAlerts: onboarding?.snoozedAlerts ?? {},
+    });
+  };
+
+  const snoozeAlert = (key: string) => {
+    const nextSnoozed = {
+      ...(onboarding?.snoozedAlerts ?? {}),
+      [key]: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    };
+    persistWatchlistMutation.mutate({
+      dismissedAlerts: onboarding?.dismissedAlerts ?? [],
+      snoozedAlerts: nextSnoozed,
+    });
+  };
+
+  const clearSuppressedAlerts = () => {
+    persistWatchlistMutation.mutate({
+      dismissedAlerts: [],
+      snoozedAlerts: {},
+    });
+  };
+
+  const suppressedCount =
+    dismissedAlerts.length +
+    Object.values(snoozedAlerts).filter((value) => new Date(value).getTime() > Date.now()).length;
+
+  return (
+    <Card data-testid="card-operational-watchlist">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+          Operational Watchlist
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {sortedAlerts.length === 0 ? (
+          <div className="rounded-md border border-border/70 bg-muted/20 px-4 py-6 text-center">
+            <p className="text-sm font-medium">No immediate operational alerts.</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Readiness is healthy and there are no queue or workflow thresholds currently breaching the watchlist.
+            </p>
+          </div>
+        ) : (
+          groupedAlerts.map((group) => (
+            <div key={group.key} className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{group.title}</p>
+                  <p className="text-[11px] text-muted-foreground">{group.description}</p>
+                </div>
+                <Badge variant="outline">{group.items.length}</Badge>
+              </div>
+              {group.items.map((alert) => (
+                <div
+                  key={alert.label}
+                  className="rounded-md border border-border/70 bg-muted/30 px-3 py-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{alert.label}</p>
+                      <p className="text-xs text-muted-foreground">{alert.description}</p>
+                      <p className="mt-1 text-[11px] text-muted-foreground">{formatRelativeTime(alert.detectedAt)}</p>
+                    </div>
+                    <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium ${alert.tone}`}>
+                      {group.title}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button asChild size="sm" variant="outline">
+                      <a href={alert.href}>Open</a>
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => snoozeAlert(alert.key)}>
+                      Snooze 24h
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => dismissAlert(alert.key)}>
+                      Dismiss
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {group.key !== groupedAlerts[groupedAlerts.length - 1]?.key ? (
+                <div className="border-b border-dashed border-border/70" />
+              ) : null}
+            </div>
+          ))
+        )}
+        {persistWatchlistMutation.isSuccess ? (
+          <p className="text-xs text-muted-foreground">Watchlist preferences are saved for this organization.</p>
+        ) : null}
+        {suppressedCount > 0 ? (
+          <div className="rounded-md border border-dashed border-border/70 bg-background/70 p-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-muted-foreground">
+                {suppressedCount} alert{suppressedCount === 1 ? "" : "s"} hidden by dismiss or snooze rules.
+              </p>
+              <Button type="button" size="sm" variant="outline" onClick={clearSuppressedAlerts}>
+                Reset hidden alerts
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Dashboard() {
+  const { user } = useAuth();
   const { data: systems = [], isLoading: loadingSystems } = useQuery<AiSystem[]>({
     queryKey: ["/api/ai-systems"],
   });
@@ -412,6 +1027,11 @@ export default function Dashboard() {
 
   const { data: trends } = useQuery<TrendData>({
     queryKey: ["/api/dashboard/trends"],
+  });
+
+  const { data: ready } = useQuery<ReadyStatus>({
+    queryKey: ["/api/ready"],
+    staleTime: 30_000,
   });
 
   const isLoading = loadingSystems || loadingWorkflows || loadingControls;
@@ -435,11 +1055,24 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="page-dashboard">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight">Control Tower</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Enterprise AI governance overview
-        </p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">Control Tower</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Enterprise AI governance overview
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={ready?.ready ? "default" : "secondary"}>
+            {ready?.ready ? "Ready" : "Readiness check pending"}
+          </Badge>
+          <Badge variant="outline">
+            Queue failed: {ready?.queue.failed ?? 0}
+          </Badge>
+          <Badge variant="outline">
+            Queue pending: {ready?.queue.pending ?? 0}
+          </Badge>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -478,6 +1111,16 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <RiskDistribution systems={systems} />
         <ComplianceOverview controls={systemControls} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <OperationalReadiness ready={ready} />
+        <ActionBoard workflows={workflows} systems={systems} controls={systemControls} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <SetupGuide systems={systems} workflows={workflows} controls={systemControls} ready={ready} onboarding={user?.currentOrganizationOnboarding ?? null} />
+        <OperationalWatchlist ready={ready} workflows={workflows} systems={systems} controls={systemControls} onboarding={user?.currentOrganizationOnboarding ?? null} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

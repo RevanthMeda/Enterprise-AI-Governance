@@ -411,7 +411,20 @@ export default function Registry() {
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {systems.map((system) => (
-            <Card key={system.id} className="hover-elevate" data-testid={`card-system-${system.id}`}>
+            <Card
+              key={system.id}
+              className="hover-elevate cursor-pointer"
+              data-testid={`card-system-${system.id}`}
+              onClick={() => navigate(`/systems/${system.id}`)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  navigate(`/systems/${system.id}`);
+                }
+              }}
+              tabIndex={0}
+              role="link"
+            >
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-1 mb-2">
                   <div className="min-w-0">
@@ -420,7 +433,12 @@ export default function Registry() {
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button size="icon" variant="ghost" data-testid={`button-menu-${system.id}`}>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        data-testid={`button-menu-${system.id}`}
+                        onClick={(event) => event.stopPropagation()}
+                      >
                         <MoreHorizontal className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>

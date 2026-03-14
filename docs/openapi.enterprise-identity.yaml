@@ -1,0 +1,610 @@
+openapi: 3.1.0
+info:
+  title: AI Control Tower Enterprise Identity API
+  version: 1.0.0
+  description: >
+    Enterprise identity, tenant resolution, domain management, invite, and admin settings
+    endpoints for AI Control Tower.
+  license:
+    name: Proprietary
+servers:
+  - url: https://enterprise-ai-governance.onrender.com
+    description: Production backend
+  - url: http://localhost:5000
+    description: Local development
+tags:
+  - name: Auth
+    description: Authenticated session and current-user endpoints.
+  - name: SSO
+    description: SAML and OIDC federation flows.
+  - name: Domains
+    description: Managed organization domains and DNS verification.
+  - name: Invites
+    description: Invite lifecycle for organization onboarding.
+  - name: Settings
+    description: Organization and user identity settings.
+security:
+  - cookieAuth: []
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: connect.sid
+  parameters:
+    XOrganizationId:
+      name: X-Organization-Id
+      in: header
+      required: false
+      description: Explicit active organization override for users with multiple active memberships.
+      schema:
+        type: string
+        format: uuid
+    InviteId:
+      name: inviteId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DomainId:
+      name: domainId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
+    AuthOrganization:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        role:
+          type: string
+        isDefault:
+          type: boolean
+      required: [id, name, slug, role, isDefault]
+    AuthUser:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        fullName:
+          type: string
+        email:
+          type: [string, 'null']
+        role:
+          type: string
+        currentOrganizationId:
+          type: [string, 'null']
+        organizations:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthOrganization'
+      required: [id, username, fullName, role, organizations]
+    Domain:
+      type: object
+      properties:
+        id:
+          type: string
+        domain:
+          type: string
+        isVerified:
+          type: boolean
+        isPrimary:
+          type: boolean
+        verifiedAt:
+          type: [string, 'null']
+          format: date-time
+        verificationToken:
+          type: string
+        txtRecordName:
+          type: string
+        txtRecordValue:
+          type: string
+      required: [id, domain, isVerified, isPrimary, verificationToken, txtRecordName, txtRecordValue]
+    InviteDelivery:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [sent, webhook_sent, preview, failed]
+        channel:
+          type: string
+          enum: [smtp, webhook, none]
+        message:
+          type: string
+      required: [status, channel, message]
+    Invite:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        status:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        resendCount:
+          type: integer
+        inviteToken:
+          type: [string, 'null']
+        inviteUrl:
+          type: string
+        delivery:
+          $ref: '#/components/schemas/InviteDelivery'
+      required: [id, email, role, status, expiresAt]
+    InvitePreview:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        organizationName:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+      required: [id, email, role, organizationName, expiresAt, status]
+    AuthSettings:
+      type: object
+      properties:
+        mode:
+          type: string
+        ssoUrl:
+          type: [string, 'null']
+        entityId:
+          type: [string, 'null']
+        certificate:
+          type: [string, 'null']
+        callbackUrl:
+          type: [string, 'null']
+        oidcIssuer:
+          type: [string, 'null']
+        oidcAuthorizationUrl:
+          type: [string, 'null']
+        oidcTokenUrl:
+          type: [string, 'null']
+        oidcJwksUrl:
+          type: [string, 'null']
+        oidcClientId:
+          type: [string, 'null']
+        oidcClientSecret:
+          type: [string, 'null']
+        oidcScopes:
+          type: string
+        allowedDomains:
+          type: array
+          items:
+            type: string
+        jitProvisioning:
+          type: boolean
+        enforceSso:
+          type: boolean
+        defaultRole:
+          type: string
+      required: [mode, allowedDomains, jitProvisioning, enforceSso, defaultRole]
+paths:
+  /api/auth/user:
+    get:
+      tags: [Auth]
+      summary: Get current authenticated user payload
+      responses:
+        '200':
+          description: Current auth payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUser'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/auth/sso/metadata:
+    get:
+      tags: [SSO]
+      summary: Get SSO metadata document for the organization
+      security: []
+      responses:
+        '200':
+          description: Metadata XML response
+          content:
+            application/xml:
+              schema:
+                type: string
+  /api/auth/sso/start:
+    get:
+      tags: [SSO]
+      summary: Start SSO login
+      security: []
+      parameters:
+        - name: org
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: next
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to IdP
+        '404':
+          description: Organization not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/auth/sso/callback:
+    post:
+      tags: [SSO]
+      summary: Complete SSO login callback
+      security: []
+      responses:
+        '200':
+          description: Successful SSO login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUser'
+        '400':
+          description: Invalid SSO response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: SSO denied by org policy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Provider identity conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/auth/oidc/start:
+    get:
+      tags: [SSO]
+      summary: Start OIDC login
+      security: []
+      parameters:
+        - name: org
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: next
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to OIDC provider
+        '404':
+          description: Organization not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/auth/oidc/callback:
+    get:
+      tags: [SSO]
+      summary: Complete OIDC login callback
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful OIDC login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUser'
+        '400':
+          description: Invalid OIDC response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: OIDC denied by org policy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Provider identity conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/organization/auth-settings:
+    get:
+      tags: [Settings]
+      summary: Read organization authentication settings
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Auth settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSettings'
+    patch:
+      tags: [Settings]
+      summary: Update organization authentication settings
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthSettings'
+      responses:
+        '200':
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSettings'
+  /api/organization/domains:
+    get:
+      tags: [Domains]
+      summary: List managed organization domains
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Domain list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source:
+                    type: string
+                  domains:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Domain'
+                required: [source, domains]
+    put:
+      tags: [Domains]
+      summary: Replace organization domains
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                domains:
+                  type: array
+                  items:
+                    type: string
+              required: [domains]
+      responses:
+        '200':
+          description: Updated domain list
+  /api/organization/domains/{domainId}:
+    patch:
+      tags: [Domains]
+      summary: Update domain metadata
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/DomainId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                isPrimary:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated domain
+    delete:
+      tags: [Domains]
+      summary: Delete managed domain
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/DomainId'
+      responses:
+        '200':
+          description: Domain deleted
+  /api/organization/domains/{domainId}/verify:
+    post:
+      tags: [Domains]
+      summary: Verify managed domain through DNS TXT lookup
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/DomainId'
+      responses:
+        '200':
+          description: Verification result
+  /api/organization/invites:
+    get:
+      tags: [Invites]
+      summary: List organization invites
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Invite list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Invite'
+    post:
+      tags: [Invites]
+      summary: Create organization invite
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                role:
+                  type: string
+                expiresInDays:
+                  type: integer
+              required: [email]
+      responses:
+        '201':
+          description: Invite created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invite'
+  /api/organization/invites/{inviteId}/resend:
+    post:
+      tags: [Invites]
+      summary: Resend invite
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/InviteId'
+      responses:
+        '200':
+          description: Invite resent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invite'
+  /api/organization/invites/{inviteId}/revoke:
+    post:
+      tags: [Invites]
+      summary: Revoke invite
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/InviteId'
+      responses:
+        '200':
+          description: Invite revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  id:
+                    type: string
+                  status:
+                    type: string
+  /api/organization/invites/preview:
+    get:
+      tags: [Invites]
+      summary: Preview invite by raw token
+      security: []
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Invite preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitePreview'
+  /api/organization/invites/accept:
+    post:
+      tags: [Invites]
+      summary: Accept invite and create user membership
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                username:
+                  type: string
+                password:
+                  type: string
+                fullName:
+                  type: string
+                email:
+                  type: string
+                  format: email
+              required: [token, username, password, fullName]
+      responses:
+        '201':
+          description: Invite accepted
+  /api/settings:
+    get:
+      tags: [Settings]
+      summary: Get current user settings view
+      responses:
+        '200':
+          description: Settings payload
+    patch:
+      tags: [Settings]
+      summary: Update current user settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated settings payload

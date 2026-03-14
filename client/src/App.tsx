@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -12,25 +12,27 @@ import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { NotificationBell } from "@/components/notification-bell";
 import { Skeleton } from "@/components/ui/skeleton";
 import NotFound from "@/pages/not-found";
-import Dashboard from "@/pages/dashboard";
-import Registry from "@/pages/registry";
-import RiskAssessment from "@/pages/risk-assessment";
-import Compliance from "@/pages/compliance";
-import Approvals from "@/pages/approvals";
-import AuditLogPage from "@/pages/audit-log";
-import SettingsPage from "@/pages/settings";
-import SystemDetail from "@/pages/system-detail";
-import BulkControls from "@/pages/bulk-controls";
-import MyActivity from "@/pages/my-activity";
-import ComplianceCalendar from "@/pages/compliance-calendar";
-import AuthPage from "@/pages/auth-page";
-import InviteAcceptPage from "@/pages/invite-accept-page";
-import LandingPage from "@/pages/landing-page";
-import BookDemoPage, { StartPilotPage } from "@/pages/lead-capture";
-import ThankYouPage from "@/pages/thank-you";
-import PrivacyPage from "@/pages/privacy";
-import TermsPage from "@/pages/terms";
-import SecurityPage from "@/pages/security-page";
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+const Registry = lazy(() => import("@/pages/registry"));
+const RiskAssessment = lazy(() => import("@/pages/risk-assessment"));
+const Compliance = lazy(() => import("@/pages/compliance"));
+const Approvals = lazy(() => import("@/pages/approvals"));
+const AuditLogPage = lazy(() => import("@/pages/audit-log"));
+const SettingsPage = lazy(() => import("@/pages/settings"));
+const SystemDetail = lazy(() => import("@/pages/system-detail"));
+const BulkControls = lazy(() => import("@/pages/bulk-controls"));
+const MyActivity = lazy(() => import("@/pages/my-activity"));
+const ComplianceCalendar = lazy(() => import("@/pages/compliance-calendar"));
+const AuthPage = lazy(() => import("@/pages/auth-page"));
+const InviteAcceptPage = lazy(() => import("@/pages/invite-accept-page"));
+const LandingPage = lazy(() => import("@/pages/landing-page"));
+const BookDemoPage = lazy(() => import("@/pages/lead-capture"));
+const StartPilotPage = lazy(() => import("@/pages/lead-capture").then((module) => ({ default: module.StartPilotPage })));
+const ThankYouPage = lazy(() => import("@/pages/thank-you"));
+const PrivacyPage = lazy(() => import("@/pages/privacy"));
+const TermsPage = lazy(() => import("@/pages/terms"));
+const SecurityPage = lazy(() => import("@/pages/security-page"));
+const ApiDocsPage = lazy(() => import("@/pages/api-docs"));
 
 const PUBLIC_PATHS = new Set([
   "/",
@@ -42,39 +44,59 @@ const PUBLIC_PATHS = new Set([
   "/book-demo",
   "/start-pilot",
   "/thank-you",
+  "/book-demo/thank-you",
+  "/start-pilot/thank-you",
   "/privacy",
   "/terms",
   "/security",
+  "/api-docs",
 ]);
 
 function isPublicPath(path: string): boolean {
   return PUBLIC_PATHS.has(path);
 }
 
+function RouteLoadingFallback() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center">
+      <div className="text-center space-y-3">
+        <Skeleton className="mx-auto h-8 w-8 rounded-full" />
+        <Skeleton className="h-4 w-40" />
+      </div>
+    </div>
+  );
+}
+
 function AuthenticatedRouter({ isAdmin }: { isAdmin: boolean }) {
   return (
-    <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/dashboard" component={Dashboard} />
-      <Route path="/activity" component={MyActivity} />
-      <Route path="/my-activity" component={ActivityAliasRedirect} />
-      <Route path="/registry" component={Registry} />
-      <Route path="/systems/:id" component={SystemDetail} />
-      <Route path="/risk" component={RiskAssessment} />
-      <Route path="/risk-assessment" component={RiskAliasRedirect} />
-      <Route path="/compliance" component={Compliance} />
-      <Route path="/calendar" component={ComplianceCalendar} />
-      <Route path="/approvals" component={Approvals} />
-      <Route path="/audit" component={AuditLogPage} />
-      <Route path="/bulk-controls" component={BulkControls} />
-      <Route path="/settings" component={isAdmin ? SettingsPage : Dashboard} />
-      <Route path="/auth" component={Dashboard} />
-      <Route path="/auth/login" component={Dashboard} />
-      <Route path="/login" component={Dashboard} />
-      <Route path="/auth/invite" component={Dashboard} />
-      <Route path="/invite/accept" component={Dashboard} />
-      <Route component={NotFound} />
-    </Switch>
+    <Suspense fallback={<RouteLoadingFallback />}>
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/dashboard" component={Dashboard} />
+        <Route path="/activity" component={MyActivity} />
+        <Route path="/my-activity" component={ActivityAliasRedirect} />
+        <Route path="/registry" component={Registry} />
+        <Route path="/systems/:id" component={SystemDetail} />
+        <Route path="/risk" component={RiskAssessment} />
+        <Route path="/risk-assessment" component={RiskAliasRedirect} />
+        <Route path="/compliance" component={Compliance} />
+        <Route path="/calendar" component={ComplianceCalendar} />
+        <Route path="/approvals" component={Approvals} />
+        <Route path="/audit" component={AuditLogPage} />
+        <Route path="/bulk-controls" component={BulkControls} />
+        <Route path="/settings" component={isAdmin ? SettingsPage : Dashboard} />
+        <Route path="/thank-you" component={ThankYouPage} />
+        <Route path="/book-demo/thank-you" component={ThankYouPage} />
+        <Route path="/start-pilot/thank-you" component={ThankYouPage} />
+        <Route path="/auth" component={Dashboard} />
+        <Route path="/auth/login" component={Dashboard} />
+        <Route path="/login" component={Dashboard} />
+        <Route path="/auth/invite" component={Dashboard} />
+        <Route path="/invite/accept" component={Dashboard} />
+        <Route path="/api-docs" component={ApiDocsPage} />
+        <Route component={NotFound} />
+      </Switch>
+    </Suspense>
   );
 }
 
@@ -127,25 +149,41 @@ function ActivityAliasRedirect() {
   return null;
 }
 
+function ThankYouAliasRedirect() {
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    const queryString = typeof window === "undefined" ? "" : window.location.search;
+    setLocation(`/thank-you${queryString}`);
+  }, [setLocation]);
+
+  return null;
+}
+
 function PublicRouter() {
   return (
-    <Switch>
-      <Route path="/" component={LandingPage} />
-      <Route path="/auth" component={AuthPage} />
-      <Route path="/auth/login" component={AuthPage} />
-      <Route path="/login" component={LoginAliasRedirect} />
-      <Route path="/risk-assessment" component={RiskAliasRedirect} />
-      <Route path="/my-activity" component={ActivityAliasRedirect} />
-      <Route path="/auth/invite" component={InviteAcceptPage} />
-      <Route path="/invite/accept" component={InviteAcceptPage} />
-      <Route path="/book-demo" component={BookDemoPage} />
-      <Route path="/start-pilot" component={StartPilotPage} />
-      <Route path="/thank-you" component={ThankYouPage} />
-      <Route path="/privacy" component={PrivacyPage} />
-      <Route path="/terms" component={TermsPage} />
-      <Route path="/security" component={SecurityPage} />
-      <Route component={PublicFallback} />
-    </Switch>
+    <Suspense fallback={<RouteLoadingFallback />}>
+      <Switch>
+        <Route path="/" component={LandingPage} />
+        <Route path="/auth" component={AuthPage} />
+        <Route path="/auth/login" component={AuthPage} />
+        <Route path="/login" component={LoginAliasRedirect} />
+        <Route path="/risk-assessment" component={RiskAliasRedirect} />
+        <Route path="/my-activity" component={ActivityAliasRedirect} />
+        <Route path="/auth/invite" component={InviteAcceptPage} />
+        <Route path="/invite/accept" component={InviteAcceptPage} />
+        <Route path="/book-demo" component={BookDemoPage} />
+        <Route path="/start-pilot" component={StartPilotPage} />
+        <Route path="/thank-you" component={ThankYouPage} />
+        <Route path="/book-demo/thank-you" component={ThankYouPage} />
+        <Route path="/start-pilot/thank-you" component={ThankYouPage} />
+        <Route path="/privacy" component={PrivacyPage} />
+        <Route path="/terms" component={TermsPage} />
+        <Route path="/security" component={SecurityPage} />
+        <Route path="/api-docs" component={ApiDocsPage} />
+        <Route component={PublicFallback} />
+      </Switch>
+    </Suspense>
   );
 }
 

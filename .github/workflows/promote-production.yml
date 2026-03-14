@@ -1,0 +1,53 @@
+name: Promote Production Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_db_push:
+        description: Run production schema sync before deploy
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  promote:
+    name: Promote validated main to production
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply production schema
+        if: ${{ inputs.run_db_push }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run db:push -- --force
+
+      - name: Trigger Render deploy hook
+        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+
+      - name: Trigger Netlify build hook
+        run: curl -fsSL -X POST "${{ secrets.NETLIFY_BUILD_HOOK_URL }}"
+
+      - name: Wait for deploy propagation
+        run: sleep 90
+
+      - name: Run production smoke checks
+        env:
+          SMOKE_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
+          SMOKE_BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_URL }}
+          SMOKE_RETRIES: "18"
+          SMOKE_DELAY_MS: "10000"
+        run: npm run smoke:deploy

@@ -39,16 +39,20 @@ import {
 } from "./auth";
 import { requireAuth } from "./auth";
 import { requireOrgRole, requireTenant } from "./tenant";
-import { SAML, ValidateInResponseTo } from "@node-saml/node-saml";
 import { auditService } from "./services/auditService";
 import { activityService } from "./services/activityService";
+import { backgroundJobService } from "./services/backgroundJobService";
 import { calendarService } from "./services/calendarService";
 import { controlService } from "./services/controlService";
 import { dashboardService } from "./services/dashboardService";
+import { domainService } from "./services/domainService";
 import { evidenceService } from "./services/evidenceService";
 import { exportService, type ExportType } from "./services/exportService";
+import { inviteService } from "./services/inviteService";
+import { monitoringService } from "./services/monitoringService";
 import { notificationService } from "./services/notificationService";
 import { riskAssessmentService } from "./services/riskAssessmentService";
+import { ssoService } from "./services/ssoService";
 import { systemService } from "./services/systemService";
 import { workflowService } from "./services/workflowService";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
@@ -139,6 +143,15 @@ async function notifyAllAdmins(
     });
   }
 }
+
+const clientErrorEventSchema = z.object({
+  event: z.string().min(1).max(100),
+  message: z.string().min(1).max(2000),
+  route: z.string().min(1).max(500),
+  requestId: z.string().min(1).max(100).nullable().optional(),
+  stack: z.string().max(12000).nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+});
 
 async function notifyUser(
   organizationId: string,
@@ -261,6 +274,13 @@ const marketingEventSchema = z.object({
   metadata: z.record(z.any()).optional(),
 });
 
+const onboardingStateSchema = z.object({
+  currentStep: z.number().int().min(0).max(10).optional(),
+  completedSteps: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
+  dismissedAlerts: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+  snoozedAlerts: z.record(z.string().trim().min(1).max(80), z.string().datetime()).optional(),
+});
+
 const inviteRoleOptions = ["owner", ...userRoles] as const;
 const assignableMembershipRoles = new Set<string>(inviteRoleOptions);
 const inviteStatusOptions = new Set<string>(organizationInviteStatuses);
@@ -288,7 +308,7 @@ const acceptInviteSchema = z.object({
   email: z.string().trim().email().optional(),
 });
 
-const authModeValues = ["local", "saml"] as const;
+const authModeValues = ["local", "saml", "oidc"] as const;
 const ssoDefaultRoleOptions = userRoles;
 
 const orgAuthSettingsPatchSchema = z.object({
@@ -298,11 +318,22 @@ const orgAuthSettingsPatchSchema = z.object({
   idpIssuer: z.string().trim().max(500).nullable().optional(),
   certificate: z.string().trim().max(12000).nullable().optional(),
   callbackUrl: z.string().trim().max(1000).nullable().optional(),
+  oidcIssuer: z.string().trim().url().max(1000).nullable().optional(),
+  oidcAuthorizationUrl: z.string().trim().url().max(1000).nullable().optional(),
+  oidcTokenUrl: z.string().trim().url().max(1000).nullable().optional(),
+  oidcJwksUrl: z.string().trim().url().max(1000).nullable().optional(),
+  oidcClientId: z.string().trim().max(500).nullable().optional(),
+  oidcClientSecret: z.string().trim().max(4000).nullable().optional(),
+  oidcScopes: z.string().trim().max(500).nullable().optional(),
   allowedDomains: z.array(z.string().trim().min(1).max(255)).max(50).optional(),
   jitProvisioning: z.boolean().optional(),
   enforceSso: z.boolean().optional(),
   strictSamlValidation: z.boolean().optional(),
   defaultRole: z.enum(ssoDefaultRoleOptions).optional(),
+});
+
+const updateOrganizationDomainsSchema = z.object({
+  domains: z.array(z.string().trim().min(1).max(255)).max(50),
 });
 
 const ssoStartSchema = z.object({
@@ -321,13 +352,32 @@ const ssoAcsBodySchema = z.object({
   RelayState: z.string().trim().min(8).max(200),
 });
 
+const oidcCallbackQuerySchema = z.object({
+  code: z.string().trim().min(3).max(2000),
+  state: z.string().trim().min(8).max(200),
+});
+
+const oidcMockCallbackSchema = z.object({
+  state: z.string().trim().min(8).max(200),
+  email: z.string().trim().email(),
+  fullName: z.string().trim().min(1).max(200).optional(),
+  providerSubject: z.string().trim().min(1).max(255).optional(),
+});
+
 type OrgAuthSettings = {
-  mode: "local" | "saml";
+  mode: "local" | "saml" | "oidc";
   ssoUrl: string | null;
   entityId: string | null;
   idpIssuer: string | null;
   certificate: string | null;
   callbackUrl: string | null;
+  oidcIssuer: string | null;
+  oidcAuthorizationUrl: string | null;
+  oidcTokenUrl: string | null;
+  oidcJwksUrl: string | null;
+  oidcClientId: string | null;
+  oidcClientSecret: string | null;
+  oidcScopes: string;
   allowedDomains: string[];
   jitProvisioning: boolean;
   enforceSso: boolean;
@@ -353,7 +403,7 @@ function getOrgAuthSettings(rawSettings: unknown): OrgAuthSettings {
       ? (settingsObject.auth as Record<string, unknown>)
       : {};
 
-  const parsedMode = rawAuth.mode === "saml" ? "saml" : "local";
+  const parsedMode = rawAuth.mode === "saml" ? "saml" : rawAuth.mode === "oidc" ? "oidc" : "local";
   const parsedAllowedDomains = Array.isArray(rawAuth.allowedDomains)
     ? normalizeDomains(rawAuth.allowedDomains.filter((value): value is string => typeof value === "string"))
     : [];
@@ -370,6 +420,13 @@ function getOrgAuthSettings(rawSettings: unknown): OrgAuthSettings {
     idpIssuer: getOptionalString(rawAuth.idpIssuer) ?? null,
     certificate: getOptionalString(rawAuth.certificate) ?? null,
     callbackUrl: getOptionalString(rawAuth.callbackUrl) ?? null,
+    oidcIssuer: getOptionalString(rawAuth.oidcIssuer) ?? null,
+    oidcAuthorizationUrl: getOptionalString(rawAuth.oidcAuthorizationUrl) ?? null,
+    oidcTokenUrl: getOptionalString(rawAuth.oidcTokenUrl) ?? null,
+    oidcJwksUrl: getOptionalString(rawAuth.oidcJwksUrl) ?? null,
+    oidcClientId: getOptionalString(rawAuth.oidcClientId) ?? null,
+    oidcClientSecret: getOptionalString(rawAuth.oidcClientSecret) ?? null,
+    oidcScopes: getOptionalString(rawAuth.oidcScopes) ?? "openid profile email",
     allowedDomains: parsedAllowedDomains,
     jitProvisioning: rawAuth.jitProvisioning === true,
     enforceSso: rawAuth.enforceSso === true,
@@ -673,6 +730,54 @@ export async function registerRoutes(
     });
   });
 
+  app.get("/api/ready", async (_req, res) => {
+    try {
+      await db.execute(sql`select 1`);
+      const queue = await backgroundJobService.getGlobalSummary();
+      res.json({
+        ok: true,
+        ready: true,
+        service: "ai-control-tower",
+        queue,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.setHeader("X-Error-Code", "READINESS_CHECK_FAILED");
+      res.status(503).json({
+        ok: false,
+        ready: false,
+        service: "ai-control-tower",
+        message: error instanceof Error ? error.message : "Readiness check failed",
+        code: "READINESS_CHECK_FAILED",
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  app.post("/api/monitoring/client-errors", async (req, res) => {
+    const parsed = clientErrorEventSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.setHeader("X-Error-Code", "CLIENT_ERROR_PAYLOAD_INVALID");
+      return res.status(400).json({
+        message: "Invalid client error payload",
+        code: "CLIENT_ERROR_PAYLOAD_INVALID",
+      });
+    }
+
+    const payload = parsed.data;
+    await monitoringService.reportClientError({
+      level: "error",
+      event: payload.event,
+      message: payload.message,
+      requestId: payload.requestId ?? req.requestId ?? null,
+      route: payload.route,
+      stack: payload.stack ?? null,
+      metadata: payload.metadata ?? null,
+    });
+
+    return res.status(202).json({ ok: true });
+  });
+
   app.get("/api/settings", requireAuth, async (req, res) => {
     if (req.user!.role !== "admin") {
       return res.status(403).json({ message: "Forbidden" });
@@ -697,22 +802,93 @@ export async function registerRoutes(
   });
 
   app.get(
+    "/api/organization/background-jobs",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin"),
+    async (req, res) => {
+      const rawStatus = req.query.status;
+      const requestedStatus =
+        typeof rawStatus === "string"
+          ? rawStatus
+          : Array.isArray(rawStatus)
+            ? rawStatus[0]
+            : "failed";
+      const status =
+        requestedStatus === "pending" ||
+        requestedStatus === "processing" ||
+        requestedStatus === "succeeded" ||
+        requestedStatus === "failed"
+          ? requestedStatus
+          : "failed";
+      const requestedLimit = Number(req.query.limit);
+      const limit = Number.isFinite(requestedLimit) ? requestedLimit : 10;
+
+      const [summary, jobs] = await Promise.all([
+        backgroundJobService.getJobSummaryForOrganization(req.tenant!.organizationId),
+        backgroundJobService.getJobsForOrganization({
+          organizationId: req.tenant!.organizationId,
+          status,
+          limit,
+        }),
+      ]);
+
+      return res.json({ summary, jobs });
+    },
+  );
+
+  app.post(
+    "/api/organization/background-jobs/:jobId/retry",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin"),
+    async (req, res) => {
+      const jobId = Array.isArray(req.params.jobId) ? req.params.jobId[0] : req.params.jobId;
+      const retried = await backgroundJobService.retryFailedJobForOrganization(
+        req.tenant!.organizationId,
+        jobId,
+      );
+
+      if (!retried) {
+        return res.status(404).json({ message: "Background job not found" });
+      }
+
+      await db.insert(adminAuditEvents).values({
+        organizationId: req.tenant!.organizationId,
+        actorUserId: req.user?.id ?? null,
+        actorName: req.user?.fullName || req.user?.username || "Unknown actor",
+        action: "background_job.retried",
+        targetType: "background_job",
+        targetId: retried.id,
+        metadata: {
+          jobType: retried.type,
+          previousStatus: "failed",
+        },
+      });
+
+      return res.json({ ok: true, job: retried });
+    },
+  );
+
+  app.get(
     "/api/organization/auth-settings",
     requireAuth,
     requireTenant,
     requireOrgRole("owner", "admin"),
     async (req, res) => {
-      const [organization] = await db
-        .select({ id: organizations.id, settings: organizations.settings })
-        .from(organizations)
-        .where(eq(organizations.id, req.tenant!.organizationId))
-        .limit(1);
+      const organization = await storage.getOrganizationById(req.tenant!.organizationId);
 
       if (!organization) {
         return res.status(404).json({ message: "Organization not found" });
       }
 
-      return res.json(getOrgAuthSettings(organization.settings));
+      const authSettings = getOrgAuthSettings(organization.settings);
+      const allowedDomains = await domainService.getAllowedDomainsForOrganization(organization);
+
+      return res.json({
+        ...authSettings,
+        allowedDomains,
+      });
     },
   );
 
@@ -724,17 +900,20 @@ export async function registerRoutes(
     async (req, res) => {
       try {
         const parsed = orgAuthSettingsPatchSchema.parse(req.body ?? {});
-        const [organization] = await db
-          .select({ id: organizations.id, settings: organizations.settings })
-          .from(organizations)
-          .where(eq(organizations.id, req.tenant!.organizationId))
-          .limit(1);
+        const organization = await storage.getOrganizationById(req.tenant!.organizationId);
 
         if (!organization) {
           return res.status(404).json({ message: "Organization not found" });
         }
 
-        const current = getOrgAuthSettings(organization.settings);
+        const current = {
+          ...getOrgAuthSettings(organization.settings),
+          allowedDomains: await domainService.getAllowedDomainsForOrganization(organization),
+        };
+        const requestedAllowedDomains =
+          parsed.allowedDomains === undefined
+            ? current.allowedDomains
+            : domainService.normalizeInputDomains(parsed.allowedDomains);
         const updated: OrgAuthSettings = {
           ...current,
           mode: parsed.mode ?? current.mode,
@@ -743,8 +922,16 @@ export async function registerRoutes(
           idpIssuer: parsed.idpIssuer === undefined ? current.idpIssuer : parsed.idpIssuer,
           certificate: parsed.certificate === undefined ? current.certificate : parsed.certificate,
           callbackUrl: parsed.callbackUrl === undefined ? current.callbackUrl : parsed.callbackUrl,
-          allowedDomains:
-            parsed.allowedDomains === undefined ? current.allowedDomains : normalizeDomains(parsed.allowedDomains),
+          oidcIssuer: parsed.oidcIssuer === undefined ? current.oidcIssuer : parsed.oidcIssuer,
+          oidcAuthorizationUrl:
+            parsed.oidcAuthorizationUrl === undefined ? current.oidcAuthorizationUrl : parsed.oidcAuthorizationUrl,
+          oidcTokenUrl: parsed.oidcTokenUrl === undefined ? current.oidcTokenUrl : parsed.oidcTokenUrl,
+          oidcJwksUrl: parsed.oidcJwksUrl === undefined ? current.oidcJwksUrl : parsed.oidcJwksUrl,
+          oidcClientId: parsed.oidcClientId === undefined ? current.oidcClientId : parsed.oidcClientId,
+          oidcClientSecret:
+            parsed.oidcClientSecret === undefined ? current.oidcClientSecret : parsed.oidcClientSecret,
+          oidcScopes: parsed.oidcScopes === undefined ? current.oidcScopes : parsed.oidcScopes ?? "openid profile email",
+          allowedDomains: requestedAllowedDomains,
           jitProvisioning: parsed.jitProvisioning ?? current.jitProvisioning,
           enforceSso: parsed.enforceSso ?? current.enforceSso,
           strictSamlValidation: parsed.strictSamlValidation ?? current.strictSamlValidation,
@@ -760,6 +947,26 @@ export async function registerRoutes(
         }
         if (updated.mode === "saml" && updated.strictSamlValidation && !updated.certificate) {
           return res.status(400).json({ message: "IdP certificate is required when strict SAML validation is enabled" });
+        }
+        if (
+          updated.mode === "oidc" &&
+          (!updated.oidcIssuer ||
+            !updated.oidcAuthorizationUrl ||
+            !updated.oidcTokenUrl ||
+            !updated.oidcJwksUrl ||
+            !updated.oidcClientId)
+        ) {
+          return res.status(400).json({
+            message: "OIDC issuer, authorization URL, token URL, JWKS URL, and client ID are required when mode is oidc",
+          });
+        }
+        if (updated.mode !== "saml") {
+          updated.strictSamlValidation = false;
+        }
+
+        if (parsed.allowedDomains !== undefined) {
+          const storedDomains = await domainService.replaceAllowedDomains(organization.id, updated.allowedDomains);
+          updated.allowedDomains = storedDomains.map((entry) => entry.domain);
         }
 
         await db
@@ -794,6 +1001,355 @@ export async function registerRoutes(
     },
   );
 
+  app.get(
+    "/api/organization/domains",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin"),
+    async (req, res) => {
+      const buildDomainResponse = (
+        storedDomains: Array<{ id: string; domain: string; isVerified: boolean; isPrimary: boolean }>,
+        fallbackDomains: string[] = [],
+      ) => ({
+        domains: storedDomains.length > 0 ? storedDomains.map((entry) => entry.domain) : fallbackDomains,
+        entries:
+          storedDomains.length > 0
+            ? storedDomains.map((entry) => ({
+                id: entry.id,
+                domain: entry.domain,
+                isVerified: entry.isVerified,
+                isPrimary: entry.isPrimary,
+                verificationRecordName: domainService.getVerificationRecordName(entry.domain),
+                verificationRecordValue: domainService.getVerificationRecordValue((entry as any).verificationToken),
+                verifiedAt: (entry as any).verifiedAt ?? null,
+              }))
+            : fallbackDomains.map((domain, index) => ({
+                id: null,
+                domain,
+                isVerified: false,
+                isPrimary: index === 0,
+                verificationRecordName: null,
+                verificationRecordValue: null,
+                verifiedAt: null,
+              })),
+        source: storedDomains.length > 0 ? "table" : fallbackDomains.length > 0 ? "legacy" : "none",
+      });
+
+      const organization = await storage.getOrganizationById(req.tenant!.organizationId);
+      if (!organization) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+
+      const storedDomains = await domainService.getStoredOrganizationDomains(organization.id);
+      const domains =
+        storedDomains.length > 0
+          ? storedDomains.map((entry) => entry.domain)
+          : await domainService.getAllowedDomainsForOrganization(organization);
+
+      return res.json(buildDomainResponse(storedDomains, domains));
+    },
+  );
+
+  app.put(
+    "/api/organization/domains",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin"),
+    async (req, res) => {
+      try {
+        const parsed = updateOrganizationDomainsSchema.parse(req.body ?? {});
+        const organization = await storage.getOrganizationById(req.tenant!.organizationId);
+
+        if (!organization) {
+          return res.status(404).json({ message: "Organization not found" });
+        }
+
+        const domains = domainService.normalizeInputDomains(parsed.domains);
+        const existingDomains = await domainService.getStoredOrganizationDomains(organization.id);
+        const storedDomains = await domainService.replaceAllowedDomains(
+          organization.id,
+          domains.map((domain, index) => {
+            const existing = existingDomains.find((entry) => entry.domain === domain);
+            return {
+              id: existing?.id,
+              domain,
+              isVerified: existing?.isVerified ?? false,
+              isPrimary: existing?.isPrimary ?? index === 0,
+              verificationToken: existing?.verificationToken,
+              verifiedAt: existing?.verifiedAt ?? null,
+              createdAt: existing?.createdAt,
+            };
+          }),
+        );
+        const authSettings = {
+          ...getOrgAuthSettings(organization.settings),
+          allowedDomains: storedDomains.map((entry) => entry.domain),
+        };
+
+        await db
+          .update(organizations)
+          .set({
+            settings: applyOrgAuthSettings(organization.settings, authSettings),
+            updatedAt: new Date(),
+          })
+          .where(eq(organizations.id, organization.id));
+
+        await recordAdminAuditEvent({
+          organizationId: req.tenant!.organizationId,
+          actorUserId: req.user!.id,
+          actorName: req.user!.fullName || req.user!.username,
+          action: "organization.domains.updated",
+          targetType: "organization",
+          targetId: organization.id,
+          metadata: {
+            domains: storedDomains.map((entry) => entry.domain),
+            domainsCount: storedDomains.length,
+          },
+        });
+
+        return res.json({
+          domains: storedDomains.map((entry) => entry.domain),
+          entries: storedDomains.map((entry) => ({
+            id: entry.id,
+            domain: entry.domain,
+            isVerified: entry.isVerified,
+            isPrimary: entry.isPrimary,
+            verificationRecordName: domainService.getVerificationRecordName(entry.domain),
+            verificationRecordValue: domainService.getVerificationRecordValue(entry.verificationToken),
+            verifiedAt: entry.verifiedAt ?? null,
+          })),
+          source: "table",
+        });
+      } catch (err: any) {
+        return res.status(400).json({ message: err.message || "Failed to update organization domains" });
+      }
+    },
+  );
+
+  app.patch(
+    "/api/organization/domains/:domainId",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin"),
+    async (req, res) => {
+      try {
+        const parsed = z.object({
+          isPrimary: z.literal(true),
+        }).parse(req.body ?? {});
+
+        const organization = await storage.getOrganizationById(req.tenant!.organizationId);
+        if (!organization) {
+          return res.status(404).json({ message: "Organization not found" });
+        }
+
+        const domainId = routeParam(req.params.domainId);
+        const storedDomains = await domainService.getStoredOrganizationDomains(organization.id);
+        const targetDomain = storedDomains.find((entry) => entry.id === domainId);
+        if (!targetDomain) {
+          return res.status(404).json({ message: "Organization domain not found" });
+        }
+
+        const nextDomains = storedDomains.map((entry) => ({
+          id: entry.id,
+          domain: entry.domain,
+          isVerified: entry.isVerified,
+          isPrimary: entry.id === domainId,
+          verificationToken: entry.verificationToken,
+          verifiedAt: entry.verifiedAt ?? null,
+          createdAt: entry.createdAt,
+        }));
+
+        const updatedDomains = await domainService.replaceAllowedDomains(organization.id, nextDomains);
+        const authSettings = {
+          ...getOrgAuthSettings(organization.settings),
+          allowedDomains: updatedDomains.map((entry) => entry.domain),
+        };
+
+        await db
+          .update(organizations)
+          .set({
+            settings: applyOrgAuthSettings(organization.settings, authSettings),
+            updatedAt: new Date(),
+          })
+          .where(eq(organizations.id, organization.id));
+
+        await recordAdminAuditEvent({
+          organizationId: req.tenant!.organizationId,
+          actorUserId: req.user!.id,
+          actorName: req.user!.fullName || req.user!.username,
+          action: "organization.domain.primary_updated",
+          targetType: "organization_domain",
+          targetId: targetDomain.id,
+          metadata: {
+            domain: targetDomain.domain,
+            isVerified: targetDomain.isVerified,
+            isPrimary: true,
+          },
+        });
+
+        return res.json({
+          domains: updatedDomains.map((entry) => entry.domain),
+          entries: updatedDomains.map((entry) => ({
+            id: entry.id,
+            domain: entry.domain,
+            isVerified: entry.isVerified,
+            isPrimary: entry.isPrimary,
+            verificationRecordName: domainService.getVerificationRecordName(entry.domain),
+            verificationRecordValue: domainService.getVerificationRecordValue(entry.verificationToken),
+            verifiedAt: entry.verifiedAt ?? null,
+          })),
+          source: "table",
+        });
+      } catch (err: any) {
+        return res.status(400).json({ message: err.message || "Failed to update organization domain" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/organization/domains/:domainId/verify",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin"),
+    async (req, res) => {
+      try {
+        const organization = await storage.getOrganizationById(req.tenant!.organizationId);
+        if (!organization) {
+          return res.status(404).json({ message: "Organization not found" });
+        }
+
+        const domainId = routeParam(req.params.domainId);
+        const storedDomains = await domainService.getStoredOrganizationDomains(organization.id);
+        const targetDomain = storedDomains.find((entry) => entry.id === domainId);
+        if (!targetDomain) {
+          return res.status(404).json({ message: "Organization domain not found" });
+        }
+
+        const isVerified = await domainService.verifyDomainOwnership(targetDomain);
+        if (!isVerified) {
+          return res.status(409).json({
+            message: "Verification TXT record not found",
+            verificationRecordName: domainService.getVerificationRecordName(targetDomain.domain),
+            verificationRecordValue: domainService.getVerificationRecordValue(targetDomain.verificationToken),
+          });
+        }
+
+        const updatedDomains = await domainService.replaceAllowedDomains(
+          organization.id,
+          storedDomains.map((entry) => ({
+            id: entry.id,
+            domain: entry.domain,
+            isVerified: entry.id === domainId ? true : entry.isVerified,
+            isPrimary: entry.isPrimary,
+            verificationToken: entry.verificationToken,
+            verifiedAt: entry.id === domainId ? new Date() : entry.verifiedAt ?? null,
+            createdAt: entry.createdAt,
+          })),
+        );
+
+        await recordAdminAuditEvent({
+          organizationId: req.tenant!.organizationId,
+          actorUserId: req.user!.id,
+          actorName: req.user!.fullName || req.user!.username,
+          action: "organization.domain.verified",
+          targetType: "organization_domain",
+          targetId: targetDomain.id,
+          metadata: {
+            domain: targetDomain.domain,
+            verificationRecordName: domainService.getVerificationRecordName(targetDomain.domain),
+          },
+        });
+
+        return res.json({
+          domains: updatedDomains.map((entry) => entry.domain),
+          entries: updatedDomains.map((entry) => ({
+            id: entry.id,
+            domain: entry.domain,
+            isVerified: entry.isVerified,
+            isPrimary: entry.isPrimary,
+            verificationRecordName: domainService.getVerificationRecordName(entry.domain),
+            verificationRecordValue: domainService.getVerificationRecordValue(entry.verificationToken),
+            verifiedAt: entry.verifiedAt ?? null,
+          })),
+          source: "table",
+        });
+      } catch (err: any) {
+        return res.status(400).json({ message: err.message || "Failed to verify organization domain" });
+      }
+    },
+  );
+
+  app.delete(
+    "/api/organization/domains/:domainId",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin"),
+    async (req, res) => {
+      try {
+        const organization = await storage.getOrganizationById(req.tenant!.organizationId);
+        if (!organization) {
+          return res.status(404).json({ message: "Organization not found" });
+        }
+
+        const domainId = routeParam(req.params.domainId);
+        const storedDomains = await domainService.getStoredOrganizationDomains(organization.id);
+        const targetDomain = storedDomains.find((entry) => entry.id === domainId);
+        if (!targetDomain) {
+          return res.status(404).json({ message: "Organization domain not found" });
+        }
+
+        await storage.deleteOrganizationDomainByIdForOrg(organization.id, domainId);
+
+        const remainingDomains = await domainService.getStoredOrganizationDomains(organization.id);
+        const rebalancedDomains =
+          remainingDomains.length > 0
+            ? await domainService.replaceAllowedDomains(
+                organization.id,
+                remainingDomains.map((entry, index) => ({
+                  id: entry.id,
+                  domain: entry.domain,
+                  isVerified: entry.isVerified,
+                  isPrimary: entry.isPrimary || index === 0,
+                  verificationToken: entry.verificationToken,
+                  verifiedAt: entry.verifiedAt ?? null,
+                  createdAt: entry.createdAt,
+                })),
+              )
+            : [];
+
+        const authSettings = {
+          ...getOrgAuthSettings(organization.settings),
+          allowedDomains: rebalancedDomains.map((entry) => entry.domain),
+        };
+
+        await db
+          .update(organizations)
+          .set({
+            settings: applyOrgAuthSettings(organization.settings, authSettings),
+            updatedAt: new Date(),
+          })
+          .where(eq(organizations.id, organization.id));
+
+        await recordAdminAuditEvent({
+          organizationId: req.tenant!.organizationId,
+          actorUserId: req.user!.id,
+          actorName: req.user!.fullName || req.user!.username,
+          action: "organization.domain.deleted",
+          targetType: "organization_domain",
+          targetId: targetDomain.id,
+          metadata: {
+            domain: targetDomain.domain,
+            remainingDomains: rebalancedDomains.map((entry) => entry.domain),
+          },
+        });
+
+        return res.status(204).send();
+      } catch (err: any) {
+        return res.status(400).json({ message: err.message || "Failed to delete organization domain" });
+      }
+    },
+  );
+
   app.get("/api/auth/sso/metadata", async (req, res) => {
     const rawOrg = Array.isArray(req.query.org) ? req.query.org[0] : req.query.org;
     const requestedOrg = getOptionalString(rawOrg);
@@ -801,42 +1357,34 @@ export async function registerRoutes(
       return res.status(400).json({ message: "org is required" });
     }
 
-    const resolved = await resolveOrganizationForSso(requestedOrg, req.isAuthenticated?.() ? req.user?.id : undefined);
-    if (!resolved || !resolved.organization.id) {
+    const resolved = await ssoService.resolveOrganizationForSso(
+      requestedOrg,
+      req.isAuthenticated?.() ? req.user?.id : undefined,
+    );
+    if (!resolved.organization) {
       const response: { message: string; availableOrganizationSlugs?: string[] } = {
         message: "Organization not found",
       };
-      if (resolved?.availableOrganizationSlugs?.length) {
+      if (resolved.availableOrganizationSlugs.length) {
         response.availableOrganizationSlugs = resolved.availableOrganizationSlugs;
       }
       return res.status(404).json(response);
     }
 
-    const authSettings = getOrgAuthSettings(resolved.organization.settings);
+    const authSettings = ssoService.getOrgAuthSettings(resolved.organization.settings);
     if (authSettings.mode !== "saml") {
       return res.status(400).json({ message: "Organization is not configured for SAML" });
     }
 
     const host = req.get("host");
-    const protocol = req.protocol;
-    const fallbackEntityId = `${protocol}://${host}/api/auth/sso/metadata?org=${encodeURIComponent(
-      resolved.organization.slug,
-    )}`;
-    const callbackUrl =
-      authSettings.callbackUrl || `${protocol}://${host}/api/auth/sso/callback`;
-    const entityId = authSettings.entityId || fallbackEntityId;
-    const compactCert = compactCertificate(authSettings.certificate);
+    if (!host) {
+      return res.status(400).json({ message: "Unable to resolve request host for SAML metadata" });
+    }
 
-    const metadataXml = `<?xml version="1.0" encoding="UTF-8"?>
-<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="${escapeXml(entityId)}">
-  <SPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol" AuthnRequestsSigned="false" WantAssertionsSigned="false">
-    <NameIDFormat>urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress</NameIDFormat>
-    <AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="${escapeXml(
-      callbackUrl,
-    )}" index="0" isDefault="true" />
-${compactCert ? `    <KeyDescriptor use="signing"><KeyInfo xmlns="http://www.w3.org/2000/09/xmldsig#"><X509Data><X509Certificate>${escapeXml(compactCert)}</X509Certificate></X509Data></KeyInfo></KeyDescriptor>` : ""}
-  </SPSSODescriptor>
-</EntityDescriptor>`;
+    const metadataXml = await ssoService.buildMetadataXml(
+      resolved.organization,
+      `${req.protocol}://${host}`,
+    );
 
     res.status(200).setHeader("Content-Type", "application/samlmetadata+xml");
     return res.send(metadataXml);
@@ -848,45 +1396,59 @@ ${compactCert ? `    <KeyDescriptor use="signing"><KeyInfo xmlns="http://www.w3.
         org: Array.isArray(req.query.org) ? req.query.org[0] : req.query.org,
         next: Array.isArray(req.query.next) ? req.query.next[0] : req.query.next,
       });
-      const nextPath = normalizeNextPath(parsed.next);
-      const resolved = await resolveOrganizationForSso(parsed.org, req.isAuthenticated?.() ? req.user?.id : undefined);
-      if (!resolved || !resolved.organization.id) {
-        const response: { message: string; availableOrganizationSlugs?: string[] } = {
-          message: "Organization not found",
-        };
-        if (resolved?.availableOrganizationSlugs?.length) {
-          response.availableOrganizationSlugs = resolved.availableOrganizationSlugs;
-        }
-        return res.status(404).json(response);
-      }
-      const organization = resolved.organization;
-
-      const authSettings = getOrgAuthSettings(organization.settings);
-      if (authSettings.mode !== "saml" || !authSettings.ssoUrl) {
-        return res.redirect(`/auth/login?next=${encodeURIComponent(nextPath)}`);
-      }
-
-      const relayState = randomBytes(24).toString("hex");
-      (req.session as any).ssoPending = {
-        state: relayState,
-        organizationId: organization.id,
-        next: nextPath,
-        expiresAt: Date.now() + 10 * 60 * 1000,
-      };
-
-      let redirectUrl: URL;
-      try {
-        redirectUrl = new URL(authSettings.ssoUrl);
-      } catch {
-        return res.status(400).json({ message: "SSO URL is not configured correctly" });
-      }
-
-      redirectUrl.searchParams.set("relayState", relayState);
-      redirectUrl.searchParams.set("org", organization.slug);
-      redirectUrl.searchParams.set("next", nextPath);
-      return res.redirect(302, redirectUrl.toString());
+      const nextPath = ssoService.normalizeNextPath(parsed.next);
+      const started = await ssoService.startLogin(
+        parsed.org,
+        nextPath,
+        req.isAuthenticated?.() ? req.user?.id : undefined,
+      );
+      (req.session as any).ssoPending = started.pending;
+      return res.redirect(302, started.redirectUrl);
     } catch (err: any) {
+      if (err?.message === "Organization is not configured for SSO") {
+        const requestedNext = Array.isArray(req.query.next) ? req.query.next[0] : req.query.next;
+        return res.redirect(`/auth/login?next=${encodeURIComponent(ssoService.normalizeNextPath(getOptionalString(requestedNext) ?? undefined))}`);
+      }
+      if (err?.message === "Organization not found") {
+        return res.status(404).json({
+          message: err.message,
+          availableOrganizationSlugs: err.availableOrganizationSlugs ?? [],
+        });
+      }
       return res.status(400).json({ message: err.message || "Invalid SSO start request" });
+    }
+  });
+
+  app.get("/api/auth/oidc/start", async (req, res) => {
+    try {
+      const parsed = ssoStartSchema.parse({
+        org: Array.isArray(req.query.org) ? req.query.org[0] : req.query.org,
+        next: Array.isArray(req.query.next) ? req.query.next[0] : req.query.next,
+      });
+      const nextPath = ssoService.normalizeNextPath(parsed.next);
+      const started = await ssoService.startOidcLogin(
+        parsed.org,
+        nextPath,
+        req.isAuthenticated?.() ? req.user?.id : undefined,
+        req.protocol,
+        req.get("host"),
+      );
+      (req.session as any).ssoPending = started.pending;
+      return res.redirect(302, started.redirectUrl);
+    } catch (err: any) {
+      if (err?.message === "Organization is not configured for OIDC") {
+        const requestedNext = Array.isArray(req.query.next) ? req.query.next[0] : req.query.next;
+        return res.redirect(
+          `/auth/login?next=${encodeURIComponent(ssoService.normalizeNextPath(getOptionalString(requestedNext) ?? undefined))}`,
+        );
+      }
+      if (err?.message === "Organization not found") {
+        return res.status(404).json({
+          message: err.message,
+          availableOrganizationSlugs: err.availableOrganizationSlugs ?? [],
+        });
+      }
+      return res.status(400).json({ message: err.message || "Invalid OIDC start request" });
     }
   });
 
@@ -899,192 +1461,75 @@ ${compactCert ? `    <KeyDescriptor use="signing"><KeyInfo xmlns="http://www.w3.
         SAMLResponse: samlResponse,
       });
 
-      const pending = (req.session as any).ssoPending as
-        | { state: string; organizationId: string; next: string; expiresAt: number }
-        | undefined;
-      if (!pending || pending.state !== parsed.RelayState) {
-        return res.status(400).json({ message: "SSO state is invalid or missing" });
-      }
-      if (pending.expiresAt < Date.now()) {
-        (req.session as any).ssoPending = undefined;
-        return res.status(400).json({ message: "SSO state has expired" });
+      const pending = (req.session as any).ssoPending as import("./services/ssoService").SsoPendingState | undefined;
+      try {
+        ssoService.assertPendingState(pending, parsed.RelayState);
+      } catch (stateError: any) {
+        if (stateError?.message === "SSO state has expired") {
+          (req.session as any).ssoPending = undefined;
+        }
+        return res.status(400).json({ message: stateError?.message || "SSO state is invalid or missing" });
       }
 
-      const [organization] = await db
-        .select({ id: organizations.id, slug: organizations.slug, settings: organizations.settings })
-        .from(organizations)
-        .where(eq(organizations.id, pending.organizationId))
-        .limit(1);
+      if (pending?.provider !== "saml") {
+        (req.session as any).ssoPending = undefined;
+        return res.status(400).json({ message: "SSO state is invalid or missing" });
+      }
+
+      const organization = await storage.getOrganizationById(pending!.organizationId);
       if (!organization) {
         (req.session as any).ssoPending = undefined;
         return res.status(404).json({ message: "Organization not found" });
       }
 
-      const authSettings = getOrgAuthSettings(organization.settings);
-      if (authSettings.mode !== "saml") {
-        (req.session as any).ssoPending = undefined;
-        return res.status(400).json({ message: "Organization is not configured for SSO" });
-      }
-      let principal: { email: string | null; fullName: string | null };
+      const principal = await ssoService.buildPrincipalFromCallback(
+        {
+          id: organization.id,
+          slug: organization.slug,
+          name: organization.name,
+          settings: organization.settings,
+        },
+        parsed.RelayState,
+        parsed.SAMLResponse,
+        req.protocol,
+        req.get("host"),
+      );
 
-      if (authSettings.strictSamlValidation) {
-        if (!authSettings.certificate) {
-          (req.session as any).ssoPending = undefined;
-          return res.status(400).json({ message: "IdP certificate is required for strict SAML validation" });
-        }
-
-        const host = req.get("host");
-        if (!host) {
-          (req.session as any).ssoPending = undefined;
-          return res.status(400).json({ message: "Unable to resolve request host for SAML validation" });
-        }
-
-        const fallbackEntityId = `${req.protocol}://${host}/api/auth/sso/metadata?org=${encodeURIComponent(
-          organization.slug,
-        )}`;
-        const spIssuer = authSettings.entityId || fallbackEntityId;
-        const callbackUrl = authSettings.callbackUrl || `${req.protocol}://${host}/api/auth/sso/callback`;
-
-        const saml = new SAML({
-          callbackUrl,
-          issuer: spIssuer,
-          idpCert: authSettings.certificate,
-          entryPoint: authSettings.ssoUrl ?? undefined,
-          audience: spIssuer,
-          validateInResponseTo: ValidateInResponseTo.never,
-          wantAssertionsSigned: true,
-          wantAuthnResponseSigned: true,
-          acceptedClockSkewMs: 2 * 60 * 1000,
-          idpIssuer: authSettings.idpIssuer ?? undefined,
-        });
-
-        let profileEmail: string | null = null;
-        let profileFullName: string | null = null;
-        try {
-          const validated = await saml.validatePostResponseAsync({
-            SAMLResponse: parsed.SAMLResponse,
-            RelayState: parsed.RelayState,
-          });
-          if (validated.loggedOut || !validated.profile) {
-            (req.session as any).ssoPending = undefined;
-            return res.status(400).json({ message: "SAML response did not contain an authentication profile" });
-          }
-
-          const profile = validated.profile;
-          const profileEmailCandidate = [
-            profile.email,
-            profile.mail,
-            profile["urn:oid:0.9.2342.19200300.100.1.3"],
-            typeof profile.nameID === "string" ? profile.nameID : null,
-          ].find((value): value is string => typeof value === "string" && value.includes("@"));
-          profileEmail = profileEmailCandidate ?? null;
-
-          const profileNameCandidate = [
-            profile.displayName,
-            profile.cn,
-            profile.givenName && profile.sn ? `${profile.givenName} ${profile.sn}` : null,
-            typeof profile.name === "string" ? profile.name : null,
-          ].find((value): value is string => typeof value === "string" && value.trim().length > 0);
-          profileFullName = profileNameCandidate ?? null;
-        } catch (validationError: any) {
-          (req.session as any).ssoPending = undefined;
-          return res.status(400).json({
-            message: validationError?.message || "SAML signature or assertion validation failed",
-          });
-        }
-
-        principal = {
-          email: profileEmail,
-          fullName: profileFullName,
-        };
-      } else {
-        let samlXml = "";
-        try {
-          samlXml = Buffer.from(parsed.SAMLResponse, "base64").toString("utf8");
-        } catch {
-          (req.session as any).ssoPending = undefined;
-          return res.status(400).json({ message: "Invalid SAML response encoding" });
-        }
-        if (!samlXml.includes("<")) {
-          (req.session as any).ssoPending = undefined;
-          return res.status(400).json({ message: "Invalid SAML response payload" });
-        }
-        if (authSettings.entityId && !samlXml.includes(authSettings.entityId)) {
-          (req.session as any).ssoPending = undefined;
-          return res.status(400).json({ message: "SAML response audience mismatch" });
-        }
-        principal = extractSamlPrincipal(samlXml);
-      }
       if (!principal.email) {
         (req.session as any).ssoPending = undefined;
         return res.status(400).json({ message: "SAML response did not include a usable email claim" });
       }
 
-      const emailDomain = principal.email.split("@")[1]?.toLowerCase() ?? "";
-      if (authSettings.allowedDomains.length > 0 && !authSettings.allowedDomains.includes(emailDomain)) {
-        (req.session as any).ssoPending = undefined;
-        return res.status(403).json({ message: "Email domain is not allowed for this organization" });
-      }
-
-      let user =
-        (
-          await db
-            .select()
-            .from(users)
-            .where(sql`lower(${users.email}) = lower(${principal.email})`)
-            .limit(1)
-        )[0] ?? null;
-      if (!user) {
-        if (!authSettings.jitProvisioning) {
-          (req.session as any).ssoPending = undefined;
-          return res.status(403).json({ message: "JIT user provisioning is disabled for this organization" });
-        }
-
-        const emailLocalPart = principal.email.split("@")[0] ?? "user";
-        const baseUsername = emailLocalPart.toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 24) || "user";
-        let usernameCandidate = baseUsername;
-        let suffix = 1;
-        while (await storage.getUserByUsername(usernameCandidate)) {
-          usernameCandidate = `${baseUsername}${suffix}`.slice(0, 30);
-          suffix += 1;
-        }
-
-        const generatedPasswordHash = await hashPassword(randomBytes(32).toString("hex"));
-        user = await storage.createUser({
-          username: usernameCandidate,
-          password: generatedPasswordHash,
-          fullName: principal.fullName ?? emailLocalPart,
+      let completed;
+      try {
+        completed = await ssoService.completeLogin(pending!, {
           email: principal.email,
-          role: authSettings.defaultRole,
+          fullName: principal.fullName,
+          providerSubject: principal.providerSubject,
+          externalGroup: principal.externalGroup,
         });
+      } catch (completionError: any) {
+        (req.session as any).ssoPending = undefined;
+        const message = completionError?.message || "Failed to complete SSO callback";
+        const derivedStatus =
+          message === "Organization not found"
+            ? 404
+            : message === "Email domain is not allowed for this organization" ||
+                message === "JIT user provisioning is disabled for this organization"
+              ? 403
+              : 400;
+        const status = completionError?.status ?? derivedStatus;
+        return res.status(status).json({ message });
       }
 
-      const userMemberships = await storage.getMembershipsByUserId(user.id);
-      const existingMembership = userMemberships.find((membership) => membership.organizationId === organization.id);
-      if (!existingMembership) {
-        await storage.createMembership({
-          userId: user.id,
-          organizationId: organization.id,
-          role: authSettings.defaultRole,
-          membershipState: "active",
-          isDefault: !userMemberships.some((membership) => membership.isDefault && membership.membershipState === "active"),
-          invitedBy: null,
-        });
-      } else if (existingMembership.membershipState !== "active") {
-        await db
-          .update(memberships)
-          .set({ membershipState: "active", updatedAt: new Date() })
-          .where(eq(memberships.id, existingMembership.id));
-      }
-
-      await regenerateSessionForUser(req, user);
-      req.session.currentOrganizationId = organization.id;
+      await regenerateSessionForUser(req, completed.user);
+      req.session.currentOrganizationId = completed.organization.id;
       (req.session as any).ssoPending = undefined;
 
       const authUser = await buildAndPersistAuthPayload(req);
       return res.json({
         ok: true,
-        next: normalizeNextPath(pending.next),
+        next: completed.next,
         user: authUser,
       });
     } catch (err: any) {
@@ -1095,106 +1540,190 @@ ${compactCert ? `    <KeyDescriptor use="signing"><KeyInfo xmlns="http://www.w3.
   app.post("/api/auth/sso/mock-callback", async (req, res) => {
     try {
       const parsed = ssoMockCallbackSchema.parse(req.body ?? {});
-      const pending = (req.session as any).ssoPending as
-        | { state: string; organizationId: string; next: string; expiresAt: number }
-        | undefined;
+      const pending = (req.session as any).ssoPending as import("./services/ssoService").SsoPendingState | undefined;
+      try {
+        ssoService.assertPendingState(pending, parsed.state);
+      } catch (stateError: any) {
+        if (stateError?.message === "SSO state has expired") {
+          (req.session as any).ssoPending = undefined;
+        }
+        return res.status(400).json({ message: stateError?.message || "SSO state is invalid or missing" });
+      }
 
-      if (!pending || pending.state !== parsed.state) {
+      if (pending?.provider !== "saml") {
+        (req.session as any).ssoPending = undefined;
         return res.status(400).json({ message: "SSO state is invalid or missing" });
       }
 
-      if (pending.expiresAt < Date.now()) {
-        (req.session as any).ssoPending = undefined;
-        return res.status(400).json({ message: "SSO state has expired" });
-      }
-
-      const [organization] = await db
-        .select({ id: organizations.id, slug: organizations.slug, settings: organizations.settings })
-        .from(organizations)
-        .where(eq(organizations.id, pending.organizationId))
-        .limit(1);
-
-      if (!organization) {
-        (req.session as any).ssoPending = undefined;
-        return res.status(404).json({ message: "Organization not found" });
-      }
-
-      const authSettings = getOrgAuthSettings(organization.settings);
-      if (authSettings.mode !== "saml") {
-        (req.session as any).ssoPending = undefined;
-        return res.status(400).json({ message: "Organization is not configured for SSO" });
-      }
-
-      const emailDomain = parsed.email.split("@")[1]?.toLowerCase() ?? "";
-      if (authSettings.allowedDomains.length > 0 && !authSettings.allowedDomains.includes(emailDomain)) {
-        (req.session as any).ssoPending = undefined;
-        return res.status(403).json({ message: "Email domain is not allowed for this organization" });
-      }
-
-      let user =
-        (
-          await db
-            .select()
-            .from(users)
-            .where(sql`lower(${users.email}) = lower(${parsed.email})`)
-            .limit(1)
-        )[0] ?? null;
-
-      if (!user) {
-        if (!authSettings.jitProvisioning) {
-          (req.session as any).ssoPending = undefined;
-          return res.status(403).json({ message: "JIT user provisioning is disabled for this organization" });
-        }
-
-        const emailLocalPart = parsed.email.split("@")[0] ?? "user";
-        const baseUsername = emailLocalPart.toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 24) || "user";
-        let usernameCandidate = baseUsername;
-        let suffix = 1;
-        while (await storage.getUserByUsername(usernameCandidate)) {
-          usernameCandidate = `${baseUsername}${suffix}`.slice(0, 30);
-          suffix += 1;
-        }
-
-        const generatedPasswordHash = await hashPassword(randomBytes(32).toString("hex"));
-        user = await storage.createUser({
-          username: usernameCandidate,
-          password: generatedPasswordHash,
-          fullName: parsed.fullName ?? emailLocalPart,
+      let completed;
+      try {
+        completed = await ssoService.completeLogin(pending!, {
           email: parsed.email,
-          role: authSettings.defaultRole,
+          fullName: parsed.fullName,
+          providerSubject: parsed.email,
         });
+      } catch (completionError: any) {
+        (req.session as any).ssoPending = undefined;
+        const message = completionError?.message || "Failed to complete SSO callback";
+        const derivedStatus =
+          message === "Organization not found"
+            ? 404
+            : message === "Email domain is not allowed for this organization" ||
+                message === "JIT user provisioning is disabled for this organization"
+              ? 403
+              : 400;
+        const status = completionError?.status ?? derivedStatus;
+        return res.status(status).json({ message });
       }
 
-      const userMemberships = await storage.getMembershipsByUserId(user.id);
-      const existingMembership = userMemberships.find((membership) => membership.organizationId === organization.id);
-      if (!existingMembership) {
-        await storage.createMembership({
-          userId: user.id,
-          organizationId: organization.id,
-          role: authSettings.defaultRole,
-          membershipState: "active",
-          isDefault: !userMemberships.some((membership) => membership.isDefault && membership.membershipState === "active"),
-          invitedBy: null,
-        });
-      } else if (existingMembership.membershipState !== "active") {
-        await db
-          .update(memberships)
-          .set({ membershipState: "active", updatedAt: new Date() })
-          .where(eq(memberships.id, existingMembership.id));
-      }
-
-      await regenerateSessionForUser(req, user);
-      req.session.currentOrganizationId = organization.id;
+      await regenerateSessionForUser(req, completed.user);
+      req.session.currentOrganizationId = completed.organization.id;
       (req.session as any).ssoPending = undefined;
 
       const authUser = await buildAndPersistAuthPayload(req);
       return res.json({
         ok: true,
-        next: normalizeNextPath(pending.next),
+        next: completed.next,
         user: authUser,
       });
     } catch (err: any) {
       return res.status(400).json({ message: err.message || "Failed to complete SSO callback" });
+    }
+  });
+
+  app.get("/api/auth/oidc/callback", async (req, res) => {
+    try {
+      const parsed = oidcCallbackQuerySchema.parse({
+        code: Array.isArray(req.query.code) ? req.query.code[0] : req.query.code,
+        state: Array.isArray(req.query.state) ? req.query.state[0] : req.query.state,
+      });
+      const pending = (req.session as any).ssoPending as import("./services/ssoService").SsoPendingState | undefined;
+      try {
+        ssoService.assertPendingState(pending, parsed.state);
+      } catch (stateError: any) {
+        if (stateError?.message === "SSO state has expired") {
+          (req.session as any).ssoPending = undefined;
+        }
+        return res.status(400).json({ message: stateError?.message || "OIDC state is invalid or missing" });
+      }
+
+      if (pending?.provider !== "oidc") {
+        (req.session as any).ssoPending = undefined;
+        return res.status(400).json({ message: "OIDC state is invalid or missing" });
+      }
+
+      const organization = await storage.getOrganizationById(pending.organizationId);
+      if (!organization) {
+        (req.session as any).ssoPending = undefined;
+        return res.status(404).json({ message: "Organization not found" });
+      }
+
+      const principal = await ssoService.buildPrincipalFromOidcCallback(
+        {
+          id: organization.id,
+          slug: organization.slug,
+          name: organization.name,
+          settings: organization.settings,
+        },
+        pending,
+        parsed.code,
+        req.protocol,
+        req.get("host"),
+      );
+
+      if (!principal.email) {
+        (req.session as any).ssoPending = undefined;
+        return res.status(400).json({ message: "OIDC token did not include a usable email claim" });
+      }
+
+      let completed;
+      try {
+        completed = await ssoService.completeLogin(pending, {
+          email: principal.email,
+          fullName: principal.fullName,
+          providerSubject: principal.providerSubject,
+          externalGroup: principal.externalGroup,
+        });
+      } catch (completionError: any) {
+        (req.session as any).ssoPending = undefined;
+        const message = completionError?.message || "Failed to complete OIDC callback";
+        const derivedStatus =
+          message === "Organization not found"
+            ? 404
+            : message === "Email domain is not allowed for this organization" ||
+                message === "JIT user provisioning is disabled for this organization"
+              ? 403
+              : 400;
+        const status = completionError?.status ?? derivedStatus;
+        return res.status(status).json({ message });
+      }
+
+      await regenerateSessionForUser(req, completed.user);
+      req.session.currentOrganizationId = completed.organization.id;
+      (req.session as any).ssoPending = undefined;
+
+      const authUser = await buildAndPersistAuthPayload(req);
+      return res.json({
+        ok: true,
+        next: completed.next,
+        user: authUser,
+      });
+    } catch (err: any) {
+      return res.status(400).json({ message: err.message || "Failed to complete OIDC callback" });
+    }
+  });
+
+  app.post("/api/auth/oidc/mock-callback", async (req, res) => {
+    try {
+      const parsed = oidcMockCallbackSchema.parse(req.body ?? {});
+      const pending = (req.session as any).ssoPending as import("./services/ssoService").SsoPendingState | undefined;
+      try {
+        ssoService.assertPendingState(pending, parsed.state);
+      } catch (stateError: any) {
+        if (stateError?.message === "SSO state has expired") {
+          (req.session as any).ssoPending = undefined;
+        }
+        return res.status(400).json({ message: stateError?.message || "OIDC state is invalid or missing" });
+      }
+
+      if (pending?.provider !== "oidc") {
+        (req.session as any).ssoPending = undefined;
+        return res.status(400).json({ message: "OIDC state is invalid or missing" });
+      }
+
+      let completed;
+      try {
+        completed = await ssoService.completeLogin(pending, {
+          email: parsed.email,
+          fullName: parsed.fullName,
+          providerSubject: parsed.providerSubject ?? parsed.email,
+        });
+      } catch (completionError: any) {
+        (req.session as any).ssoPending = undefined;
+        const message = completionError?.message || "Failed to complete OIDC callback";
+        const derivedStatus =
+          message === "Organization not found"
+            ? 404
+            : message === "Email domain is not allowed for this organization" ||
+                message === "JIT user provisioning is disabled for this organization"
+              ? 403
+              : 400;
+        const status = completionError?.status ?? derivedStatus;
+        return res.status(status).json({ message });
+      }
+
+      await regenerateSessionForUser(req, completed.user);
+      req.session.currentOrganizationId = completed.organization.id;
+      (req.session as any).ssoPending = undefined;
+
+      const authUser = await buildAndPersistAuthPayload(req);
+      return res.json({
+        ok: true,
+        next: completed.next,
+        user: authUser,
+      });
+    } catch (err: any) {
+      return res.status(400).json({ message: err.message || "Failed to complete OIDC callback" });
     }
   });
 
@@ -1284,195 +1813,53 @@ ${compactCert ? `    <KeyDescriptor use="signing"><KeyInfo xmlns="http://www.w3.
   });
 
   app.get("/api/organization/invites", requireAuth, requireTenant, requireOrgRole("owner", "admin"), async (req, res) => {
-    const rows = await db
-      .select({
-        id: organizationInvites.id,
-        email: organizationInvites.email,
-        role: organizationInvites.role,
-        status: organizationInvites.status,
-        invitedBy: organizationInvites.invitedBy,
-        invitedByName: users.fullName,
-        expiresAt: organizationInvites.expiresAt,
-        acceptedAt: organizationInvites.acceptedAt,
-        revokedAt: organizationInvites.revokedAt,
-        resendCount: organizationInvites.resendCount,
-        createdAt: organizationInvites.createdAt,
-        updatedAt: organizationInvites.updatedAt,
-      })
-      .from(organizationInvites)
-      .leftJoin(users, eq(organizationInvites.invitedBy, users.id))
-      .where(eq(organizationInvites.organizationId, req.tenant!.organizationId))
-      .orderBy(desc(organizationInvites.createdAt));
-
-    const now = Date.now();
-    const invites = rows.map((row) => {
-      const computedExpired =
-        row.status === "pending" && row.expiresAt && row.expiresAt.getTime() < now;
-      return {
-        ...row,
-        status: computedExpired ? "expired" : row.status,
-      };
-    });
-
+    const invites = await inviteService.listInvites(req.tenant!.organizationId);
     return res.json(invites);
   });
 
   app.post("/api/organization/invites", requireAuth, requireTenant, requireOrgRole("owner", "admin"), async (req, res) => {
     try {
       const parsed = createInviteSchema.parse(req.body);
-      const inviteToken = randomBytes(24).toString("hex");
-      const expiresAt = new Date(Date.now() + parsed.expiresInDays * 24 * 60 * 60 * 1000);
-
-      const existingMembershipForEmail = await db
-        .select({ id: memberships.id })
-        .from(users)
-        .innerJoin(memberships, eq(memberships.userId, users.id))
-        .where(
-          and(
-            sql`lower(${users.email}) = lower(${parsed.email})`,
-            eq(memberships.organizationId, req.tenant!.organizationId),
-            eq(memberships.membershipState, "active"),
-          ),
-        )
-        .limit(1);
-
-      if (existingMembershipForEmail.length > 0) {
-        return res.status(409).json({ message: "A member with this email already exists in the organization" });
-      }
-
-      const [invite] = await db
-        .insert(organizationInvites)
-        .values({
-          organizationId: req.tenant!.organizationId,
-          email: parsed.email,
-          role: parsed.role,
-          status: "pending",
-          token: inviteToken,
-          invitedBy: req.user!.id,
-          expiresAt,
-        })
-        .returning();
-
-      await recordAdminAuditEvent({
+      const result = await inviteService.createInvite({
         organizationId: req.tenant!.organizationId,
         actorUserId: req.user!.id,
         actorName: req.user!.fullName || req.user!.username,
-        action: "invite.created",
-        targetType: "invite",
-        targetId: invite.id,
-        metadata: {
-          email: invite.email,
-          role: invite.role,
-          expiresAt: invite.expiresAt,
-        },
+        email: parsed.email,
+        role: parsed.role,
+        expiresInDays: parsed.expiresInDays,
       });
-
-      return res.status(201).json({
-        id: invite.id,
-        email: invite.email,
-        role: invite.role,
-        status: invite.status,
-        expiresAt: invite.expiresAt,
-        inviteToken,
-        inviteUrl: `/auth/invite?token=${inviteToken}`,
-      });
+      return res.status(201).json(result);
     } catch (err: any) {
-      return res.status(400).json({ message: err.message || "Failed to create invite" });
+      return res.status(err?.status ?? 400).json({ message: err.message || "Failed to create invite" });
     }
   });
 
   app.post("/api/organization/invites/:inviteId/resend", requireAuth, requireTenant, requireOrgRole("owner", "admin"), async (req, res) => {
-    const inviteId = routeParam(req.params.inviteId);
-    const [invite] = await db
-      .select()
-      .from(organizationInvites)
-      .where(and(eq(organizationInvites.id, inviteId), eq(organizationInvites.organizationId, req.tenant!.organizationId)))
-      .limit(1);
-
-    if (!invite) {
-      return res.status(404).json({ message: "Invite not found" });
+    try {
+      const result = await inviteService.resendInvite({
+        organizationId: req.tenant!.organizationId,
+        actorUserId: req.user!.id,
+        actorName: req.user!.fullName || req.user!.username,
+        inviteId: routeParam(req.params.inviteId),
+      });
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(err?.status ?? 400).json({ message: err.message || "Failed to resend invite" });
     }
-    if (invite.status === "accepted" || invite.status === "revoked") {
-      return res.status(400).json({ message: "Invite can no longer be resent" });
-    }
-
-    const inviteToken = randomBytes(24).toString("hex");
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-
-    const [updated] = await db
-      .update(organizationInvites)
-      .set({
-        token: inviteToken,
-        status: "pending",
-        expiresAt,
-        resendCount: (invite.resendCount ?? 0) + 1,
-        updatedAt: new Date(),
-      })
-      .where(eq(organizationInvites.id, inviteId))
-      .returning();
-
-    await recordAdminAuditEvent({
-      organizationId: req.tenant!.organizationId,
-      actorUserId: req.user!.id,
-      actorName: req.user!.fullName || req.user!.username,
-      action: "invite.resent",
-      targetType: "invite",
-      targetId: inviteId,
-      metadata: {
-        email: updated.email,
-        resendCount: updated.resendCount,
-        expiresAt: updated.expiresAt,
-      },
-    });
-
-    return res.json({
-      id: updated.id,
-      status: updated.status,
-      expiresAt: updated.expiresAt,
-      resendCount: updated.resendCount,
-      inviteToken,
-      inviteUrl: `/auth/invite?token=${inviteToken}`,
-    });
   });
 
   app.post("/api/organization/invites/:inviteId/revoke", requireAuth, requireTenant, requireOrgRole("owner", "admin"), async (req, res) => {
-    const inviteId = routeParam(req.params.inviteId);
-    const [invite] = await db
-      .select()
-      .from(organizationInvites)
-      .where(and(eq(organizationInvites.id, inviteId), eq(organizationInvites.organizationId, req.tenant!.organizationId)))
-      .limit(1);
-
-    if (!invite) {
-      return res.status(404).json({ message: "Invite not found" });
+    try {
+      const result = await inviteService.revokeInvite({
+        organizationId: req.tenant!.organizationId,
+        actorUserId: req.user!.id,
+        actorName: req.user!.fullName || req.user!.username,
+        inviteId: routeParam(req.params.inviteId),
+      });
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(err?.status ?? 400).json({ message: err.message || "Failed to revoke invite" });
     }
-    if (invite.status === "accepted" || invite.status === "revoked") {
-      return res.status(400).json({ message: "Invite can no longer be revoked" });
-    }
-
-    const [updated] = await db
-      .update(organizationInvites)
-      .set({
-        status: "revoked",
-        revokedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(organizationInvites.id, inviteId))
-      .returning();
-
-    await recordAdminAuditEvent({
-      organizationId: req.tenant!.organizationId,
-      actorUserId: req.user!.id,
-      actorName: req.user!.fullName || req.user!.username,
-      action: "invite.revoked",
-      targetType: "invite",
-      targetId: inviteId,
-      metadata: {
-        email: updated.email,
-      },
-    });
-
-    return res.json({ ok: true, id: updated.id, status: updated.status });
   });
 
   app.get("/api/organization/invites/preview", async (req, res) => {
@@ -1482,147 +1869,27 @@ ${compactCert ? `    <KeyDescriptor use="signing"><KeyInfo xmlns="http://www.w3.
       return res.status(400).json({ message: "Invite token is required" });
     }
 
-    const [invite] = await db
-      .select({
-        id: organizationInvites.id,
-        email: organizationInvites.email,
-        role: organizationInvites.role,
-        status: organizationInvites.status,
-        expiresAt: organizationInvites.expiresAt,
-        organizationName: organizations.name,
-      })
-      .from(organizationInvites)
-      .leftJoin(organizations, eq(organizationInvites.organizationId, organizations.id))
-      .where(eq(organizationInvites.token, token))
-      .limit(1);
-
-    if (!invite) {
-      return res.status(404).json({ message: "Invite token is invalid" });
+    try {
+      const preview = await inviteService.previewInvite(token);
+      return res.json(preview);
+    } catch (err: any) {
+      return res.status(err?.status ?? 400).json({ message: err.message || "Failed to preview invite" });
     }
-
-    if (invite.status !== "pending") {
-      return res.status(400).json({ message: "Invite is no longer valid" });
-    }
-
-    if (invite.expiresAt.getTime() < Date.now()) {
-      await db
-        .update(organizationInvites)
-        .set({ status: "expired", updatedAt: new Date() })
-        .where(eq(organizationInvites.id, invite.id));
-      return res.status(400).json({ message: "Invite has expired" });
-    }
-
-    return res.json({
-      id: invite.id,
-      email: invite.email,
-      role: invite.role,
-      organizationName: invite.organizationName,
-      expiresAt: invite.expiresAt,
-      status: invite.status,
-    });
   });
 
   app.post("/api/organization/invites/accept", async (req, res) => {
     try {
       const parsed = acceptInviteSchema.parse(req.body);
-      const [invite] = await db
-        .select()
-        .from(organizationInvites)
-        .where(eq(organizationInvites.token, parsed.token))
-        .limit(1);
-
-      if (!invite) {
-        return res.status(404).json({ message: "Invite token is invalid" });
-      }
-      if (!inviteStatusOptions.has(invite.status) || invite.status !== "pending") {
-        return res.status(400).json({ message: "Invite is no longer valid" });
-      }
-      if (invite.expiresAt.getTime() < Date.now()) {
-        await db
-          .update(organizationInvites)
-          .set({ status: "expired", updatedAt: new Date() })
-          .where(eq(organizationInvites.id, invite.id));
-        return res.status(400).json({ message: "Invite has expired" });
-      }
-
-      if (parsed.email && parsed.email.toLowerCase() !== invite.email.toLowerCase()) {
-        return res.status(400).json({ message: "Invite email does not match request email" });
-      }
-
-      const existingUsername = await storage.getUserByUsername(parsed.username);
-      if (existingUsername) {
-        return res.status(409).json({ message: "Username already exists" });
-      }
-
-      const existingEmail = await db
-        .select({ id: users.id })
-        .from(users)
-        .where(sql`lower(${users.email}) = lower(${invite.email})`)
-        .limit(1);
-      if (existingEmail.length > 0) {
-        return res.status(409).json({ message: "An account with this email already exists" });
-      }
-
-      const passwordValidation = validatePasswordStrength(parsed.password);
-      if (!passwordValidation.valid) {
-        return res.status(400).json({ message: passwordValidation.message });
-      }
-
-      const userRole = membershipRoles.includes(invite.role as (typeof membershipRoles)[number])
-        ? (invite.role === "owner" ? "admin" : invite.role)
-        : "reviewer";
-
-      const newUser = await storage.createUser({
+      const result = await inviteService.acceptInvite({
+        token: parsed.token,
         username: parsed.username,
-        password: await hashPassword(parsed.password),
+        password: parsed.password,
         fullName: parsed.fullName,
-        email: invite.email,
-        role: userRole,
+        email: parsed.email,
       });
-
-      const existingMemberships = await storage.getMembershipsByUserId(newUser.id);
-      const membership = await storage.createMembership({
-        userId: newUser.id,
-        organizationId: invite.organizationId,
-        role: invite.role,
-        membershipState: "active",
-        isDefault: existingMemberships.length === 0,
-        invitedBy: invite.invitedBy,
-      });
-
-      await db
-        .update(organizationInvites)
-        .set({
-          status: "accepted",
-          acceptedBy: newUser.id,
-          acceptedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(organizationInvites.id, invite.id));
-
-      await recordAdminAuditEvent({
-        organizationId: invite.organizationId,
-        actorUserId: newUser.id,
-        actorName: newUser.fullName || newUser.username,
-        action: "invite.accepted",
-        targetType: "membership",
-        targetId: membership.id,
-        targetUserId: newUser.id,
-        metadata: {
-          inviteId: invite.id,
-          role: invite.role,
-          email: invite.email,
-        },
-      });
-
-      return res.status(201).json({
-        ok: true,
-        userId: newUser.id,
-        organizationId: invite.organizationId,
-        membershipId: membership.id,
-      });
+      return res.status(201).json(result);
     } catch (err: any) {
-      return res.status(400).json({ message: err.message || "Failed to accept invite" });
+      return res.status(err?.status ?? 400).json({ message: err.message || "Failed to accept invite" });
     }
   });
 
@@ -1744,11 +2011,17 @@ ${compactCert ? `    <KeyDescriptor use="signing"><KeyInfo xmlns="http://www.w3.
 
           if (selectedMembership) {
             const selectedAuthSettings = getOrgAuthSettings(selectedMembership.organizationSettings);
-            if (selectedAuthSettings.mode === "saml" && selectedAuthSettings.enforceSso && !breakGlassAllowed) {
+            if (
+              (selectedAuthSettings.mode === "saml" || selectedAuthSettings.mode === "oidc") &&
+              selectedAuthSettings.enforceSso &&
+              !breakGlassAllowed
+            ) {
+              const authStartPath =
+                selectedAuthSettings.mode === "oidc" ? "/api/auth/oidc/start" : "/api/auth/sso/start";
               return res.status(403).json({
                 message: "Password login is disabled for this organization. Use SSO.",
                 ssoRequired: true,
-                ssoStartUrl: `/api/auth/sso/start?org=${encodeURIComponent(
+                ssoStartUrl: `${authStartPath}?org=${encodeURIComponent(
                   selectedMembership.organizationSlug,
                 )}&next=${encodeURIComponent(requestedNext)}`,
               });
@@ -2105,6 +2378,52 @@ ${compactCert ? `    <KeyDescriptor use="signing"><KeyInfo xmlns="http://www.w3.
     }
     const authPayload = await buildAndPersistAuthPayload(req);
     res.json(authPayload);
+  });
+
+  app.post("/api/auth/onboarding-state", requireAuth, async (req, res) => {
+    const parsed = onboardingStateSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Invalid onboarding state" });
+    }
+
+    const authPayload = await buildAndPersistAuthPayload(req);
+    if (!authPayload.currentOrganizationId) {
+      return res.status(400).json({ message: "No active organization context" });
+    }
+
+    const memberships = await storage.getMembershipsByUserId(req.user!.id);
+    const membership = memberships.find(
+      (entry) =>
+        entry.organizationId === authPayload.currentOrganizationId &&
+        entry.membershipState === "active",
+    );
+    if (!membership) {
+      return res.status(403).json({ message: "Invalid organization access" });
+    }
+
+    const existingState = authPayload.currentOrganizationOnboarding ?? {
+      currentStep: 0,
+      completedSteps: [],
+      dismissedAlerts: [],
+      snoozedAlerts: {},
+      updatedAt: null,
+    };
+
+    const nextState = {
+      currentStep: parsed.data.currentStep ?? existingState.currentStep,
+      completedSteps: parsed.data.completedSteps
+        ? Array.from(new Set(parsed.data.completedSteps)).slice(0, 10)
+        : existingState.completedSteps,
+      dismissedAlerts: parsed.data.dismissedAlerts
+        ? Array.from(new Set(parsed.data.dismissedAlerts)).slice(0, 20)
+        : existingState.dismissedAlerts,
+      snoozedAlerts: parsed.data.snoozedAlerts ?? existingState.snoozedAlerts,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await storage.updateMembershipOnboardingState(membership.id, nextState);
+    const refreshedPayload = await buildAndPersistAuthPayload(req);
+    return res.json(refreshedPayload);
   });
 
   app.post("/api/auth/switch-organization", requireAuth, async (req, res) => {

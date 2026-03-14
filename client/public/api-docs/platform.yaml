@@ -1,0 +1,1219 @@
+openapi: 3.1.0
+info:
+  title: AI Control Tower Platform API
+  version: 1.0.0
+  description: >
+    Broader platform OpenAPI reference for AI Control Tower covering authentication,
+    enterprise identity, tenant admin, registry, controls, workflows, audit, notifications,
+    evidence, exports, risk, dashboard, and marketing capture endpoints.
+  license:
+    name: Proprietary
+servers:
+  - url: https://enterprise-ai-governance.onrender.com
+    description: Production backend
+  - url: http://localhost:5000
+    description: Local development
+tags:
+  - name: Health
+    description: Health and readiness endpoints.
+  - name: Auth
+    description: Session, MFA, and current-user operations.
+  - name: Identity
+    description: SAML and OIDC federation flows.
+  - name: Org Admin
+    description: Organization-scoped admin operations and settings.
+  - name: Registry
+    description: AI system registry operations.
+  - name: Controls
+    description: Compliance and system control management.
+  - name: Workflows
+    description: Approval workflow operations.
+  - name: Audit
+    description: Tenant audit and admin audit retrieval.
+  - name: Notifications
+    description: Notification retrieval and acknowledgement.
+  - name: Evidence
+    description: Evidence upload, listing, and download operations.
+  - name: Exports
+    description: Export generation and download operations.
+  - name: Risk
+    description: Risk assessment operations.
+  - name: Dashboard
+    description: Dashboard, activity, and calendar views.
+  - name: Marketing
+    description: Marketing lead capture and analytics tracking.
+security:
+  - cookieAuth: []
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: connect.sid
+  parameters:
+    XOrganizationId:
+      name: X-Organization-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: Explicit active organization override for users with multiple memberships.
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MembershipId:
+      name: membershipId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    InviteId:
+      name: inviteId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DomainId:
+      name: domainId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ExportId:
+      name: exportId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SystemId:
+      name: systemId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
+    AuthUser:
+      type: object
+      additionalProperties: true
+      description: Current authenticated user payload with currentOrganizationId and organizations[].
+    HealthResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        service:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+      required: [ok, service, timestamp]
+    LeadCapture:
+      type: object
+      properties:
+        name:
+          type: string
+        workEmail:
+          type: string
+          format: email
+        company:
+          type: string
+        role:
+          type: string
+        teamSize:
+          type: string
+        primaryChallenge:
+          type: string
+        formType:
+          type: string
+          enum: [book_demo, start_pilot]
+        source:
+          type: [string, 'null']
+        ctaSource:
+          type: [string, 'null']
+        campaign:
+          type: [string, 'null']
+        notes:
+          type: [string, 'null']
+      required: [name, workEmail, company, role, teamSize, primaryChallenge, formType]
+    MarketingEvent:
+      type: object
+      properties:
+        eventName:
+          type: string
+        pagePath:
+          type: [string, 'null']
+        section:
+          type: [string, 'null']
+        cta:
+          type: [string, 'null']
+        source:
+          type: [string, 'null']
+        campaign:
+          type: [string, 'null']
+        referrer:
+          type: [string, 'null']
+        metadata:
+          type: object
+          additionalProperties: true
+      required: [eventName]
+    AuthSettings:
+      type: object
+      additionalProperties: true
+      description: Organization identity settings for local, SAML, or OIDC modes.
+    DomainList:
+      type: object
+      properties:
+        source:
+          type: string
+        domains:
+          type: array
+          items:
+            type: string
+        entries:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      required: [source, domains]
+    OrganizationMember:
+      type: object
+      additionalProperties: true
+    OrganizationInvite:
+      type: object
+      additionalProperties: true
+    AdminAuditEvent:
+      type: object
+      additionalProperties: true
+    AiSystem:
+      type: object
+      additionalProperties: true
+    ComplianceControl:
+      type: object
+      additionalProperties: true
+    SystemControl:
+      type: object
+      additionalProperties: true
+    ApprovalWorkflow:
+      type: object
+      additionalProperties: true
+    AuditLog:
+      type: object
+      additionalProperties: true
+    Notification:
+      type: object
+      additionalProperties: true
+    EvidenceFile:
+      type: object
+      additionalProperties: true
+    RiskAssessment:
+      type: object
+      additionalProperties: true
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Service health
+      security: []
+      responses:
+        '200':
+          description: Health payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/auth/user:
+    get:
+      tags: [Auth]
+      summary: Current authenticated user
+      responses:
+        '200':
+          description: Auth payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUser'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Self-service registration when enabled
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201':
+          description: Registered user
+        '403':
+          description: Registration disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Local username/password login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Auth payload
+        '403':
+          description: SSO enforced or access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout current session
+      responses:
+        '200':
+          description: Logout result
+
+  /api/auth/change-password:
+    post:
+      tags: [Auth]
+      summary: Change authenticated user password
+      responses:
+        '200':
+          description: Password changed
+
+  /api/auth/mfa/enroll:
+    post:
+      tags: [Auth]
+      summary: Start MFA enrollment
+      responses:
+        '200':
+          description: Enrollment challenge
+
+  /api/auth/mfa/verify-enroll:
+    post:
+      tags: [Auth]
+      summary: Verify MFA enrollment
+      responses:
+        '200':
+          description: MFA enabled
+
+  /api/auth/mfa/disable:
+    post:
+      tags: [Auth]
+      summary: Disable MFA
+      responses:
+        '200':
+          description: MFA disabled
+
+  /api/auth/mfa/recovery-codes/regenerate:
+    post:
+      tags: [Auth]
+      summary: Regenerate MFA recovery codes
+      responses:
+        '200':
+          description: New recovery codes
+
+  /api/auth/switch-organization:
+    post:
+      tags: [Auth]
+      summary: Switch active organization in session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                organizationId:
+                  type: string
+              required: [organizationId]
+      responses:
+        '200':
+          description: Switch result
+
+  /api/settings:
+    get:
+      tags: [Auth]
+      summary: Current user settings view
+      responses:
+        '200':
+          description: User/org settings
+    patch:
+      tags: [Auth]
+      summary: Update current user settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Updated settings
+
+  /api/auth/sso/metadata:
+    get:
+      tags: [Identity]
+      summary: SAML metadata document
+      security: []
+      parameters:
+        - name: org
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Metadata XML
+          content:
+            application/xml:
+              schema:
+                type: string
+
+  /api/auth/sso/start:
+    get:
+      tags: [Identity]
+      summary: Start SAML SSO login
+      security: []
+      parameters:
+        - name: org
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: next
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to IdP
+
+  /api/auth/sso/callback:
+    post:
+      tags: [Identity]
+      summary: Complete SAML callback
+      security: []
+      responses:
+        '200':
+          description: Authenticated session
+
+  /api/auth/sso/mock-callback:
+    post:
+      tags: [Identity]
+      summary: Mock SAML callback for regression coverage
+      security: []
+      responses:
+        '200':
+          description: Authenticated session
+
+  /api/auth/oidc/start:
+    get:
+      tags: [Identity]
+      summary: Start OIDC login
+      security: []
+      parameters:
+        - name: org
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: next
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to OIDC provider
+
+  /api/auth/oidc/callback:
+    get:
+      tags: [Identity]
+      summary: Complete OIDC callback
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Authenticated session
+
+  /api/auth/oidc/mock-callback:
+    post:
+      tags: [Identity]
+      summary: Mock OIDC callback for regression coverage
+      security: []
+      responses:
+        '200':
+          description: Authenticated session
+
+  /api/organization/auth-settings:
+    get:
+      tags: [Org Admin]
+      summary: Read org identity settings
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Organization auth settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSettings'
+    patch:
+      tags: [Org Admin]
+      summary: Update org identity settings
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthSettings'
+      responses:
+        '200':
+          description: Updated auth settings
+
+  /api/organization/domains:
+    get:
+      tags: [Org Admin]
+      summary: List managed org domains
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Domain list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainList'
+    put:
+      tags: [Org Admin]
+      summary: Replace managed org domains
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                domains:
+                  type: array
+                  items:
+                    type: string
+              required: [domains]
+      responses:
+        '200':
+          description: Updated domains
+
+  /api/organization/domains/{domainId}:
+    patch:
+      tags: [Org Admin]
+      summary: Update domain metadata
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/DomainId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Updated domain
+    delete:
+      tags: [Org Admin]
+      summary: Delete managed domain
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/DomainId'
+      responses:
+        '200':
+          description: Domain deleted
+
+  /api/organization/domains/{domainId}/verify:
+    post:
+      tags: [Org Admin]
+      summary: Verify managed domain via DNS TXT
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/DomainId'
+      responses:
+        '200':
+          description: Verification result
+
+  /api/organization/members:
+    get:
+      tags: [Org Admin]
+      summary: List organization members
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Member list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrganizationMember'
+
+  /api/organization/members/{membershipId}:
+    patch:
+      tags: [Org Admin]
+      summary: Update organization membership role or state
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/MembershipId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Updated membership
+
+  /api/organization/invites:
+    get:
+      tags: [Org Admin]
+      summary: List organization invites
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Invite list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrganizationInvite'
+    post:
+      tags: [Org Admin]
+      summary: Create invite
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201':
+          description: Invite created
+
+  /api/organization/invites/{inviteId}/resend:
+    post:
+      tags: [Org Admin]
+      summary: Resend invite
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/InviteId'
+      responses:
+        '200':
+          description: Invite resent
+
+  /api/organization/invites/{inviteId}/revoke:
+    post:
+      tags: [Org Admin]
+      summary: Revoke invite
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/InviteId'
+      responses:
+        '200':
+          description: Invite revoked
+
+  /api/organization/invites/preview:
+    get:
+      tags: [Org Admin]
+      summary: Preview invite token
+      security: []
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Invite preview
+
+  /api/organization/invites/accept:
+    post:
+      tags: [Org Admin]
+      summary: Accept invite
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201':
+          description: Invite accepted
+
+  /api/organization/admin-audit:
+    get:
+      tags: [Org Admin]
+      summary: Admin activity trail
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Admin audit events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminAuditEvent'
+
+  /api/track:
+    post:
+      tags: [Marketing]
+      summary: Record a marketing event
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarketingEvent'
+      responses:
+        '200':
+          description: Event captured
+
+  /api/leads:
+    post:
+      tags: [Marketing]
+      summary: Capture demo or pilot lead
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeadCapture'
+      responses:
+        '201':
+          description: Lead captured
+    get:
+      tags: [Marketing]
+      summary: List captured leads
+      responses:
+        '200':
+          description: Lead list
+
+  /api/ai-systems:
+    get:
+      tags: [Registry]
+      summary: List AI systems in active organization
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: AI system list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AiSystem'
+    post:
+      tags: [Registry]
+      summary: Create AI system
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201':
+          description: Created AI system
+
+  /api/ai-systems/{id}:
+    get:
+      tags: [Registry]
+      summary: Get AI system detail
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: AI system detail
+    patch:
+      tags: [Registry]
+      summary: Update AI system
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Updated AI system
+    delete:
+      tags: [Registry]
+      summary: Delete AI system
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Delete result
+
+  /api/ai-systems/{id}/controls:
+    get:
+      tags: [Registry]
+      summary: Get controls linked to AI system
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: System controls
+
+  /api/ai-systems/{id}/workflows:
+    get:
+      tags: [Registry]
+      summary: Get workflows linked to AI system
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: System workflows
+
+  /api/ai-systems/{id}/audit-logs:
+    get:
+      tags: [Registry]
+      summary: Get audit logs linked to AI system
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: System audit log
+
+  /api/compliance-controls:
+    get:
+      tags: [Controls]
+      summary: List framework control definitions
+      responses:
+        '200':
+          description: Compliance control definitions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ComplianceControl'
+
+  /api/system-controls:
+    get:
+      tags: [Controls]
+      summary: List organization system controls
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: System control list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SystemControl'
+    post:
+      tags: [Controls]
+      summary: Create system control
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201':
+          description: Created system control
+
+  /api/system-controls/{id}:
+    patch:
+      tags: [Controls]
+      summary: Update system control
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Updated system control
+
+  /api/system-controls/bulk:
+    post:
+      tags: [Controls]
+      summary: Bulk assign controls to systems
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Bulk assignment result
+
+  /api/approval-workflows:
+    get:
+      tags: [Workflows]
+      summary: List approval workflows
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Workflow list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApprovalWorkflow'
+    post:
+      tags: [Workflows]
+      summary: Create approval workflow
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201':
+          description: Created workflow
+
+  /api/approval-workflows/{id}:
+    patch:
+      tags: [Workflows]
+      summary: Update approval workflow
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Updated workflow
+
+  /api/audit-logs:
+    get:
+      tags: [Audit]
+      summary: List tenant-scoped audit logs
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Audit log list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditLog'
+
+  /api/notifications:
+    get:
+      tags: [Notifications]
+      summary: List notifications
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Notification list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+
+  /api/notifications/unread-count:
+    get:
+      tags: [Notifications]
+      summary: Count unread notifications
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Unread count
+
+  /api/notifications/{id}/read:
+    patch:
+      tags: [Notifications]
+      summary: Mark one notification as read
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Notification updated
+
+  /api/notifications/read-all:
+    post:
+      tags: [Notifications]
+      summary: Mark all notifications as read
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Read-all result
+
+  /api/exports:
+    post:
+      tags: [Exports]
+      summary: Create export job
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201':
+          description: Export created
+
+  /api/exports/{exportId}/download:
+    get:
+      tags: [Exports]
+      summary: Download export file
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/ExportId'
+      responses:
+        '200':
+          description: Export download
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /api/evidence:
+    get:
+      tags: [Evidence]
+      summary: List evidence files
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Evidence list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EvidenceFile'
+    post:
+      tags: [Evidence]
+      summary: Create evidence record/upload
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201':
+          description: Evidence created
+
+  /api/evidence/{id}/download:
+    get:
+      tags: [Evidence]
+      summary: Download evidence file
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Evidence download
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /api/evidence/{id}:
+    delete:
+      tags: [Evidence]
+      summary: Delete evidence file
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Evidence deleted
+
+  /api/risk-assessments:
+    get:
+      tags: [Risk]
+      summary: List risk assessments
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Risk assessment list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RiskAssessment'
+    post:
+      tags: [Risk]
+      summary: Create risk assessment
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201':
+          description: Risk assessment created
+
+  /api/risk-assessments/system/{systemId}:
+    get:
+      tags: [Risk]
+      summary: List risk assessments for AI system
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+        - $ref: '#/components/parameters/SystemId'
+      responses:
+        '200':
+          description: System risk assessments
+
+  /api/dashboard/trends:
+    get:
+      tags: [Dashboard]
+      summary: Dashboard trend aggregates
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Trend payload
+
+  /api/activity-dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Role-aware activity dashboard
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Activity dashboard payload
+
+  /api/calendar-events:
+    get:
+      tags: [Dashboard]
+      summary: Calendar event feed
+      parameters:
+        - $ref: '#/components/parameters/XOrganizationId'
+      responses:
+        '200':
+          description: Calendar events

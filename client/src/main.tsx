@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { resolveApiUrl } from "./lib/api-url";
+import { installGlobalErrorReporting, setLatestRequestId } from "./lib/monitoring";
 import "./index.css";
 
 function rewriteApiFetchInput(input: RequestInfo | URL): RequestInfo | URL {
@@ -24,9 +25,13 @@ function rewriteApiFetchInput(input: RequestInfo | URL): RequestInfo | URL {
 
 if (typeof window !== "undefined") {
   const originalFetch = window.fetch.bind(window);
-  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  installGlobalErrorReporting();
+
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const rewrittenInput = rewriteApiFetchInput(input);
-    return originalFetch(rewrittenInput, init);
+    const response = await originalFetch(rewrittenInput, init);
+    setLatestRequestId(response.headers.get("x-request-id"));
+    return response;
   }) as typeof window.fetch;
 }
 

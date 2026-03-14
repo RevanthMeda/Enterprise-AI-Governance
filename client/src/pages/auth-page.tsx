@@ -150,6 +150,15 @@ export default function AuthPage() {
                     <Button type="submit" className="w-full" disabled={loginMutation.isPending} data-testid="button-login">
                       {loginMutation.isPending ? "Signing in..." : "Sign In"}
                     </Button>
+                    {loginMutation.error && !mfaRequired ? (
+                      <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+                        {loginMutation.error.message}
+                      </div>
+                    ) : null}
+                    <p className="text-[11px] text-muted-foreground">
+                      Hosted environment note: if sign-in hangs, the backend may be waking from cold start. Wait
+                      20-30 seconds and try again.
+                    </p>
                   </form>
                 </Form>
                 <div className="my-4 flex items-center gap-3">

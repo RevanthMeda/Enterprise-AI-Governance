@@ -1,0 +1,10 @@
+extends:
+  - recommended
+
+rules:
+  operation-operationId: off
+  operation-4xx-response: off
+  operation-2xx-response: off
+  tag-description: off
+  no-server-example.com: off
+  info-license-strict: off

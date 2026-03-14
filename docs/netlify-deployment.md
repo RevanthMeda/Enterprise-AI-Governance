@@ -9,6 +9,12 @@ Use two deployments:
 - Netlify for frontend
 - Render/Railway/Fly (or similar) for backend
 
+Release operations:
+
+- automated validation/build: [deploy.yml](/mnt/d/Personal/Enterprise-AI-Governance/.github/workflows/deploy.yml)
+- manual promotion: [promote-production.yml](/mnt/d/Personal/Enterprise-AI-Governance/.github/workflows/promote-production.yml)
+- rollback guidance: [deployment-rollback-runbook.md](/mnt/d/Personal/Enterprise-AI-Governance/docs/deployment-rollback-runbook.md)
+
 ## 1) Deploy backend first
 
 Deploy the same repo as a Node web service with:
@@ -27,6 +33,15 @@ Required backend environment variables:
 
 Optional (if used in your flows):
 - `LEAD_WEBHOOK_URL=<webhook-url>`
+- `PUBLIC_APP_URL=https://<your-netlify-site>.netlify.app`
+- `SMTP_HOST=<smtp-host>`
+- `SMTP_PORT=<smtp-port>`
+- `SMTP_SECURE=<true|false>`
+- `SMTP_USER=<smtp-username>`
+- `SMTP_PASSWORD=<smtp-password>`
+- `SMTP_FROM=<from-address>`
+- `INVITE_WEBHOOK_URL=<delivery-webhook-url>`
+- `EXPOSE_INVITE_TOKENS=false`
 - `ALLOW_SELF_SIGNUP=false`
 - `CSRF_ENFORCED=true`
 - `SEED_TEST_USERS=true`
@@ -55,6 +70,7 @@ After deploy, verify:
 2. Login works from Netlify frontend.
 3. API requests go to backend domain (browser network tab).
 4. Session cookie is set on backend domain with `Secure` and `SameSite=None`.
+5. Organization invites generate frontend `/invite/accept` links and are delivered through SMTP or webhook if configured.
 
 ## 4) Common failure modes
 

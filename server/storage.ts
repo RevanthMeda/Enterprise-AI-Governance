@@ -2,6 +2,7 @@ import {
   type User, type InsertUser,
   type Organization, type InsertOrganization,
   type Membership, type InsertMembership,
+  type OrganizationDomain, type InsertOrganizationDomain,
   type AiSystem, type InsertAiSystem,
   type ComplianceControl, type InsertComplianceControl,
   type SystemControl, type InsertSystemControl,
@@ -10,7 +11,7 @@ import {
   type Notification, type InsertNotification,
   type EvidenceFile, type InsertEvidenceFile,
   type RiskAssessment, type InsertRiskAssessment,
-  organizations, memberships,
+  organizations, memberships, organizationDomains,
   users, aiSystems, complianceControls, systemControls, approvalWorkflows, auditLogs,
   notifications, evidenceFiles, riskAssessments,
 } from "@shared/schema";
@@ -31,6 +32,7 @@ export interface UserMembershipContext {
   membershipState: string;
   isDefault: boolean;
   invitedBy: string | null;
+  onboardingState: unknown;
   organizationName: string;
   organizationSlug: string;
   organizationStatus: string;
@@ -39,7 +41,21 @@ export interface UserMembershipContext {
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  findUserByProviderSubject(
+    authProvider: NonNullable<User["authProvider"]>,
+    authProviderSubject: string,
+  ): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUserAuthIdentity(
+    userId: string,
+    data: {
+      authProvider?: User["authProvider"];
+      authProviderSubject?: string | null;
+      emailVerified?: boolean;
+      lastLoginAt?: Date | null;
+    },
+  ): Promise<User | undefined>;
+  updateUserLastLogin(userId: string, at?: Date): Promise<User | undefined>;
   updateUserPassword(
     userId: string,
     data: {
@@ -58,10 +74,39 @@ export interface IStorage {
     },
   ): Promise<User | undefined>;
   getAllUsers(): Promise<User[]>;
+  getOrganizationById(id: string): Promise<Organization | undefined>;
   getOrganizationBySlug(slug: string): Promise<Organization | undefined>;
   createOrganization(org: InsertOrganization): Promise<Organization>;
+  getOrganizationDomainsByOrg(organizationId: string): Promise<OrganizationDomain[]>;
+  replaceOrganizationDomainsForOrg(
+    organizationId: string,
+    domains: Array<{
+      id?: string;
+      domain: string;
+      isVerified?: boolean;
+      isPrimary?: boolean;
+      verificationToken?: string;
+      verifiedAt?: Date | null;
+      createdAt?: Date;
+    }>,
+  ): Promise<OrganizationDomain[]>;
+  createOrganizationDomain(domain: InsertOrganizationDomain): Promise<OrganizationDomain>;
+  deleteOrganizationDomainByIdForOrg(organizationId: string, domainId: string): Promise<void>;
+  findOrganizationByEmailDomain(domain: string): Promise<Organization | undefined>;
   getMembershipsByUserId(userId: string): Promise<UserMembershipContext[]>;
   createMembership(membership: InsertMembership): Promise<Membership>;
+  updateMembershipProvisioningMetadata(
+    membershipId: string,
+    data: {
+      provisioningSource?: Membership["provisioningSource"];
+      externalGroup?: string | null;
+      lastSyncedAt?: Date | null;
+    },
+  ): Promise<Membership | undefined>;
+  updateMembershipOnboardingState(
+    membershipId: string,
+    onboardingState: Record<string, unknown>,
+  ): Promise<Membership | undefined>;
   getUsersByOrganization(organizationId: string): Promise<User[]>;
   getUsersByOrganizationRoles(organizationId: string, roles: string[]): Promise<User[]>;
 
@@ -213,9 +258,58 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async findUserByProviderSubject(
+    authProvider: NonNullable<User["authProvider"]>,
+    authProviderSubject: string,
+  ): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(
+        and(
+          eq(users.authProvider, authProvider),
+          eq(users.authProviderSubject, authProviderSubject),
+        ),
+      );
+    return user;
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
     return user;
+  }
+
+  async updateUserAuthIdentity(
+    userId: string,
+    data: {
+      authProvider?: User["authProvider"];
+      authProviderSubject?: string | null;
+      emailVerified?: boolean;
+      lastLoginAt?: Date | null;
+    },
+  ): Promise<User | undefined> {
+    const [updated] = await db
+      .update(users)
+      .set({
+        authProvider: data.authProvider,
+        authProviderSubject: data.authProviderSubject,
+        emailVerified: data.emailVerified,
+        lastLoginAt: data.lastLoginAt,
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    return updated;
+  }
+
+  async updateUserLastLogin(userId: string, at: Date = new Date()): Promise<User | undefined> {
+    const [updated] = await db
+      .update(users)
+      .set({
+        lastLoginAt: at,
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    return updated;
   }
 
   async updateUserPassword(
@@ -264,6 +358,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(users);
   }
 
+  async getOrganizationById(id: string): Promise<Organization | undefined> {
+    const [organization] = await db.select().from(organizations).where(eq(organizations.id, id));
+    return organization;
+  }
+
   async getOrganizationBySlug(slug: string): Promise<Organization | undefined> {
     const [organization] = await db.select().from(organizations).where(eq(organizations.slug, slug));
     return organization;
@@ -272,6 +371,106 @@ export class DatabaseStorage implements IStorage {
   async createOrganization(org: InsertOrganization): Promise<Organization> {
     const [organization] = await db.insert(organizations).values(org).returning();
     return organization;
+  }
+
+  async getOrganizationDomainsByOrg(organizationId: string): Promise<OrganizationDomain[]> {
+    return db
+      .select()
+      .from(organizationDomains)
+      .where(eq(organizationDomains.organizationId, organizationId));
+  }
+
+  async replaceOrganizationDomainsForOrg(
+    organizationId: string,
+    domains: Array<{
+      id?: string;
+      domain: string;
+      isVerified?: boolean;
+      isPrimary?: boolean;
+      verificationToken?: string;
+      verifiedAt?: Date | null;
+      createdAt?: Date;
+    }>,
+  ): Promise<OrganizationDomain[]> {
+    type NormalizedDomainRow = {
+      id?: string;
+      domain: string;
+      isVerified: boolean;
+      isPrimary: boolean;
+      verificationToken: string;
+      verifiedAt: Date | null;
+      createdAt?: Date;
+    };
+
+    const normalizedMap = new Map<string, NormalizedDomainRow>();
+    for (const entry of domains) {
+      const normalized = entry.domain.trim().toLowerCase();
+      if (!normalized) continue;
+
+      normalizedMap.set(normalized, {
+        id: entry.id,
+        domain: normalized,
+        isVerified: entry.isVerified ?? false,
+        isPrimary: entry.isPrimary ?? false,
+        verificationToken: entry.verificationToken ?? normalized,
+        verifiedAt: entry.verifiedAt ?? null,
+        createdAt: entry.createdAt,
+      });
+    }
+
+    const normalizedDomains = Array.from(normalizedMap.values());
+
+    await db.delete(organizationDomains).where(eq(organizationDomains.organizationId, organizationId));
+
+    if (normalizedDomains.length === 0) {
+      return [];
+    }
+
+    const primaryDomain = normalizedDomains.find((entry) => entry.isPrimary)?.domain ?? normalizedDomains[0].domain;
+
+    return db
+      .insert(organizationDomains)
+      .values(
+        normalizedDomains.map((entry) => ({
+          id: entry.id,
+          organizationId,
+          domain: entry.domain,
+          isVerified: entry.isVerified,
+          isPrimary: entry.domain === primaryDomain,
+          verificationToken: entry.verificationToken,
+          verifiedAt: entry.isVerified ? entry.verifiedAt ?? new Date() : null,
+          createdAt: entry.createdAt,
+        })),
+      )
+      .returning();
+  }
+
+  async createOrganizationDomain(domain: InsertOrganizationDomain): Promise<OrganizationDomain> {
+    const [created] = await db.insert(organizationDomains).values(domain).returning();
+    return created;
+  }
+
+  async deleteOrganizationDomainByIdForOrg(organizationId: string, domainId: string): Promise<void> {
+    await db
+      .delete(organizationDomains)
+      .where(
+        and(
+          eq(organizationDomains.organizationId, organizationId),
+          eq(organizationDomains.id, domainId),
+        ),
+      );
+  }
+
+  async findOrganizationByEmailDomain(domain: string): Promise<Organization | undefined> {
+    const normalizedDomain = domain.trim().toLowerCase();
+    const [row] = await db
+      .select({
+        organization: organizations,
+      })
+      .from(organizationDomains)
+      .innerJoin(organizations, eq(organizationDomains.organizationId, organizations.id))
+      .where(eq(organizationDomains.domain, normalizedDomain));
+    return row?.organization;
   }
 
   async getMembershipsByUserId(userId: string): Promise<UserMembershipContext[]> {
@@ -284,6 +483,7 @@ export class DatabaseStorage implements IStorage {
         membershipState: memberships.membershipState,
         isDefault: memberships.isDefault,
         invitedBy: memberships.invitedBy,
+        onboardingState: memberships.onboardingState,
         organizationName: organizations.name,
         organizationSlug: organizations.slug,
         organizationStatus: organizations.status,
@@ -296,6 +496,41 @@ export class DatabaseStorage implements IStorage {
   async createMembership(membership: InsertMembership): Promise<Membership> {
     const [created] = await db.insert(memberships).values(membership).returning();
     return created;
+  }
+
+  async updateMembershipProvisioningMetadata(
+    membershipId: string,
+    data: {
+      provisioningSource?: Membership["provisioningSource"];
+      externalGroup?: string | null;
+      lastSyncedAt?: Date | null;
+    },
+  ): Promise<Membership | undefined> {
+    const [updated] = await db
+      .update(memberships)
+      .set({
+        provisioningSource: data.provisioningSource,
+        externalGroup: data.externalGroup,
+        lastSyncedAt: data.lastSyncedAt,
+      })
+      .where(eq(memberships.id, membershipId))
+      .returning();
+    return updated;
+  }
+
+  async updateMembershipOnboardingState(
+    membershipId: string,
+    onboardingState: Record<string, unknown>,
+  ): Promise<Membership | undefined> {
+    const [updated] = await db
+      .update(memberships)
+      .set({
+        onboardingState,
+        updatedAt: new Date(),
+      })
+      .where(eq(memberships.id, membershipId))
+      .returning();
+    return updated;
   }
 
   async getUsersByOrganization(organizationId: string): Promise<User[]> {
@@ -312,6 +547,10 @@ export class DatabaseStorage implements IStorage {
         mfaRecoveryCodes: users.mfaRecoveryCodes,
         fullName: users.fullName,
         email: users.email,
+        authProvider: users.authProvider,
+        authProviderSubject: users.authProviderSubject,
+        emailVerified: users.emailVerified,
+        lastLoginAt: users.lastLoginAt,
         role: users.role,
       })
       .from(users)
@@ -339,6 +578,10 @@ export class DatabaseStorage implements IStorage {
         mfaRecoveryCodes: users.mfaRecoveryCodes,
         fullName: users.fullName,
         email: users.email,
+        authProvider: users.authProvider,
+        authProviderSubject: users.authProviderSubject,
+        emailVerified: users.emailVerified,
+        lastLoginAt: users.lastLoginAt,
         role: users.role,
       })
       .from(users)

@@ -26,7 +26,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import type { AiSystem, SystemControl, ApprovalWorkflow, AuditLog, ComplianceControl } from "@shared/schema";
-import { exportSystemEvidencePdf } from "@/lib/export-utils";
 import { EvidenceUpload } from "@/components/evidence-upload";
 
 const riskColors: Record<string, string> = {
@@ -58,6 +57,17 @@ const workflowStatusColors: Record<string, string> = {
   rejected: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
   escalated: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
 };
+
+async function handleExportEvidence(
+  system: AiSystem,
+  controls: SystemControl[],
+  allComplianceControls: ComplianceControl[],
+  workflows: ApprovalWorkflow[],
+  auditLogs: AuditLog[],
+) {
+  const { exportSystemEvidencePdf } = await import("@/lib/export-utils");
+  await exportSystemEvidencePdf(system, controls, allComplianceControls, workflows, auditLogs);
+}
 
 function InfoItem({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
   return (
@@ -376,7 +386,9 @@ export default function SystemDetail() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => exportSystemEvidencePdf(system, controls, allComplianceControls, workflows, auditLogs)}
+          onClick={() => {
+            void handleExportEvidence(system, controls, allComplianceControls, workflows, auditLogs);
+          }}
           data-testid="button-export-evidence"
         >
           <Download className="h-3.5 w-3.5 mr-1.5" />

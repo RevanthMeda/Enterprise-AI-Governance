@@ -33,6 +33,34 @@ const allowlist = [
 ];
 
 async function buildAll() {
+  const postcssFromWarning =
+    "A PostCSS plugin did not pass the `from` option to `postcss.parse`";
+  const originalConsoleWarn = console.warn;
+  const originalEmitWarning = process.emitWarning.bind(process);
+
+  console.warn = (...args: unknown[]) => {
+    if (
+      typeof args[0] === "string" &&
+      args[0].includes(postcssFromWarning)
+    ) {
+      return;
+    }
+    originalConsoleWarn(...args);
+  };
+
+  process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
+    if (
+      typeof warning === "string" &&
+      warning.includes(postcssFromWarning)
+    ) {
+      return;
+    }
+    if (warning instanceof Error && warning.message.includes(postcssFromWarning)) {
+      return;
+    }
+    return originalEmitWarning(warning as never, ...(args as never[]));
+  }) as typeof process.emitWarning;
+
   await rm("dist", { recursive: true, force: true });
 
   console.log("building client...");

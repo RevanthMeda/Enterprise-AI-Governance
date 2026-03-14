@@ -17,7 +17,17 @@ export function applySecurityHeaders(app: Express) {
     if (process.env.NODE_ENV === "production") {
       res.setHeader(
         "Content-Security-Policy",
-        "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'",
+        [
+          "default-src 'self'",
+          "base-uri 'self'",
+          "frame-ancestors 'none'",
+          "object-src 'none'",
+          "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+          "font-src 'self' https://fonts.gstatic.com data:",
+          "img-src 'self' data: blob: https:",
+          "connect-src 'self' https:",
+        ].join("; "),
       );
       res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
     } else {
@@ -28,7 +38,7 @@ export function applySecurityHeaders(app: Express) {
           "base-uri 'self'",
           "frame-ancestors 'none'",
           "object-src 'none'",
-          "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",
           "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
           "font-src 'self' https://fonts.gstatic.com data:",
           "img-src 'self' data: blob:",

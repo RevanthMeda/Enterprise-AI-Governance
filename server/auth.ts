@@ -7,6 +7,7 @@ import { createHmac, randomBytes } from "crypto";
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import type { User } from "@shared/schema";
+import { getPgPoolConfig } from "./db-config";
 
 declare global {
   namespace Express {
@@ -37,6 +38,14 @@ export interface AuthOrganization {
   isDefault: boolean;
 }
 
+export interface AuthOnboardingState {
+  currentStep: number;
+  completedSteps: string[];
+  dismissedAlerts: string[];
+  snoozedAlerts: Record<string, string>;
+  updatedAt: string | null;
+}
+
 export interface AuthUserPayload {
   id: string;
   username: string;
@@ -45,6 +54,7 @@ export interface AuthUserPayload {
   role: string;
   mfaEnabled: boolean;
   currentOrganizationId: string | null;
+  currentOrganizationOnboarding: AuthOnboardingState | null;
   organizations: AuthOrganization[];
 }
 
@@ -319,6 +329,38 @@ export async function buildAuthUserPayload(
   user: Express.User,
   currentOrganizationId?: string,
 ): Promise<AuthUserPayload> {
+  const normalizeOnboardingState = (value: unknown): AuthOnboardingState => {
+    const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+    const parsedCurrentStep = Number.isInteger(record.currentStep) ? (record.currentStep as number) : 0;
+    const completedSteps = Array.isArray(record.completedSteps)
+      ? record.completedSteps.filter((entry): entry is string => typeof entry === "string").slice(0, 10)
+      : [];
+    const dismissedAlerts = Array.isArray(record.dismissedAlerts)
+      ? record.dismissedAlerts.filter((entry): entry is string => typeof entry === "string").slice(0, 20)
+      : [];
+    const snoozedAlerts =
+      record.snoozedAlerts && typeof record.snoozedAlerts === "object"
+        ? Object.entries(record.snoozedAlerts as Record<string, unknown>).reduce<Record<string, string>>(
+            (acc, [key, val]) => {
+              if (typeof key === "string" && typeof val === "string") {
+                acc[key] = val;
+              }
+              return acc;
+            },
+            {},
+          )
+        : {};
+    const updatedAt = typeof record.updatedAt === "string" ? record.updatedAt : null;
+
+    return {
+      currentStep: Math.max(parsedCurrentStep, 0),
+      completedSteps,
+      dismissedAlerts,
+      snoozedAlerts,
+      updatedAt,
+    };
+  };
+
   const storedUser = await storage.getUser(user.id);
   const memberships = await storage.getMembershipsByUserId(user.id);
   const organizations = memberships
@@ -331,6 +373,10 @@ export async function buildAuthUserPayload(
       isDefault: m.isDefault,
     }));
   const resolvedCurrentOrganizationId = pickCurrentOrganizationId(currentOrganizationId, memberships);
+  const currentMembership = memberships.find(
+    (membership) =>
+      membership.organizationId === resolvedCurrentOrganizationId && membership.membershipState === "active",
+  );
 
   return {
     id: user.id,
@@ -340,13 +386,14 @@ export async function buildAuthUserPayload(
     role: user.role,
     mfaEnabled: storedUser?.mfaEnabled ?? false,
     currentOrganizationId: resolvedCurrentOrganizationId,
+    currentOrganizationOnboarding: currentMembership ? normalizeOnboardingState(currentMembership.onboardingState) : null,
     organizations,
   };
 }
 
 export function setupAuth(app: Express) {
   const sessionStore = new PgStore({
-    conString: process.env.DATABASE_URL,
+    conObject: getPgPoolConfig(process.env.DATABASE_URL),
     createTableIfMissing: true,
   });
 
@@ -424,7 +471,7 @@ export function setupAuth(app: Express) {
           });
         }
 
-        const user = await storage.getUserByUsername(username);
+        const user = await storage.getUserByUsername(normalizedUsername);
         if (!user) {
           trackFailedLogin(clientIp, normalizedUsername);
           return done(null, false, { message: "Invalid username or password" });
@@ -442,6 +489,7 @@ export function setupAuth(app: Express) {
         }
 
         clearFailedLogins(clientIp, normalizedUsername);
+        await storage.updateUserLastLogin(user.id, new Date());
 
         return done(null, {
           id: user.id,

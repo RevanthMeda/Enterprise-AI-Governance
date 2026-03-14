@@ -28,13 +28,20 @@ export async function setupVite(server: Server, app: Express) {
     appType: "custom",
   });
 
-  app.use(vite.middlewares);
-
   app.use(async (req: Request, res: Response, next: NextFunction) => {
     const url = req.originalUrl;
     if (url.startsWith("/api/")) {
       res.status(404).json({ message: "Not found" });
       return;
+    }
+
+    const acceptsHtml = req.headers.accept?.includes("text/html") ?? false;
+    const isDocumentRequest = req.method === "GET" || req.method === "HEAD";
+    const hasExtension = path.extname(req.path).length > 0;
+    const isViteInternal = req.path.startsWith("/@") || req.path.startsWith("/vite-hmr");
+
+    if (!isDocumentRequest || !acceptsHtml || hasExtension || isViteInternal) {
+      return next();
     }
 
     try {
@@ -54,4 +61,6 @@ export async function setupVite(server: Server, app: Express) {
       next(e);
     }
   });
+
+  app.use(vite.middlewares);
 }

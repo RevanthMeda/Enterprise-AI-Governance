@@ -11,7 +11,15 @@ export interface AuthOrganization {
   isDefault: boolean;
 }
 
-interface AuthUser {
+export interface AuthOnboardingState {
+  currentStep: number;
+  completedSteps: string[];
+  dismissedAlerts: string[];
+  snoozedAlerts: Record<string, string>;
+  updatedAt: string | null;
+}
+
+export interface AuthUser {
   id: string;
   username: string;
   fullName: string;
@@ -19,6 +27,7 @@ interface AuthUser {
   role: string;
   mfaEnabled: boolean;
   currentOrganizationId: string | null;
+  currentOrganizationOnboarding: AuthOnboardingState | null;
   organizations: AuthOrganization[];
 }
 
@@ -70,12 +79,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginMutation = useMutation({
     mutationFn: async (data: LoginInput) => {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-        credentials: "include",
-      });
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 20000);
+      let res: Response;
+      try {
+        res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+          credentials: "include",
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          const timeoutError = new Error(
+            "Sign-in timed out. If this is the hosted demo, the backend may be waking up. Wait 20-30 seconds and try again.",
+          ) as AuthMutationError;
+          timeoutError.status = 504;
+          throw timeoutError;
+        }
+        throw error;
+      } finally {
+        window.clearTimeout(timeout);
+      }
       captureCsrfTokenFromResponse(res);
 
       const payload = await res.json().catch(() => null);

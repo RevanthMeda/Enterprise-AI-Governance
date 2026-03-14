@@ -1,5 +1,3 @@
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import type { AiSystem, SystemControl, ComplianceControl, ApprovalWorkflow, AuditLog } from "@shared/schema";
 
 export function exportToCsv(data: Record<string, any>[], filename: string) {
@@ -79,13 +77,17 @@ export function exportAuditTrailCsv(logs: AuditLog[]) {
   exportToCsv(data, "audit-trail");
 }
 
-export function exportSystemEvidencePdf(
+export async function exportSystemEvidencePdf(
   system: AiSystem,
   systemControls: SystemControl[],
   complianceControls: ComplianceControl[],
   workflows: ApprovalWorkflow[],
   auditLogs: AuditLog[]
 ) {
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
   const doc = new jsPDF();
   const controlMap = new Map(complianceControls.map((c) => [c.id, c]));
   const now = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });

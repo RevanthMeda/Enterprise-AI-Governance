@@ -25,14 +25,16 @@ const navItems = [
   { label: "How it Works", href: "#how-it-works" },
   { label: "Pricing", href: "#pricing" },
   { label: "FAQ", href: "#faq" },
+  { label: "API Docs", href: "/api-docs" },
 ];
 
 const proofItems = [
   "Multi-tenant foundation complete",
+  "SAML + OIDC enterprise SSO",
+  "DNS-verified domain claims",
+  "Invite + JIT onboarding",
   "Role-based approvals",
   "Audit-ready exports",
-  "Evidence management",
-  "Compliance calendar",
   "Tenant-safe architecture",
 ];
 
@@ -53,7 +55,7 @@ const useCases = [
   },
   {
     title: "Security & Governance",
-    body: "Enforce review workflows and monitor AI governance posture across high-scrutiny systems.",
+    body: "Enforce review workflows, enterprise SSO, and governance posture controls across high-scrutiny systems.",
     icon: Lock,
   },
   {
@@ -68,8 +70,13 @@ const useCases = [
   },
   {
     title: "Regulated Enterprises",
-    body: "Prepare for customer due diligence and regulatory scrutiny with auditable governance operations.",
+    body: "Prepare for customer due diligence and regulatory scrutiny with auditable governance operations and tenant-safe identity controls.",
     icon: Building2,
+  },
+  {
+    title: "IT & Identity Teams",
+    body: "Roll out SAML or OIDC, verified domains, JIT provisioning, and invite-based onboarding without custom glue.",
+    icon: Users,
   },
 ];
 
@@ -87,6 +94,10 @@ const differentiators = [
     body: "Built for EU AI Act risk thinking with mapped controls across NIST AI RMF and ISO 42001.",
   },
   {
+    title: "Enterprise identity built in",
+    body: "Support SAML, OIDC, verified domains, invite workflows, and JIT provisioning from the same admin surface.",
+  },
+  {
     title: "Tenant-safe foundation",
     body: "Organization isolation, route-level protections, and tenant-safe files/exports are built into the platform.",
   },
@@ -97,6 +108,7 @@ const howItWorks = [
   "Assess risk and classify impact",
   "Map controls and route approvals",
   "Collect evidence and maintain audit history",
+  "Federate identity and onboard users safely",
   "Monitor readiness over time",
 ];
 
@@ -109,7 +121,32 @@ const features = [
   { title: "Audit Log", body: "Unified event history across systems, controls, workflows, and evidence." },
   { title: "Calendar & Activity Views", body: "Deadline visibility and personal work surfaces for follow-through." },
   { title: "Export & Reporting", body: "Generate organization-scoped outputs for review and audit readiness." },
+  { title: "Enterprise Identity", body: "SAML and OIDC sign-in, verified domains, invite workflows, and JIT provisioning." },
+  { title: "Admin Control Center", body: "Manage domains, identity mode, invites, members, and admin activity from one settings surface." },
   { title: "Multi-tenant SaaS Foundation", body: "Hardened tenant isolation with org-aware auth/session boundaries." },
+];
+
+const operationsHighlights = [
+  {
+    title: "Readiness and deployment discipline",
+    body: "Health and readiness probes, deploy smoke checks, and promotion workflows keep releases predictable instead of hope-driven.",
+    icon: CalendarClock,
+  },
+  {
+    title: "Monitoring with traceable failures",
+    body: "Structured request logging, request IDs, stable error codes, and queued monitoring webhooks give teams cleaner incident diagnosis.",
+    icon: ChartNoAxesCombined,
+  },
+  {
+    title: "Async delivery with retry paths",
+    body: "Invite delivery and monitoring webhooks run through a persistent retryable job queue with admin-visible failure handling.",
+    icon: Workflow,
+  },
+  {
+    title: "Tenant-safe operational controls",
+    body: "Org-scoped files, exports, sessions, domains, and admin surfaces keep platform operations aligned with real enterprise boundaries.",
+    icon: FolderLock,
+  },
 ];
 
 const roleValue = [
@@ -128,6 +165,10 @@ const roleValue = [
   {
     title: "For Auditors",
     body: "Access structured history, control mapping, evidence, and exports without chasing sources.",
+  },
+  {
+    title: "For IT and Identity Owners",
+    body: "Deploy enterprise sign-in with verified domains and controlled onboarding instead of stitching governance into the IdP by hand.",
   },
 ];
 
@@ -151,6 +192,10 @@ const faqItems = [
   {
     q: "Can multiple organizations use it safely?",
     a: "Yes. Organization-aware auth/session context, scoped exports/files, route-level protections, and tenant guards are in place.",
+  },
+  {
+    q: "Does it support enterprise identity and onboarding?",
+    a: "Yes. The platform now supports SAML and OIDC, verified domain claims, invite workflows, and JIT provisioning with org-scoped audit trails.",
   },
   {
     q: "Can we export data for audits?",
@@ -349,6 +394,7 @@ export default function LandingPage() {
                 "Apply structured governance across workflows and controls",
                 "Track evidence, deadlines, and audits in one platform",
                 "Built for multi-team, multi-org operational governance",
+                "Run with verified domains, queued delivery, and readiness checks instead of manual glue",
               ].map((line) => (
                 <li key={line} className="flex items-start gap-2">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -363,6 +409,17 @@ export default function LandingPage() {
               <Button size="lg" variant="outline" asChild>
                 <a href="#product">Explore the Platform</a>
               </Button>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <a href="/api-docs" className="inline-flex items-center rounded-full border border-border/70 bg-background/70 px-3 py-1.5 transition-colors hover:text-foreground">
+                Review API docs
+              </a>
+              <a href="/security" className="inline-flex items-center rounded-full border border-border/70 bg-background/70 px-3 py-1.5 transition-colors hover:text-foreground">
+                Security practices
+              </a>
+              <a href={trackedPath("/start-pilot", "hero_start_pilot")} onClick={handleCtaClick("hero", "start_pilot")} className="inline-flex items-center rounded-full border border-border/70 bg-background/70 px-3 py-1.5 transition-colors hover:text-foreground">
+                Start a pilot
+              </a>
             </div>
           </div>
 
@@ -400,6 +457,20 @@ export default function LandingPage() {
                     <span>Chatbot Transparency Controls</span>
                     <span className="rounded bg-sky-500/15 px-2 py-0.5 text-sky-500">Pending</span>
                   </div>
+                </div>
+              </div>
+              <div className="grid gap-2 rounded-md border border-border/70 bg-background/40 p-3 text-xs sm:grid-cols-3">
+                <div>
+                  <p className="text-muted-foreground">Readiness</p>
+                  <p className="mt-1 font-semibold text-foreground">Live probes + smoke checks</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Identity</p>
+                  <p className="mt-1 font-semibold text-foreground">SAML, OIDC, verified domains</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Operations</p>
+                  <p className="mt-1 font-semibold text-foreground">Queued delivery + audit trail</p>
                 </div>
               </div>
             </CardContent>
@@ -466,6 +537,40 @@ export default function LandingPage() {
               <CardContent className="text-sm text-muted-foreground">{item.body}</CardContent>
             </Card>
           ))}
+        </div>
+      </Section>
+
+      <Section
+        eyebrow="Operations"
+        title="Built to run in production, not just to demo well"
+        subtitle="The platform now exposes the operational controls enterprise teams expect once governance moves into daily use."
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          {operationsHighlights.map((item) => (
+            <Card key={item.title} className="border-border/70 bg-card/70">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <item.icon className="h-4 w-4 text-primary" />
+                  {item.title}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">{item.body}</CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="mt-6 grid gap-3 rounded-2xl border border-border/70 bg-muted/20 p-4 text-sm sm:grid-cols-3">
+          <div className="rounded-xl border border-border/70 bg-background/70 p-4">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">For platform teams</p>
+            <p className="mt-2 font-medium">Use readiness, monitoring, and queue health to validate the system before users feel a problem.</p>
+          </div>
+          <div className="rounded-xl border border-border/70 bg-background/70 p-4">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">For enterprise buyers</p>
+            <p className="mt-2 font-medium">Show identity federation, auditability, and tenant-safe operations without promising hand-wavy future work.</p>
+          </div>
+          <div className="rounded-xl border border-border/70 bg-background/70 p-4">
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">For integrators</p>
+            <p className="mt-2 font-medium">Expose API docs, public specs, and controlled onboarding paths from the same product surface.</p>
+          </div>
         </div>
       </Section>
 
@@ -597,6 +702,9 @@ export default function LandingPage() {
             </Button>
             <Button size="lg" variant="outline" asChild>
               <a href={trackedPath("/start-pilot", "cta_strip_start_pilot")} onClick={handleCtaClick("cta_strip", "start_pilot")}>Start a Pilot</a>
+            </Button>
+            <Button size="lg" variant="outline" asChild>
+              <a href="/api-docs">Review the API</a>
             </Button>
           </div>
         </div>

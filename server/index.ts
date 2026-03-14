@@ -5,6 +5,9 @@ import { createServer } from "http";
 import { seedDatabase } from "./seed";
 import { setupAuth } from "./auth";
 import { applySecurityHeaders, createCsrfMiddleware } from "./security";
+import { randomUUID } from "crypto";
+import { monitoringService } from "./services/monitoringService";
+import { backgroundJobService } from "./services/backgroundJobService";
 
 const app = express();
 const httpServer = createServer(app);
@@ -30,6 +33,14 @@ if (process.env.TRUST_PROXY === "true" || process.env.NODE_ENV === "production")
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
+  }
+}
+
+declare global {
+  namespace Express {
+    interface Request {
+      requestId?: string;
+    }
   }
 }
 
@@ -79,37 +90,76 @@ export function log(message: string, source = "express") {
 }
 
 app.use((req, res, next) => {
+  const requestId = req.get("x-request-id") || randomUUID();
+  req.requestId = requestId;
+  res.setHeader("X-Request-Id", requestId);
+
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
 
   res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      log(logLine);
+    if (!path.startsWith("/api")) {
+      return;
     }
+
+    const authenticatedUser = req.user as { id?: string } | undefined;
+    const errorCodeHeader = res.getHeader("X-Error-Code");
+    const statusCode = res.statusCode;
+    const severity = statusCode >= 500 ? "error" : statusCode >= 400 ? "warn" : "info";
+
+    log(
+      JSON.stringify({
+        level: severity,
+        event: "api_request",
+        requestId,
+        method: req.method,
+        route: path,
+        status: statusCode,
+        durationMs: Date.now() - start,
+        organizationId: req.tenant?.organizationId ?? null,
+        userId: authenticatedUser?.id ?? null,
+        ip: req.ip,
+        userAgent: req.get("user-agent") ?? null,
+        errorCode: typeof errorCodeHeader === "string" ? errorCodeHeader : null,
+      }),
+      "api",
+    );
   });
 
   next();
 });
 
+process.on("unhandledRejection", (reason) => {
+  void monitoringService.reportProcessIssue({
+    level: "error",
+    event: "process.unhandled_rejection",
+    message: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack ?? null : null,
+    metadata: {
+      kind: typeof reason,
+    },
+  });
+});
+
+process.on("uncaughtExceptionMonitor", (error, origin) => {
+  void monitoringService.reportProcessIssue({
+    level: "critical",
+    event: "process.uncaught_exception",
+    message: error.message,
+    stack: error.stack ?? null,
+    metadata: {
+      origin,
+    },
+  });
+});
+
 (async () => {
   setupAuth(app);
+  backgroundJobService.start();
   app.use(
     createCsrfMiddleware({
       enforced: process.env.CSRF_ENFORCED === "true",
-      exemptPaths: ["/api/track", "/api/leads"],
+      exemptPaths: ["/api/track", "/api/leads", "/api/monitoring/client-errors"],
     }),
   );
 
@@ -121,14 +171,45 @@ app.use((req, res, next) => {
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
+    const errorCode =
+      err.code ||
+      (status === 400
+        ? "BAD_REQUEST"
+        : status === 401
+          ? "UNAUTHORIZED"
+          : status === 403
+            ? "FORBIDDEN"
+            : status === 404
+              ? "NOT_FOUND"
+              : status === 409
+                ? "CONFLICT"
+                : "INTERNAL_SERVER_ERROR");
 
     console.error("Internal Server Error:", err);
+    if (status >= 500) {
+      void monitoringService.reportServerError({
+        level: status >= 500 ? "error" : "warn",
+        event: "api.unhandled_error",
+        message,
+        requestId: _req.requestId ?? null,
+        organizationId: _req.tenant?.organizationId ?? null,
+        userId: (_req.user as { id?: string } | undefined)?.id ?? null,
+        route: _req.path,
+        method: _req.method,
+        status,
+        stack: err instanceof Error ? err.stack ?? null : null,
+        metadata: {
+          errorCode,
+        },
+      });
+    }
 
     if (res.headersSent) {
       return next(err);
     }
 
-    return res.status(status).json({ message });
+    res.setHeader("X-Error-Code", errorCode);
+    return res.status(status).json({ message, code: errorCode, requestId: _req.requestId ?? null });
   });
 
   // importantly only setup vite in development and after
