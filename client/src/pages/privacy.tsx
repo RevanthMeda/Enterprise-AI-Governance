@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { trackMarketingEvent } from "@/lib/marketing";
+import { PublicSiteHeader } from "@/components/public-site-header";
 
 export default function PrivacyPage() {
   useEffect(() => {
@@ -7,8 +8,9 @@ export default function PrivacyPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background px-4 py-12 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-4xl space-y-5">
+    <div className="min-h-screen bg-background">
+      <PublicSiteHeader />
+      <div className="mx-auto max-w-4xl space-y-5 px-4 py-12 sm:px-6 lg:px-8">
         <h1 className="text-3xl font-bold tracking-tight">Privacy Policy</h1>
         <p className="text-sm text-muted-foreground">
           We collect business contact information submitted through forms to respond to demo and pilot requests.
@@ -19,7 +21,6 @@ export default function PrivacyPage() {
         <p className="text-sm text-muted-foreground">
           Requests regarding access, correction, and deletion can be sent via the contact channel on this site.
         </p>
-        <a href="/" className="text-sm text-primary hover:underline">Back to homepage</a>
       </div>
     </div>
   );

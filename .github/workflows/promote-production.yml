@@ -48,6 +48,8 @@ jobs:
         env:
           SMOKE_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
           SMOKE_BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_URL }}
+          SMOKE_ADMIN_USERNAME: ${{ secrets.SMOKE_ADMIN_USERNAME }}
+          SMOKE_ADMIN_PASSWORD: ${{ secrets.SMOKE_ADMIN_PASSWORD }}
           SMOKE_RETRIES: "18"
           SMOKE_DELAY_MS: "10000"
         run: npm run smoke:deploy

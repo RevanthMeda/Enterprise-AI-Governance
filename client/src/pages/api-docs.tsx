@@ -1,10 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileCode2, Shield, Layers3 } from "lucide-react";
+import { PublicSiteHeader } from "@/components/public-site-header";
 
 export default function ApiDocsPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <PublicSiteHeader />
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
         <div className="mb-8 space-y-3">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary/80">Developer reference</p>

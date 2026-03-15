@@ -8,6 +8,7 @@ import { applySecurityHeaders, createCsrfMiddleware } from "./security";
 import { randomUUID } from "crypto";
 import { monitoringService } from "./services/monitoringService";
 import { backgroundJobService } from "./services/backgroundJobService";
+import { retentionService } from "./services/retentionService";
 
 const app = express();
 const httpServer = createServer(app);
@@ -156,10 +157,11 @@ process.on("uncaughtExceptionMonitor", (error, origin) => {
 (async () => {
   setupAuth(app);
   backgroundJobService.start();
+  retentionService.start();
   app.use(
     createCsrfMiddleware({
       enforced: process.env.CSRF_ENFORCED === "true",
-      exemptPaths: ["/api/track", "/api/leads", "/api/monitoring/client-errors"],
+      exemptPaths: ["/api/track", "/api/leads", "/api/monitoring/client-errors", "/api/telemetry/sdk-ingest"],
     }),
   );
 

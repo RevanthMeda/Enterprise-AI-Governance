@@ -48,6 +48,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { exportSystemRegistryCsv } from "@/lib/export-utils";
@@ -176,12 +177,14 @@ export default function Registry() {
                 Register System
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+            <DialogContent className="flex max-h-[85vh] max-w-lg flex-col overflow-hidden">
               <DialogHeader>
                 <DialogTitle className="text-base">Register New AI System</DialogTitle>
               </DialogHeader>
               <Form {...form}>
-                <form onSubmit={form.handleSubmit((v) => createMutation.mutate(v))} className="space-y-4">
+                <form onSubmit={form.handleSubmit((v) => createMutation.mutate(v))} className="flex min-h-0 flex-1 flex-col">
+                  <ScrollArea className="min-h-0 flex-1 pr-1">
+                    <div className="space-y-4 pb-4">
                   <FormField control={form.control} name="name" render={({ field }) => (
                     <FormItem>
                       <FormLabel className="text-xs">System Name</FormLabel>
@@ -290,9 +293,13 @@ export default function Registry() {
                       <FormMessage />
                     </FormItem>
                   )} />
+                    </div>
+                  </ScrollArea>
+                  <div className="mt-4 border-t pt-4">
                   <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-system">
                     {createMutation.isPending ? "Registering..." : "Register System"}
                   </Button>
+                  </div>
                 </form>
               </Form>
             </DialogContent>
@@ -428,7 +435,7 @@ export default function Registry() {
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-1 mb-2">
                   <div className="min-w-0">
-                    <h3 className="text-sm font-semibold truncate">{system.name}</h3>
+                    <h3 className="truncate text-sm font-semibold" title={system.name}>{system.name}</h3>
                     <p className="text-[11px] text-muted-foreground">{system.owner} - {system.department}</p>
                   </div>
                   <DropdownMenu>

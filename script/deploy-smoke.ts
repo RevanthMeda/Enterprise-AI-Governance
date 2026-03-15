@@ -21,6 +21,33 @@ async function fetchText(url: string, init?: RequestInit) {
   return { response, text };
 }
 
+function cookieFromSetCookie(setCookie: string | null) {
+  if (!setCookie) return null;
+  const firstCookie = setCookie.split(",")[0] ?? "";
+  const pair = firstCookie.split(";")[0] ?? "";
+  return pair || null;
+}
+
+async function loginAndGetCookie(backend: string, username: string, password: string) {
+  const response = await fetch(`${backend}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`login failed with ${response.status}: ${text}`);
+  }
+
+  const cookie = cookieFromSetCookie(response.headers.get("set-cookie"));
+  if (!cookie) {
+    throw new Error("login succeeded but no session cookie was returned");
+  }
+
+  return cookie;
+}
+
 async function runCheck(name: string, fn: () => Promise<void>): Promise<CheckResult> {
   try {
     await fn();
@@ -65,6 +92,8 @@ async function main() {
 
   const frontend = frontendBase ? normalizeBaseUrl(frontendBase) : null;
   const backend = backendBase ? normalizeBaseUrl(backendBase) : frontend;
+  const adminUsername = process.env.SMOKE_ADMIN_USERNAME;
+  const adminPassword = process.env.SMOKE_ADMIN_PASSWORD;
 
   const checks: Promise<CheckResult>[] = [];
 
@@ -94,6 +123,31 @@ async function main() {
         }
       }),
     );
+
+    if (adminUsername && adminPassword) {
+      const authenticatedApiChecks = [
+        "/api/organization/subscription",
+        "/api/organization/jira-integration",
+        "/api/decision-audits/summary",
+        "/api/incidents/summary",
+        "/api/telemetry/summary",
+        "/api/audit-logs/verify-chain",
+      ];
+
+      for (const path of authenticatedApiChecks) {
+        checks.push(
+          runCheckWithRetry(`authenticated ${path}`, async () => {
+            const cookie = await loginAndGetCookie(backend, adminUsername, adminPassword);
+            const { response } = await fetchText(`${backend}${path}`, {
+              headers: { Cookie: cookie },
+            });
+            if (!response.ok) {
+              throw new Error(`expected 200, received ${response.status}`);
+            }
+          }),
+        );
+      }
+    }
   }
 
   if (frontend) {
@@ -134,6 +188,42 @@ async function main() {
     );
 
     checks.push(
+      runCheckWithRetry("frontend trust center", async () => {
+        const { response, text } = await fetchText(`${frontend}/trust-center`);
+        if (!response.ok) {
+          throw new Error(`expected 200, received ${response.status}`);
+        }
+        if (!text.includes("Trust Center")) {
+          throw new Error("trust center response missing expected marker");
+        }
+      }),
+    );
+
+    checks.push(
+      runCheckWithRetry("frontend redoc identity", async () => {
+        const { response, text } = await fetchText(`${frontend}/api-docs/identity.html`);
+        if (!response.ok) {
+          throw new Error(`expected 200, received ${response.status}`);
+        }
+        if (!text.includes("Redoc.init")) {
+          throw new Error("identity redoc page missing init marker");
+        }
+      }),
+    );
+
+    checks.push(
+      runCheckWithRetry("frontend redoc platform", async () => {
+        const { response, text } = await fetchText(`${frontend}/api-docs/platform.html`);
+        if (!response.ok) {
+          throw new Error(`expected 200, received ${response.status}`);
+        }
+        if (!text.includes("Redoc.init")) {
+          throw new Error("platform redoc page missing init marker");
+        }
+      }),
+    );
+
+    checks.push(
       runCheckWithRetry("frontend thank you alias", async () => {
         const { response, text } = await fetchText(`${frontend}/book-demo/thank-you`);
         if (!response.ok) {
@@ -141,6 +231,18 @@ async function main() {
         }
         if (!text.includes("Thanks, your request was received")) {
           throw new Error("thank-you response missing expected marker");
+        }
+      }),
+    );
+
+    checks.push(
+      runCheckWithRetry("frontend start-pilot thank you alias", async () => {
+        const { response, text } = await fetchText(`${frontend}/start-pilot/thank-you`);
+        if (!response.ok) {
+          throw new Error(`expected 200, received ${response.status}`);
+        }
+        if (!text.includes("Thanks, your request was received")) {
+          throw new Error("start-pilot thank-you response missing expected marker");
         }
       }),
     );

@@ -219,7 +219,7 @@ export default function ComplianceCalendar() {
             </div>
           </CardContent>
         </Card>
-        <Card data-testid="stat-overdue-items">
+        <Card data-testid="stat-overdue-items" className="cursor-pointer transition-colors hover:bg-muted/40" onClick={() => navigate("/approvals")}>
           <CardContent className="p-4 flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-red-100 dark:bg-red-950/30">
               <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
@@ -228,6 +228,7 @@ export default function ComplianceCalendar() {
               <p className="text-2xl font-bold">{summaryStats.overdueItems}</p>
               <p className="text-[10px] text-muted-foreground leading-tight">Overdue Items</p>
             </div>
+            <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
           </CardContent>
         </Card>
         <Card data-testid="stat-next-milestone">

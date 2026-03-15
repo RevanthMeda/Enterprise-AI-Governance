@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { trackMarketingEvent } from "@/lib/marketing";
+import { PublicSiteHeader } from "@/components/public-site-header";
 
 export default function SecurityPage() {
   useEffect(() => {
@@ -7,8 +8,9 @@ export default function SecurityPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background px-4 py-12 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-4xl space-y-5">
+    <div className="min-h-screen bg-background">
+      <PublicSiteHeader />
+      <div className="mx-auto max-w-4xl space-y-5 px-4 py-12 sm:px-6 lg:px-8">
         <h1 className="text-3xl font-bold tracking-tight">Security Practices</h1>
         <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
           <li>Role-based access control with deny-by-default authorization.</li>
@@ -17,7 +19,6 @@ export default function SecurityPage() {
           <li>CSRF enforcement, security headers, and API audit logging.</li>
           <li>Dependency audit, secret scanning, and SBOM generation in CI.</li>
         </ul>
-        <a href="/" className="text-sm text-primary hover:underline">Back to homepage</a>
       </div>
     </div>
   );

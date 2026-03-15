@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, type ReactNode } from "react";
 import { useQuery, useMutation, type UseMutationResult } from "@tanstack/react-query";
 import { apiRequest, captureCsrfTokenFromResponse, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -60,14 +60,66 @@ type RegisterInput = {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 type AuthMutationError = Error & { status?: number; mfaRequired?: boolean };
+const LOGOUT_MARKER_KEY = "ai-control-tower:last-logout-at";
+const PUBLIC_SESSION_PATHS = new Set([
+  "/",
+  "/welcome",
+  "/auth",
+  "/auth/login",
+  "/login",
+  "/auth/invite",
+  "/invite/accept",
+  "/book-demo",
+  "/start-pilot",
+  "/thank-you",
+  "/book-demo/thank-you",
+  "/start-pilot/thank-you",
+  "/privacy",
+  "/terms",
+  "/security",
+  "/trust-center",
+  "/api-docs",
+]);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
+  const syncAuthState = useCallback(async (redirectIfLoggedOut: boolean) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/auth/user", { credentials: "include", cache: "no-store" });
+      captureCsrfTokenFromResponse(res);
+
+      if (res.status === 401) {
+        queryClient.setQueryData(["/api/auth/user"], null);
+        if (redirectIfLoggedOut && !PUBLIC_SESSION_PATHS.has(window.location.pathname)) {
+          window.location.replace("/auth/login");
+        }
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error("Failed to refresh session");
+      }
+
+      const nextUser = (await res.json()) as AuthUser;
+      queryClient.setQueryData(["/api/auth/user"], nextUser);
+    } catch {
+      queryClient.setQueryData(["/api/auth/user"], null);
+      if (redirectIfLoggedOut && !PUBLIC_SESSION_PATHS.has(window.location.pathname)) {
+        window.location.replace("/auth/login");
+      }
+    } finally {
+      window.sessionStorage.removeItem(LOGOUT_MARKER_KEY);
+    }
+  }, []);
 
   const { data: user, isLoading } = useQuery<AuthUser | null>({
     queryKey: ["/api/auth/user"],
     queryFn: async () => {
-      const res = await fetch("/api/auth/user", { credentials: "include" });
+      const res = await fetch("/api/auth/user", { credentials: "include", cache: "no-store" });
       captureCsrfTokenFromResponse(res);
       if (res.status === 401) return null;
       if (!res.ok) throw new Error("Failed to fetch user");
@@ -76,6 +128,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     staleTime: Infinity,
     retry: false,
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handlePageShow = (event: PageTransitionEvent) => {
+      const loggedOut = Boolean(window.sessionStorage.getItem(LOGOUT_MARKER_KEY));
+      if (event.persisted || loggedOut) {
+        void syncAuthState(true);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      const loggedOut = Boolean(window.sessionStorage.getItem(LOGOUT_MARKER_KEY));
+      if (document.visibilityState === "visible" && loggedOut) {
+        void syncAuthState(true);
+      }
+    };
+
+    window.addEventListener("pageshow", handlePageShow);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("pageshow", handlePageShow);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [syncAuthState]);
 
   const loginMutation = useMutation({
     mutationFn: async (data: LoginInput) => {
@@ -92,9 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
       } catch (error) {
         if ((error as Error).name === "AbortError") {
-          const timeoutError = new Error(
-            "Sign-in timed out. If this is the hosted demo, the backend may be waking up. Wait 20-30 seconds and try again.",
-          ) as AuthMutationError;
+          const timeoutError = new Error("Sign-in timed out. Wait a moment and try again.") as AuthMutationError;
           timeoutError.status = 504;
           throw timeoutError;
         }
@@ -116,16 +194,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     onSuccess: (user: AuthUser) => {
       queryClient.setQueryData(["/api/auth/user"], user);
       toast({ title: `Welcome back, ${user.fullName}` });
-    },
-    onError: (err: AuthMutationError) => {
-      if (err.mfaRequired) {
-        toast({
-          title: "MFA verification required",
-          description: "Enter your authenticator code or a recovery code to continue.",
-        });
-        return;
-      }
-      toast({ title: "Login failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -173,6 +241,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await apiRequest("POST", "/api/auth/logout");
     queryClient.setQueryData(["/api/auth/user"], null);
     queryClient.clear();
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(LOGOUT_MARKER_KEY, String(Date.now()));
+      window.location.replace("/auth/login");
+      return;
+    }
     toast({ title: "Logged out successfully" });
   };
 

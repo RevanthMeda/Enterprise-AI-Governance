@@ -726,7 +726,7 @@ export default function SettingsPage() {
                   <Input
                     value={verifyCode}
                     onChange={(e) => setVerifyCode(e.target.value)}
-                    placeholder="123456"
+                    placeholder="Enter 6-digit code"
                     data-testid="input-mfa-verify-code"
                   />
                 </div>
@@ -819,6 +819,12 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
+            <div className="rounded-md border bg-muted/10 p-3">
+              <p className="text-xs font-medium">Enterprise security controls</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                This tab currently focuses on MFA. IP allow-listing, session governance, and telemetry adapter key management are handled through infrastructure controls and dedicated admin pages.
+              </p>
+            </div>
           </CardContent>
         </Card>
           </div>
@@ -1189,7 +1195,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[11px] text-muted-foreground">Managed organization domains</p>
                 <Badge variant="secondary" className="text-[10px]" data-testid="badge-org-domain-source">
-                  {domainSource}
+                  {domainSource === "table" ? "Managed domains" : domainSource === "legacy" ? "Settings fallback" : "Not configured"}
                 </Badge>
               </div>
               {domainFeedback && (

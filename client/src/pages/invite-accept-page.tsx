@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { PublicSiteHeader } from "@/components/public-site-header";
 
 type InvitePreview = {
   id: string;
@@ -92,7 +93,9 @@ export default function InviteAcceptPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6" data-testid="page-invite-accept">
+    <div className="min-h-screen bg-background" data-testid="page-invite-accept">
+      <PublicSiteHeader />
+      <div className="flex min-h-[calc(100vh-81px)] items-center justify-center p-6">
       <div className="w-full max-w-md">
         <Card>
           <CardHeader className="text-center">
@@ -180,7 +183,7 @@ export default function InviteAcceptPage() {
           </CardContent>
         </Card>
       </div>
+      </div>
     </div>
   );
 }
-

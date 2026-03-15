@@ -163,7 +163,13 @@ export interface IStorage {
   getAuditLogs(filters?: AuditLogFilters): Promise<AuditLog[]>;
   getAuditLogsByOrg(organizationId: string, filters?: AuditLogFilters): Promise<AuditLog[]>;
   getAuditLogsByEntityForOrg(organizationId: string, entityId: string): Promise<AuditLog[]>;
-  createAuditLogForOrg(organizationId: string, log: Omit<InsertAuditLog, "organizationId">): Promise<AuditLog>;
+  createAuditLogForOrg(
+    organizationId: string,
+    log: Omit<InsertAuditLog, "organizationId"> & {
+      previousHash?: string | null;
+      recordHash?: string;
+    },
+  ): Promise<AuditLog>;
   getAuditLogsByEntity(entityId: string): Promise<AuditLog[]>;
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
 
@@ -919,7 +925,13 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(auditLogs.createdAt));
   }
 
-  async createAuditLogForOrg(organizationId: string, log: Omit<InsertAuditLog, "organizationId">): Promise<AuditLog> {
+  async createAuditLogForOrg(
+    organizationId: string,
+    log: Omit<InsertAuditLog, "organizationId"> & {
+      previousHash?: string | null;
+      recordHash?: string;
+    },
+  ): Promise<AuditLog> {
     const [created] = await db.insert(auditLogs).values({ ...log, organizationId }).returning();
     return created;
   }

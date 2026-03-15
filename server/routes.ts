@@ -8,6 +8,9 @@ import fs from "fs";
 import { storage } from "./storage";
 import {
   adminAuditEvents,
+  incidentCategories,
+  incidentSeverities,
+  incidentStatuses,
   insertAiSystemSchema,
   insertApprovalWorkflowSchema,
   membershipRoles,
@@ -15,6 +18,8 @@ import {
   organizationInvites,
   organizationInviteStatuses,
   organizations,
+  subscriptionStatuses,
+  subscriptionTiers,
   userRoles,
   users,
   insertSystemControlSchema,
@@ -49,11 +54,20 @@ import { domainService } from "./services/domainService";
 import { evidenceService } from "./services/evidenceService";
 import { exportService, type ExportType } from "./services/exportService";
 import { inviteService } from "./services/inviteService";
+import { incidentService } from "./services/incidentService";
+import { jiraService } from "./services/jiraService";
 import { monitoringService } from "./services/monitoringService";
 import { notificationService } from "./services/notificationService";
+import { portfolioService } from "./services/portfolioService";
+import { decisionAuditService } from "./services/decisionAuditService";
+import { retentionService } from "./services/retentionService";
 import { riskAssessmentService } from "./services/riskAssessmentService";
 import { ssoService } from "./services/ssoService";
+import { subscriptionService } from "./services/subscriptionService";
 import { systemService } from "./services/systemService";
+import { telemetryPolicyService } from "./services/telemetryPolicyService";
+import { telemetryAdapterService } from "./services/telemetryAdapterService";
+import { telemetryService } from "./services/telemetryService";
 import { workflowService } from "./services/workflowService";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -335,6 +349,125 @@ const orgAuthSettingsPatchSchema = z.object({
 const updateOrganizationDomainsSchema = z.object({
   domains: z.array(z.string().trim().min(1).max(255)).max(50),
 });
+
+const decisionAuditPayloadSchema = z.object({
+  systemId: z.string().trim().min(1).max(120),
+  workflowId: z.string().trim().max(120).optional().nullable(),
+  title: z.string().trim().min(1).max(200),
+  businessObjective: z.string().trim().max(1000).optional().nullable(),
+  modelName: z.string().trim().max(200).optional().nullable(),
+  modelVersion: z.string().trim().max(120).optional().nullable(),
+  promptText: z.string().trim().max(16000).optional().nullable(),
+  inputSources: z.array(z.string().trim().min(1).max(255)).max(25).optional(),
+  inputSnapshot: z.record(z.string(), z.unknown()).optional(),
+  decisionConstraints: z.array(z.string().trim().min(1).max(255)).max(25).optional(),
+  confidenceScore: z.number().int().min(0).max(100).optional().nullable(),
+  uncertaintyScore: z.number().int().min(0).max(100).optional().nullable(),
+  explainabilityFactors: z.array(z.string().trim().min(1).max(255)).max(25).optional(),
+  documentationStatus: z.enum(["draft", "reviewed", "sealed"]).optional(),
+  decisionContext: z.string().trim().min(1).max(6000),
+  aiOutput: z.string().trim().min(1).max(12000),
+  humanOutput: z.string().trim().max(12000).optional().nullable(),
+  overrideDiff: z.string().trim().max(12000).optional().nullable(),
+  overrideRationale: z.string().trim().max(4000).optional().nullable(),
+  outcome30d: z.record(z.string(), z.unknown()).optional(),
+  outcome60d: z.record(z.string(), z.unknown()).optional(),
+  outcome90d: z.record(z.string(), z.unknown()).optional(),
+  outcomeSummary: z.string().trim().max(4000).optional().nullable(),
+  reviewedBy: z.string().trim().max(200).optional().nullable(),
+  versionReason: z.string().trim().max(1000).optional().nullable(),
+});
+
+const decisionAuditLegalHoldSchema = z.object({
+  enabled: z.boolean(),
+  reason: z.string().trim().max(1000).optional().nullable(),
+});
+
+const incidentPayloadSchema = z.object({
+  systemId: z.string().trim().max(120).optional().nullable(),
+  workflowId: z.string().trim().max(120).optional().nullable(),
+  title: z.string().trim().min(1).max(200),
+  category: z.enum(incidentCategories),
+  severity: z.enum(incidentSeverities).default("medium"),
+  status: z.enum(incidentStatuses).default("open"),
+  description: z.string().trim().min(1).max(6000),
+  playbook: z.record(z.string(), z.unknown()).optional(),
+  rootCause: z.string().trim().max(4000).optional().nullable(),
+  postIncidentReview: z.record(z.string(), z.unknown()).optional(),
+  affectedDecisionTraceIds: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  regulatoryNotifications: z.array(
+    z.object({
+      authority: z.string().trim().min(1).max(200),
+      status: z.enum(["planned", "sent", "not_required"]),
+      notes: z.string().trim().max(1000).optional().nullable(),
+      completedAt: z.string().trim().datetime().optional().nullable(),
+    }),
+  ).max(20).optional(),
+  owner: z.string().trim().max(200).optional().nullable(),
+  escalatedTo: z.string().trim().max(200).optional().nullable(),
+  detectedAt: z.coerce.date().optional(),
+  dueAt: z.coerce.date().optional(),
+  containedAt: z.coerce.date().optional().nullable(),
+  resolvedAt: z.coerce.date().optional().nullable(),
+  postmortemCompletedAt: z.coerce.date().optional().nullable(),
+});
+
+const telemetryEventPayloadSchema = z.object({
+  systemId: z.string().trim().max(120).optional().nullable(),
+  modelName: z.string().trim().max(200).optional().nullable(),
+  provider: z.string().trim().max(120).optional().nullable(),
+  gateway: z.string().trim().max(200).optional().nullable(),
+  eventType: z.string().trim().min(1).max(120),
+  severity: z.enum(["info", "warning", "critical"]).default("info"),
+  driftScore: z.number().int().min(0).max(100).optional().nullable(),
+  biasFlags: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  summary: z.string().trim().min(1).max(4000),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  detectedAt: z.coerce.date().optional(),
+});
+
+const telemetryPolicyPatchSchema = z.object({
+  driftAlertThreshold: z.number().int().min(1).max(100).optional(),
+  driftCriticalThreshold: z.number().int().min(1).max(100).optional(),
+  biasFlagThreshold: z.number().int().min(1).max(20).optional(),
+  safetyFlagThreshold: z.number().int().min(1).max(20).optional(),
+  overrideRateWarningThreshold: z.number().int().min(1).max(100).optional(),
+  overrideRateCriticalThreshold: z.number().int().min(1).max(100).optional(),
+  errorRateWarningThreshold: z.number().int().min(1).max(100).optional(),
+  errorRateCriticalThreshold: z.number().int().min(1).max(100).optional(),
+  autoEscalateCritical: z.boolean().optional(),
+  notifyOnWarning: z.boolean().optional(),
+}).refine((value) => Object.keys(value).length > 0, {
+  message: "At least one telemetry threshold setting must be provided",
+});
+
+const telemetryAdapterPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  allowedGateways: z.array(z.string().trim().min(1).max(120)).max(25).optional(),
+}).refine((value) => Object.keys(value).length > 0, {
+  message: "At least one telemetry adapter setting must be provided",
+});
+
+const jiraIntegrationSchema = z.object({
+  enabled: z.boolean().default(false),
+  baseUrl: z.string().trim().url().max(1000).nullable().optional(),
+  projectKey: z.string().trim().max(120).nullable().optional(),
+  userEmail: z.string().trim().email().max(255).nullable().optional(),
+  apiToken: z.string().trim().max(4000).nullable().optional(),
+  issueType: z.string().trim().max(120).default("Task"),
+  labels: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
+});
+
+const subscriptionPatchSchema = z
+  .object({
+    tier: z.enum(subscriptionTiers).optional(),
+    status: z.enum(subscriptionStatuses).optional(),
+    billingEmail: z.string().trim().email().max(255).nullable().optional(),
+    seatLimit: z.number().int().min(1).max(5000).optional(),
+    trialEndsAt: z.coerce.date().optional().nullable(),
+    renewalAt: z.coerce.date().optional().nullable(),
+  })
+  .refine((value) => Object.keys(value).length > 0, { message: "At least one field must be provided" });
 
 const ssoStartSchema = z.object({
   org: z.string().trim().min(1).max(120),
@@ -1903,6 +2036,191 @@ export async function registerRoutes(
     return res.json(rows);
   });
 
+  app.get("/api/organization/jira-integration", requireAuth, requireTenant, requireOrgRole("owner", "admin"), async (req, res) => {
+    const integration = await jiraService.getIntegration(req.tenant!.organizationId);
+    return res.json(integration);
+  });
+
+  app.put("/api/organization/jira-integration", requireAuth, requireTenant, requireOrgRole("owner", "admin"), async (req, res) => {
+    try {
+      const parsed = jiraIntegrationSchema.parse(req.body);
+      const integration = await jiraService.upsertIntegration(req.tenant!.organizationId, {
+        enabled: parsed.enabled,
+        baseUrl: parsed.baseUrl ?? null,
+        projectKey: parsed.projectKey ?? null,
+        userEmail: parsed.userEmail ?? null,
+        apiToken: parsed.apiToken ?? null,
+        issueType: parsed.issueType,
+        labels: parsed.labels ?? [],
+      });
+      await recordAdminAuditEvent({
+        organizationId: req.tenant!.organizationId,
+        actorUserId: req.user!.id,
+        actorName: req.user!.fullName,
+        action: "organization.jira_integration.updated",
+        targetType: "jira_integration",
+        targetId: integration.id,
+        metadata: {
+          enabled: integration.enabled,
+          projectKey: integration.projectKey,
+        },
+      });
+      return res.json(integration);
+    } catch (err: any) {
+      return res.status(400).json({ message: err.message || "Failed to update Jira integration" });
+    }
+  });
+
+  app.post("/api/organization/jira-integration/test", requireAuth, requireTenant, requireOrgRole("owner", "admin"), async (req, res) => {
+    const result = await jiraService.testConnection(req.tenant!.organizationId);
+    return res.status(result.ok ? 200 : 400).json(result);
+  });
+
+  app.get("/api/organization/subscription", requireAuth, requireTenant, requireOrgRole("owner", "admin"), async (req, res) => {
+    const subscription = await subscriptionService.getForOrg(req.tenant!.organizationId);
+    return res.json(subscription);
+  });
+
+  app.get(
+    "/api/organization/telemetry-policy",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      const policy = await telemetryPolicyService.getEffectiveForOrg(req.tenant!.organizationId);
+      return res.json(policy);
+    },
+  );
+
+  app.patch(
+    "/api/organization/telemetry-policy",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const parsed = telemetryPolicyPatchSchema.parse(req.body);
+        const updated = await telemetryPolicyService.updateForOrg(req.tenant!.organizationId, parsed);
+        await recordAdminAuditEvent({
+          organizationId: req.tenant!.organizationId,
+          actorUserId: req.user!.id,
+          actorName: req.user!.fullName,
+          action: "organization.telemetry_policy.updated",
+          targetType: "telemetry_policy",
+          targetId: updated.id,
+          metadata: parsed,
+        });
+        return res.json(updated);
+      } catch (err: any) {
+        return res.status(400).json({ message: err.message || "Failed to update telemetry policy" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/organization/telemetry-policy/reset",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      const updated = await telemetryPolicyService.resetOrgOverride(req.tenant!.organizationId);
+      await recordAdminAuditEvent({
+        organizationId: req.tenant!.organizationId,
+        actorUserId: req.user!.id,
+        actorName: req.user!.fullName,
+        action: "organization.telemetry_policy.reset",
+        targetType: "telemetry_policy",
+        targetId: req.tenant!.organizationId,
+        metadata: {
+          source: updated.source,
+          inheritedFromPortfolioId: updated.inheritedFromPortfolioId,
+        },
+      });
+      return res.json(updated);
+    },
+  );
+
+  app.get(
+    "/api/organization/telemetry-adapter",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      const adapter = await telemetryAdapterService.getForOrg(req.tenant!.organizationId);
+      return res.json(adapter);
+    },
+  );
+
+  app.patch(
+    "/api/organization/telemetry-adapter",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const parsed = telemetryAdapterPatchSchema.parse(req.body);
+        const updated = await telemetryAdapterService.updateForOrg(req.tenant!.organizationId, parsed);
+        await recordAdminAuditEvent({
+          organizationId: req.tenant!.organizationId,
+          actorUserId: req.user!.id,
+          actorName: req.user!.fullName,
+          action: "organization.telemetry_adapter.updated",
+          targetType: "telemetry_adapter",
+          targetId: updated.id,
+          metadata: parsed,
+        });
+        return res.json(updated);
+      } catch (err: any) {
+        return res.status(400).json({ message: err.message || "Failed to update telemetry adapter" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/organization/telemetry-adapter/rotate-key",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      const rotated = await telemetryAdapterService.rotateKeyForOrg(req.tenant!.organizationId);
+      await recordAdminAuditEvent({
+        organizationId: req.tenant!.organizationId,
+        actorUserId: req.user!.id,
+        actorName: req.user!.fullName,
+        action: "organization.telemetry_adapter.key_rotated",
+        targetType: "telemetry_adapter",
+        targetId: rotated.adapter.id,
+        metadata: {
+          keyPrefix: rotated.adapter.keyPrefix,
+        },
+      });
+      return res.json(rotated);
+    },
+  );
+
+  app.patch("/api/organization/subscription", requireAuth, requireTenant, requireOrgRole("owner", "admin"), async (req, res) => {
+    try {
+      const parsed = subscriptionPatchSchema.parse(req.body);
+      const updated = await subscriptionService.updateForOrg(req.tenant!.organizationId, parsed);
+      await recordAdminAuditEvent({
+        organizationId: req.tenant!.organizationId,
+        actorUserId: req.user!.id,
+        actorName: req.user!.fullName,
+        action: "organization.subscription.updated",
+        targetType: "subscription",
+        targetId: updated.id,
+        metadata: {
+          tier: updated.tier,
+          status: updated.status,
+          seatLimit: updated.seatLimit,
+        },
+      });
+      return res.json(updated);
+    } catch (err: any) {
+      return res.status(400).json({ message: err.message || "Failed to update subscription" });
+    }
+  });
+
   app.post("/api/auth/register", async (req, res) => {
     if (process.env.ALLOW_SELF_SIGNUP !== "true") {
       return res.status(403).json({ message: "Self-service registration is disabled" });
@@ -2732,7 +3050,7 @@ export async function registerRoutes(
             entityId: wf.id,
             action: "created",
             performedBy: req.user!.fullName,
-            details: `Approval workflow "${wf.title}" created`,
+            details: `Approval workflow "${wf.title}" created and routed to ${wf.committeeType?.replace(/_/g, " ") || "technical team"} as ${wf.decisionTier?.replace("_", " ") || "tier 1"}`,
           },
         });
         if (wf.reviewer) {
@@ -2752,7 +3070,44 @@ export async function registerRoutes(
             );
           }
         }
-        res.status(201).json(wf);
+        const linkedSystem = await storage.getAiSystemById(req.tenant!.organizationId, wf.systemId);
+        const jiraSync = await jiraService.syncWorkflowIfNeeded({
+          organizationId: req.tenant!.organizationId,
+          workflow: wf,
+          systemName: linkedSystem?.name ?? wf.systemId,
+          systemRiskLevel: linkedSystem?.riskLevel ?? null,
+        });
+        if (jiraSync.status === "linked" && jiraSync.issueKey) {
+          await auditService.createLog({
+            organizationId: req.tenant!.organizationId,
+            actor: req.user!,
+            input: {
+              entityType: "approval_workflow",
+              entityId: wf.id,
+              action: "jira_linked",
+              performedBy: req.user!.fullName,
+              details: `Linked Jira issue ${jiraSync.issueKey} for workflow \"${wf.title}\"`,
+            },
+          });
+        }
+        if (jiraSync.status === "error") {
+          await notifyAllAdmins(
+            req.tenant!.organizationId,
+            "Jira sync failed",
+            `Workflow \"${wf.title}\" could not be synced to Jira: ${jiraSync.message}`,
+            "workflow_status_changed",
+            "approval_workflow",
+            wf.id,
+          );
+        }
+        const finalWorkflow = jiraSync.workflow ?? wf;
+        await decisionAuditService.syncWorkflowTrace({
+          organizationId: req.tenant!.organizationId,
+          workflow: finalWorkflow,
+          actorName: req.user!.fullName,
+          systemRiskLevel: linkedSystem?.riskLevel ?? null,
+        });
+        res.status(201).json(finalWorkflow);
       } catch (err: any) {
         res.status(400).json({ message: err.message });
       }
@@ -2765,41 +3120,352 @@ export async function registerRoutes(
     requireTenant,
     requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer"),
     async (req, res) => {
-      const updated = await workflowService.updateWorkflow({
-        organizationId: req.tenant!.organizationId,
-        actor: req.user!,
-        workflowId: routeParam(req.params.id),
-        input: req.body,
-      });
-      if (!updated) return res.status(404).json({ message: "Workflow not found" });
-      const action = req.body.status === "approved" ? "approved" : req.body.status === "rejected" ? "rejected" : "status_changed";
-      await auditService.createLog({
-        organizationId: req.tenant!.organizationId,
-        actor: req.user!,
-        input: {
-          entityType: "approval_workflow",
-          entityId: updated.id,
-          action,
-          performedBy: req.user!.fullName,
-          details: `Workflow "${updated.title}" ${action}`,
-        },
-      });
-      const requester = await workflowService.findUserByNameOrUsername({
-        organizationId: req.tenant!.organizationId,
-        identity: updated.requestedBy,
-      });
-      if (requester) {
-        await notifyUser(
-          req.tenant!.organizationId,
-          requester.id,
-          `Workflow ${action}`,
-          `Your workflow "${updated.title}" has been ${action}`,
-          "workflow_status_changed",
-          "approval_workflow",
-          updated.id,
-        );
+      try {
+        const updated = await workflowService.updateWorkflow({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          workflowId: routeParam(req.params.id),
+          input: req.body,
+        });
+        if (!updated) return res.status(404).json({ message: "Workflow not found" });
+        const action = req.body.status === "approved" ? "approved" : req.body.status === "rejected" ? "rejected" : "status_changed";
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "approval_workflow",
+            entityId: updated.id,
+            action,
+            performedBy: req.user!.fullName,
+            details: `Workflow "${updated.title}" ${action} under ${updated.decisionTier?.replace("_", " ") || "tier 1"} / ${updated.committeeType?.replace(/_/g, " ") || "technical team"}`,
+          },
+        });
+        const requester = await workflowService.findUserByNameOrUsername({
+          organizationId: req.tenant!.organizationId,
+          identity: updated.requestedBy,
+        });
+        if (requester) {
+          await notifyUser(
+            req.tenant!.organizationId,
+            requester.id,
+            `Workflow ${action}`,
+            `Your workflow "${updated.title}" has been ${action}`,
+            "workflow_status_changed",
+            "approval_workflow",
+            updated.id,
+          );
+        }
+        const linkedSystem = await storage.getAiSystemById(req.tenant!.organizationId, updated.systemId);
+        const jiraSync = await jiraService.syncWorkflowIfNeeded({
+          organizationId: req.tenant!.organizationId,
+          workflow: updated,
+          systemName: linkedSystem?.name ?? updated.systemId,
+          systemRiskLevel: linkedSystem?.riskLevel ?? null,
+        });
+        if (jiraSync.status === "linked" && jiraSync.issueKey) {
+          await auditService.createLog({
+            organizationId: req.tenant!.organizationId,
+            actor: req.user!,
+            input: {
+              entityType: "approval_workflow",
+              entityId: updated.id,
+              action: "jira_linked",
+              performedBy: req.user!.fullName,
+              details: `Linked Jira issue ${jiraSync.issueKey} for workflow \"${updated.title}\"`,
+            },
+          });
+        }
+        const finalWorkflow = jiraSync.workflow ?? updated;
+        await decisionAuditService.syncWorkflowTrace({
+          organizationId: req.tenant!.organizationId,
+          workflow: finalWorkflow,
+          actorName: req.user!.fullName,
+          systemRiskLevel: linkedSystem?.riskLevel ?? null,
+        });
+        res.json(finalWorkflow);
+      } catch (err: any) {
+        res.status(err?.status ?? 400).json({ message: err.message || "Failed to update workflow" });
       }
-      res.json(updated);
+    },
+  );
+
+  app.get("/api/decision-audits", requireAuth, requireTenant, async (req, res) => {
+    const rows = await decisionAuditService.listForOrg(req.tenant!.organizationId, {
+      systemId: req.query.systemId as string | undefined,
+      workflowId: req.query.workflowId as string | undefined,
+    });
+    res.json(rows);
+  });
+
+  app.get("/api/decision-audits/summary", requireAuth, requireTenant, async (req, res) => {
+    const summary = await decisionAuditService.getSummaryForOrg(req.tenant!.organizationId);
+    res.json(summary);
+  });
+
+  app.get("/api/decision-audits/:id/versions", requireAuth, requireTenant, async (req, res) => {
+    const versions = await decisionAuditService.listVersionsForOrg(req.tenant!.organizationId, routeParam(req.params.id));
+    res.json(versions);
+  });
+
+  app.get(
+    "/api/decision-audits/retention-summary",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      const summary = await retentionService.getSummaryForOrg(req.tenant!.organizationId);
+      res.json(summary);
+    },
+  );
+
+  app.post(
+    "/api/decision-audits",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
+    async (req, res) => {
+      try {
+        const parsed = decisionAuditPayloadSchema.parse(req.body);
+        const created = await decisionAuditService.createForOrg(req.tenant!.organizationId, {
+          ...parsed,
+          workflowId: parsed.workflowId ?? null,
+          businessObjective: parsed.businessObjective ?? null,
+          modelName: parsed.modelName ?? null,
+          modelVersion: parsed.modelVersion ?? null,
+          promptText: parsed.promptText ?? null,
+          inputSources: parsed.inputSources ?? [],
+          inputSnapshot: parsed.inputSnapshot ?? {},
+          decisionConstraints: parsed.decisionConstraints ?? [],
+          confidenceScore: parsed.confidenceScore ?? null,
+          uncertaintyScore: parsed.uncertaintyScore ?? null,
+          explainabilityFactors: parsed.explainabilityFactors ?? [],
+          documentationStatus: parsed.documentationStatus ?? "sealed",
+          humanOutput: parsed.humanOutput ?? null,
+          overrideDiff: parsed.overrideDiff ?? null,
+          overrideRationale: parsed.overrideRationale ?? null,
+          outcome30d: parsed.outcome30d ?? {},
+          outcome60d: parsed.outcome60d ?? {},
+          outcome90d: parsed.outcome90d ?? {},
+          outcomeSummary: parsed.outcomeSummary ?? null,
+          reviewedBy: parsed.reviewedBy ?? null,
+          createdBy: req.user!.fullName,
+        });
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "decision_audit",
+            entityId: created.id,
+            action: "created",
+            performedBy: req.user!.fullName,
+            details: `Decision trace \"${created.title}\" recorded`,
+          },
+        });
+        res.status(201).json(created);
+      } catch (err: any) {
+        res.status(400).json({ message: err.message || "Failed to create decision trace" });
+      }
+    },
+  );
+
+  app.patch(
+    "/api/decision-audits/:id",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
+    async (req, res) => {
+      try {
+        const parsed = decisionAuditPayloadSchema.partial().parse(req.body);
+        const updated = await decisionAuditService.updateForOrg(req.tenant!.organizationId, routeParam(req.params.id), {
+          ...parsed,
+          workflowId: parsed.workflowId ?? undefined,
+          businessObjective: parsed.businessObjective ?? undefined,
+          modelName: parsed.modelName ?? undefined,
+          modelVersion: parsed.modelVersion ?? undefined,
+          promptText: parsed.promptText ?? undefined,
+          inputSources: parsed.inputSources ?? undefined,
+          inputSnapshot: parsed.inputSnapshot ?? undefined,
+          decisionConstraints: parsed.decisionConstraints ?? undefined,
+          confidenceScore: parsed.confidenceScore ?? undefined,
+          uncertaintyScore: parsed.uncertaintyScore ?? undefined,
+          explainabilityFactors: parsed.explainabilityFactors ?? undefined,
+          documentationStatus: parsed.documentationStatus ?? undefined,
+          humanOutput: parsed.humanOutput ?? undefined,
+          overrideDiff: parsed.overrideDiff ?? undefined,
+          overrideRationale: parsed.overrideRationale ?? undefined,
+          outcome30d: parsed.outcome30d ?? undefined,
+          outcome60d: parsed.outcome60d ?? undefined,
+          outcome90d: parsed.outcome90d ?? undefined,
+          outcomeSummary: parsed.outcomeSummary ?? undefined,
+          reviewedBy: parsed.reviewedBy ?? undefined,
+          versionReason: parsed.versionReason ?? undefined,
+          actorName: req.user!.fullName,
+        });
+        if (!updated) {
+          return res.status(404).json({ message: "Decision trace not found" });
+        }
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "decision_audit",
+            entityId: updated.id,
+            action: "updated",
+            performedBy: req.user!.fullName,
+            details: `Decision trace \"${updated.title}\" updated to v${updated.currentVersionNumber}`,
+          },
+        });
+        res.json(updated);
+      } catch (err: any) {
+        res.status(400).json({ message: err.message || "Failed to update decision trace" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/decision-audits/:id/legal-hold",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const parsed = decisionAuditLegalHoldSchema.parse(req.body);
+        const updated = await retentionService.setLegalHold({
+          organizationId: req.tenant!.organizationId,
+          decisionAuditId: routeParam(req.params.id),
+          enabled: parsed.enabled,
+          reason: parsed.reason ?? null,
+          actorName: req.user!.fullName,
+        });
+        if (!updated) {
+          return res.status(404).json({ message: "Decision trace not found" });
+        }
+        res.json(updated);
+      } catch (err: any) {
+        res.status(err?.status ?? 400).json({ message: err.message || "Failed to update legal hold" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/decision-audits/retention-enforce",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      const result = await retentionService.enforceDueRetention({
+        organizationId: req.tenant!.organizationId,
+        actorName: req.user!.fullName,
+      });
+      res.json(result);
+    },
+  );
+
+  app.get("/api/incidents", requireAuth, requireTenant, async (req, res) => {
+    const rows = await incidentService.listForOrg(req.tenant!.organizationId, {
+      status: req.query.status as string | undefined,
+      severity: req.query.severity as string | undefined,
+    });
+    res.json(rows);
+  });
+
+  app.get("/api/incidents/summary", requireAuth, requireTenant, async (req, res) => {
+    const summary = await incidentService.getSummaryForOrg(req.tenant!.organizationId);
+    res.json(summary);
+  });
+
+  app.post(
+    "/api/incidents",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
+    async (req, res) => {
+      try {
+        const parsed = incidentPayloadSchema.parse(req.body);
+        const created = await incidentService.createForOrg(req.tenant!.organizationId, {
+          ...parsed,
+          systemId: parsed.systemId ?? null,
+          workflowId: parsed.workflowId ?? null,
+          playbook: parsed.playbook ?? {},
+          rootCause: parsed.rootCause ?? null,
+          postIncidentReview: parsed.postIncidentReview ?? {},
+          affectedDecisionTraceIds: parsed.affectedDecisionTraceIds ?? [],
+          regulatoryNotifications: parsed.regulatoryNotifications ?? [],
+          owner: parsed.owner ?? null,
+          escalatedTo: parsed.escalatedTo ?? null,
+          dueAt: parsed.dueAt ?? null,
+          containedAt: parsed.containedAt ?? null,
+          resolvedAt: parsed.resolvedAt ?? null,
+          postmortemCompletedAt: parsed.postmortemCompletedAt ?? null,
+        });
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "ai_incident",
+            entityId: created.id,
+            action: "created",
+            performedBy: req.user!.fullName,
+            details: `AI incident \"${created.title}\" opened`,
+          },
+        });
+        if (created.severity === "critical" || created.severity === "high") {
+          await notifyAllAdmins(
+            req.tenant!.organizationId,
+            `AI incident: ${created.title}`,
+            `${created.severity.toUpperCase()} incident opened in category ${created.category}.`,
+            "workflow_status_changed",
+            "ai_incident",
+            created.id,
+          );
+        }
+        res.status(201).json(created);
+      } catch (err: any) {
+        res.status(400).json({ message: err.message || "Failed to create incident" });
+      }
+    },
+  );
+
+  app.patch(
+    "/api/incidents/:id",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
+    async (req, res) => {
+      try {
+        const parsed = incidentPayloadSchema.partial().parse(req.body);
+        const updated = await incidentService.updateForOrg(req.tenant!.organizationId, routeParam(req.params.id), {
+          ...parsed,
+          playbook: parsed.playbook ?? undefined,
+          rootCause: parsed.rootCause ?? undefined,
+          postIncidentReview: parsed.postIncidentReview ?? undefined,
+          affectedDecisionTraceIds: parsed.affectedDecisionTraceIds ?? undefined,
+          regulatoryNotifications: parsed.regulatoryNotifications ?? undefined,
+          owner: parsed.owner ?? undefined,
+          escalatedTo: parsed.escalatedTo ?? undefined,
+          dueAt: parsed.dueAt ?? undefined,
+          containedAt: parsed.containedAt ?? undefined,
+          resolvedAt: parsed.resolvedAt ?? undefined,
+          postmortemCompletedAt: parsed.postmortemCompletedAt ?? undefined,
+        });
+        if (!updated) {
+          return res.status(404).json({ message: "Incident not found" });
+        }
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "ai_incident",
+            entityId: updated.id,
+            action: "updated",
+            performedBy: req.user!.fullName,
+            details: `AI incident \"${updated.title}\" moved to ${updated.status}`,
+          },
+        });
+        res.json(updated);
+      } catch (err: any) {
+        res.status(400).json({ message: err.message || "Failed to update incident" });
+      }
     },
   );
 
@@ -2817,6 +3483,129 @@ export async function registerRoutes(
       filters,
     });
     res.json(logs);
+  });
+
+  app.get("/api/audit-logs/verify-chain", requireAuth, requireTenant, async (req, res) => {
+    const result = await auditService.verifyChain({
+      organizationId: req.tenant!.organizationId,
+      actor: req.user!,
+    });
+    res.status(result.ok ? 200 : 409).json(result);
+  });
+
+  app.get("/api/telemetry/summary", requireAuth, requireTenant, async (req, res) => {
+    const summary = await telemetryService.getSummaryForOrg(req.tenant!.organizationId);
+    res.json(summary);
+  });
+
+  app.post(
+    ["/api/telemetry/events", "/api/telemetry/ingest"],
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
+    async (req, res) => {
+      try {
+        const parsed = telemetryEventPayloadSchema.parse(req.body);
+        const created = await telemetryService.createForOrg(req.tenant!.organizationId, {
+          ...parsed,
+          systemId: parsed.systemId ?? null,
+          modelName: parsed.modelName ?? null,
+          provider: parsed.provider ?? null,
+          gateway: parsed.gateway ?? null,
+          driftScore: parsed.driftScore ?? null,
+          biasFlags: parsed.biasFlags ?? [],
+          metadata: parsed.metadata ?? {},
+          detectedAt: parsed.detectedAt ?? new Date(),
+        });
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "telemetry_event",
+            entityId: created.id,
+            action: "created",
+            performedBy: req.user!.fullName,
+            details: `Telemetry event \"${created.eventType}\" recorded${Array.isArray((created.metadata as any)?.thresholdBreaches) && (created.metadata as any).thresholdBreaches.length > 0 ? ` with threshold breaches: ${(created.metadata as any).thresholdBreaches.join(", ")}` : ""}`,
+          },
+        });
+        res.status(201).json(created);
+      } catch (err: any) {
+        res.status(400).json({ message: err.message || "Failed to record telemetry event" });
+      }
+    },
+  );
+
+  app.post("/api/telemetry/sdk-ingest", async (req, res) => {
+    try {
+      const rawKey =
+        req.get("x-telemetry-key") ||
+        req.get("x-api-key") ||
+        req.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+        "";
+
+      if (!rawKey) {
+        return res.status(401).json({ message: "Telemetry ingest key is required" });
+      }
+
+      const adapter = await telemetryAdapterService.resolveIngestKey(rawKey.trim());
+      if (!adapter) {
+        return res.status(401).json({ message: "Invalid telemetry ingest key" });
+      }
+
+      const parsed = telemetryEventPayloadSchema.parse(req.body);
+      const allowedGateways = Array.isArray(adapter.allowedGateways)
+        ? adapter.allowedGateways.filter((entry): entry is string => typeof entry === "string")
+        : [];
+
+      if (allowedGateways.length > 0 && (!parsed.gateway || !allowedGateways.includes(parsed.gateway))) {
+        return res.status(403).json({ message: "Gateway is not allowed for this telemetry adapter" });
+      }
+
+      const created = await telemetryService.createForOrg(adapter.organizationId, {
+        ...parsed,
+        systemId: parsed.systemId ?? null,
+        modelName: parsed.modelName ?? null,
+        provider: parsed.provider ?? null,
+        gateway: parsed.gateway ?? null,
+        driftScore: parsed.driftScore ?? null,
+        biasFlags: parsed.biasFlags ?? [],
+        metadata: {
+          ...(parsed.metadata ?? {}),
+          adapterKeyPrefix: adapter.keyPrefix,
+          ingestSource: "sdk",
+        },
+        detectedAt: parsed.detectedAt ?? new Date(),
+      });
+
+      await telemetryAdapterService.markUsed(adapter.id);
+      await auditService.createLog({
+        organizationId: adapter.organizationId,
+        actor: {
+          id: "telemetry-sdk",
+          username: "telemetry-sdk",
+          fullName: "Telemetry SDK",
+          email: null,
+          role: "system",
+        },
+        input: {
+          entityType: "telemetry_event",
+          entityId: created.id,
+          action: "sdk_ingested",
+          performedBy: "Telemetry SDK",
+          details: `Telemetry SDK event "${created.eventType}" recorded${parsed.gateway ? ` from ${parsed.gateway}` : ""}`,
+        },
+      });
+
+      return res.status(201).json({
+        id: created.id,
+        ok: true,
+        thresholdBreaches: Array.isArray((created.metadata as Record<string, unknown>)?.thresholdBreaches)
+          ? ((created.metadata as Record<string, unknown>).thresholdBreaches as string[])
+          : [],
+      });
+    } catch (err: any) {
+      return res.status(400).json({ message: err.message || "Failed to ingest telemetry event" });
+    }
   });
 
   app.get("/api/notifications", requireAuth, requireTenant, async (req, res) => {
@@ -3156,6 +3945,104 @@ export async function registerRoutes(
       res.status(500).json({ message: err.message });
     }
   });
+
+  app.get(
+    "/api/portfolio-control",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const rawPortfolioId = req.query.portfolioId;
+        const portfolioId =
+          typeof rawPortfolioId === "string"
+            ? rawPortfolioId
+            : Array.isArray(rawPortfolioId) && typeof rawPortfolioId[0] === "string"
+              ? rawPortfolioId[0]
+              : undefined;
+        const data = await portfolioService.getControlPlane({
+          userId: req.user!.id,
+          actor: req.user!,
+          portfolioId,
+        });
+        res.json(data);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message || "Failed to load portfolio control plane" });
+      }
+    },
+  );
+
+  app.get("/api/portfolio-control/telemetry-policy", requireAuth, async (req, res) => {
+    try {
+      const rawPortfolioId = req.query.portfolioId;
+      const portfolioId =
+        typeof rawPortfolioId === "string"
+          ? rawPortfolioId
+          : Array.isArray(rawPortfolioId) && typeof rawPortfolioId[0] === "string"
+            ? rawPortfolioId[0]
+            : undefined;
+
+      const available = await portfolioService.listForUser(req.user!.id, req.user!.fullName || req.user!.username);
+      const selected = available.find((portfolio) => portfolio.id === portfolioId) ?? available[0];
+      if (!selected) {
+        return res.status(404).json({ message: "Portfolio not found" });
+      }
+
+      const policy = await telemetryPolicyService.getForPortfolio(selected.id);
+      return res.json({
+        portfolio: selected,
+        policy,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ message: err.message || "Failed to load portfolio telemetry policy" });
+    }
+  });
+
+  app.patch("/api/portfolio-control/telemetry-policy", requireAuth, async (req, res) => {
+    try {
+      const rawPortfolioId = req.query.portfolioId;
+      const portfolioId =
+        typeof rawPortfolioId === "string"
+          ? rawPortfolioId
+          : Array.isArray(rawPortfolioId) && typeof rawPortfolioId[0] === "string"
+            ? rawPortfolioId[0]
+            : undefined;
+
+      const available = await portfolioService.listForUser(req.user!.id, req.user!.fullName || req.user!.username);
+      const selected = available.find((portfolio) => portfolio.id === portfolioId) ?? available[0];
+      if (!selected) {
+        return res.status(404).json({ message: "Portfolio not found" });
+      }
+      if (selected.role !== "portfolio_admin") {
+        return res.status(403).json({ message: "Portfolio admin access required" });
+      }
+
+      const parsed = telemetryPolicyPatchSchema.parse(req.body);
+      const updated = await telemetryPolicyService.updateForPortfolio(selected.id, parsed);
+      return res.json({
+        portfolio: selected,
+        policy: updated,
+      });
+    } catch (err: any) {
+      return res.status(400).json({ message: err.message || "Failed to update portfolio telemetry policy" });
+    }
+  });
+
+  app.get(
+    "/api/dashboard/exit-readiness",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const data = await dashboardService.getExitReadiness({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+        });
+        res.json(data);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message || "Failed to load exit readiness" });
+      }
+    },
+  );
 
   app.get("/api/activity-dashboard", requireAuth, requireTenant, async (req, res) => {
     try {

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trackMarketingEvent, readAttribution } from "@/lib/marketing";
+import { PublicSiteHeader } from "@/components/public-site-header";
 
 type LeadFormData = {
   name: string;
@@ -114,12 +115,10 @@ function LeadCapturePage({ formType, title, subtitle, ctaLabel }: LeadCapturePag
   };
 
   return (
-    <div className="min-h-screen bg-background px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mx-auto grid w-full max-w-5xl gap-8 lg:grid-cols-2">
+    <div className="min-h-screen bg-background">
+      <PublicSiteHeader />
+      <div className="mx-auto grid w-full max-w-5xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-2 lg:px-8">
         <div className="space-y-5">
-          <a href="/" className="text-sm text-muted-foreground hover:text-foreground">
-            ← Back to AI Control Tower
-          </a>
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{title}</h1>
           <p className="text-sm text-muted-foreground sm:text-base">{subtitle}</p>
           <ul className="space-y-2 text-sm text-muted-foreground">

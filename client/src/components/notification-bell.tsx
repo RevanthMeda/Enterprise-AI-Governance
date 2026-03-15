@@ -30,6 +30,45 @@ const typeColors: Record<string, string> = {
   system_modified: "text-green-500",
 };
 
+function formatNotificationCopy(notif: Notification) {
+  const generatedSeed = /^Generated notification \d+ for /i.test(notif.message ?? "");
+  if (!generatedSeed) {
+    return { title: notif.title, message: notif.message };
+  }
+
+  const friendlyLabels: Record<string, { title: string; message: string }> = {
+    approval_assigned: {
+      title: "Approval review assigned",
+      message: "A workflow in your organization is awaiting review.",
+    },
+    workflow_status_changed: {
+      title: "Workflow status updated",
+      message: "An approval workflow changed state and may need follow-up.",
+    },
+    high_risk_created: {
+      title: "High-risk system flagged",
+      message: "A high-risk system requires governance attention.",
+    },
+    control_overdue: {
+      title: "Control overdue",
+      message: "A compliance control is overdue and should be reviewed.",
+    },
+    evidence_requested: {
+      title: "Evidence requested",
+      message: "Supporting evidence is needed for an active governance item.",
+    },
+    system_modified: {
+      title: "System updated",
+      message: "An AI system record was updated in the registry.",
+    },
+  };
+
+  return friendlyLabels[notif.type] ?? {
+    title: "Governance update",
+    message: "There is new activity in your organization.",
+  };
+}
+
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [, navigate] = useLocation();
@@ -121,6 +160,7 @@ export function NotificationBell() {
               {notifications.slice(0, 20).map((notif) => {
                 const Icon = typeIcons[notif.type] || Activity;
                 const iconColor = typeColors[notif.type] || "text-muted-foreground";
+                const copy = formatNotificationCopy(notif);
                 return (
                   <button
                     key={notif.id}
@@ -136,13 +176,13 @@ export function NotificationBell() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-1">
                         <p className={`text-xs leading-tight ${!notif.read ? "font-semibold" : "font-medium"}`}>
-                          {notif.title}
+                          {copy.title}
                         </p>
                         {!notif.read && (
                           <span className="mt-1 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
                         )}
                       </div>
-                      <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{notif.message}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{copy.message}</p>
                       <p className="text-[10px] text-muted-foreground mt-1">
                         {notif.createdAt ? new Date(notif.createdAt).toLocaleString() : ""}
                       </p>

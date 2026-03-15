@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { buildTrackedPath, trackMarketingEvent } from "@/lib/marketing";
+import { BrandMark } from "@/components/brand-mark";
 
 const navItems = [
   { label: "Product", href: "#product" },
@@ -25,7 +26,8 @@ const navItems = [
   { label: "How it Works", href: "#how-it-works" },
   { label: "Pricing", href: "#pricing" },
   { label: "FAQ", href: "#faq" },
-  { label: "API Docs", href: "/api-docs" },
+  { label: "Trust Center", href: "/trust-center" },
+  { label: "Docs", href: "/api-docs" },
 ];
 
 const proofItems = [
@@ -33,6 +35,11 @@ const proofItems = [
   "SAML + OIDC enterprise SSO",
   "DNS-verified domain claims",
   "Invite + JIT onboarding",
+  "Decision traceability lifecycle",
+  "SHA-256 audit hash chain",
+  "AI incident playbooks",
+  "Jira escalation sync",
+  "Pilot-to-paid subscription controls",
   "Role-based approvals",
   "Audit-ready exports",
   "Tenant-safe architecture",
@@ -74,6 +81,11 @@ const useCases = [
     icon: Building2,
   },
   {
+    title: "Portfolio Operators and PE Teams",
+    body: "Roll out governance baselines across portfolio companies with buyer-grade audit evidence, incident handling, and commercial controls.",
+    icon: ChartNoAxesCombined,
+  },
+  {
     title: "IT & Identity Teams",
     body: "Roll out SAML or OIDC, verified domains, JIT provisioning, and invite-based onboarding without custom glue.",
     icon: Users,
@@ -96,6 +108,10 @@ const differentiators = [
   {
     title: "Enterprise identity built in",
     body: "Support SAML, OIDC, verified domains, invite workflows, and JIT provisioning from the same admin surface.",
+  },
+  {
+    title: "AI roll-up diligence ready",
+    body: "Decision traceability, human override capture, immutable audit chaining, and incident playbooks help answer buyer diligence questions directly.",
   },
   {
     title: "Tenant-safe foundation",
@@ -123,6 +139,10 @@ const features = [
   { title: "Export & Reporting", body: "Generate organization-scoped outputs for review and audit readiness." },
   { title: "Enterprise Identity", body: "SAML and OIDC sign-in, verified domains, invite workflows, and JIT provisioning." },
   { title: "Admin Control Center", body: "Manage domains, identity mode, invites, members, and admin activity from one settings surface." },
+  { title: "Decision Trace Center", body: "Track context, AI output, human override, rationale, and 30/60/90-day outcomes with chain verification." },
+  { title: "Incident Response Playbooks", body: "Open AI incidents for bias, security, privacy, reliability, and safety with explicit containment workflows." },
+  { title: "Jira Escalation Sync", body: "Open Jira tickets automatically for qualifying high-risk approval workflows and sync buyer-facing remediation work." },
+  { title: "Billing Controls", body: "Manage pilot, growth, and enterprise tiers with seat limits and live usage to support pilot-to-paid conversion." },
   { title: "Multi-tenant SaaS Foundation", body: "Hardened tenant isolation with org-aware auth/session boundaries." },
 ];
 
@@ -141,6 +161,11 @@ const operationsHighlights = [
     title: "Async delivery with retry paths",
     body: "Invite delivery and monitoring webhooks run through a persistent retryable job queue with admin-visible failure handling.",
     icon: Workflow,
+  },
+  {
+    title: "Immutable trace and incident posture",
+    body: "Decision lifecycle records, SHA-256 audit chains, and AI-specific incident playbooks give operators a clearer diligence and response story.",
+    icon: CheckCircle2,
   },
   {
     title: "Tenant-safe operational controls",
@@ -169,6 +194,10 @@ const roleValue = [
   {
     title: "For IT and Identity Owners",
     body: "Deploy enterprise sign-in with verified domains and controlled onboarding instead of stitching governance into the IdP by hand.",
+  },
+  {
+    title: "For Operating Partners",
+    body: "Assess portfolio readiness, buyer diligence posture, and escalation discipline from a single multi-tenant control plane.",
   },
 ];
 
@@ -201,6 +230,14 @@ const faqItems = [
     q: "Can we export data for audits?",
     a: "Yes. Export/reporting flows are organization-scoped and designed for governance reviews and audit readiness.",
   },
+  {
+    q: "Can the platform support buyer diligence and AI roll-up operations?",
+    a: "Yes. Decision traceability, human override capture, incident playbooks, immutable audit chains, trust-center documentation, and Jira escalation support are built into the platform.",
+  },
+  {
+    q: "How does the platform fit into the enterprise stack?",
+    a: "AI Control Tower supports identity federation, domain verification, Jira integration, API documentation, and billing controls so customers can move from pilot to production with less glue code.",
+  },
 ];
 
 function Section({
@@ -229,22 +266,6 @@ function Section({
         {children}
       </div>
     </section>
-  );
-}
-
-function BrandGlyph({ className = "h-4 w-4" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
-      <path
-        d="M12 2.8 19.2 6.9v8.2L12 19.2l-7.2-4.1V6.9L12 2.8Z"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinejoin="round"
-      />
-      <circle cx="12" cy="11" r="3.2" stroke="currentColor" strokeWidth="1.5" opacity="0.9" />
-      <path d="M12 7.7v6.6M8.7 11h6.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.95" />
-      <circle cx="17.7" cy="6.3" r="1.6" fill="currentColor" opacity="0.7" />
-    </svg>
   );
 }
 
@@ -308,9 +329,9 @@ export default function LandingPage() {
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-border/60 bg-background/90 backdrop-blur">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
-          <a href="/" className="flex items-center gap-2 font-semibold tracking-tight">
+          <a href="/welcome" className="flex items-center gap-2 font-semibold tracking-tight">
             <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/15 text-primary">
-              <BrandGlyph className="h-4 w-4" />
+              <BrandMark className="h-4 w-4" />
             </span>
             <span>AI Control Tower</span>
           </a>
@@ -378,7 +399,7 @@ export default function LandingPage() {
         <div className="mx-auto grid w-full max-w-6xl gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-2 lg:items-center lg:px-8">
           <div className="space-y-6">
             <p className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-muted/40 px-3 py-1 text-xs font-medium text-muted-foreground">
-              <BrandGlyph className="h-3.5 w-3.5 text-primary" />
+              <BrandMark className="h-3.5 w-3.5 text-primary" />
               Enterprise AI Governance Platform
             </p>
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
@@ -725,7 +746,7 @@ export default function LandingPage() {
         <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 sm:px-6 md:grid-cols-3 lg:px-8">
           <div className="space-y-2">
             <p className="flex items-center gap-2 font-semibold">
-              <BrandGlyph className="h-4 w-4 text-primary" />
+              <BrandMark className="h-4 w-4 text-primary" />
               AI Control Tower
             </p>
             <p className="text-xs text-muted-foreground">
