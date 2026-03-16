@@ -50,7 +50,7 @@ function buildAllowSample(systemId?: string) {
       region: "uk",
       environment: "demo",
     },
-    safetySignals: ["customer-service"],
+    safetySignals: [],
     toxicityScore: 1,
     piiFlags: [],
     driftScore: 1,
@@ -77,13 +77,15 @@ function buildWarnSample(systemId?: string) {
       region: "us",
       environment: "demo",
     },
-    safetySignals: ["employment-review"],
+    safetySignals: [],
     toxicityScore: 24,
-    piiFlags: ["resume_email"],
+    piiFlags: [],
     driftScore: 4,
-    biasFlags: ["anchoring", "confirmation_bias"],
+    biasFlags: [],
     metadata: {
       source: "runtime-monitoring-dashboard",
+      overrideRate: 44,
+      errorRate: 6,
     },
   };
 }
