@@ -73,6 +73,255 @@ const wizardSteps = [
   },
 ] as const;
 
+type InferenceConfidence = "high" | "medium" | "review";
+
+type FieldInference = {
+  confidence: InferenceConfidence;
+  reason: string;
+};
+
+function badgeVariantForConfidence(confidence: InferenceConfidence) {
+  if (confidence === "high") return "default" as const;
+  if (confidence === "medium") return "secondary" as const;
+  return "outline" as const;
+}
+
+function confidenceLabel(confidence: InferenceConfidence) {
+  if (confidence === "high") return "Auto-detected";
+  if (confidence === "medium") return "Inferred";
+  return "Review needed";
+}
+
+function buildFieldInferences(searchParams: URLSearchParams): Partial<Record<keyof typeof defaultForm, FieldInference>> {
+  const fields: Partial<Record<keyof typeof defaultForm, FieldInference>> = {};
+  const set = (key: keyof typeof defaultForm, confidence: InferenceConfidence, reason: string) => {
+    fields[key] = { confidence, reason };
+  };
+
+  if (searchParams.get("provider")) set("provider", "high", "Observed from runtime telemetry or SDK onboarding context.");
+  if (searchParams.get("modelName")) set("modelName", "high", "Observed from runtime telemetry or SDK onboarding context.");
+  if (searchParams.get("gateway")) set("gateway", "high", "Observed from the connected gateway configuration.");
+  if (searchParams.get("deploymentContext")) set("deploymentContext", "medium", "Inferred from runtime environment or SDK connection path.");
+  if (searchParams.get("purpose")) set("purpose", "medium", "Prefilled from runtime summary text and should be confirmed.");
+  if (searchParams.get("domain")) set("domain", "medium", "Inferred from runtime channel, summary, or prompt content.");
+  if (searchParams.get("customerFacing") === "yes") set("customerFacing", "medium", "Inferred from runtime channel and interaction pattern.");
+  if (searchParams.get("personalData") && searchParams.get("personalData") !== "none") set("personalData", "medium", "Inferred from observed data-sensitivity signals.");
+  if (searchParams.get("decisionImpact")) set("decisionImpact", "review", "Suggested from runtime purpose and domain. Confirm before classification.");
+  if (searchParams.get("geography") && searchParams.get("geography") !== "other") set("geography", "medium", "Inferred from runtime region or deployment context.");
+  if (searchParams.get("productionTraffic") === "yes") set("productionTraffic", "high", "Observed from runtime telemetry.");
+  if (searchParams.get("piiExposureObserved") === "yes") set("piiExposureObserved", "high", "Observed in runtime telemetry.");
+  if (searchParams.get("safetyAlertsObserved") === "yes") set("safetyAlertsObserved", "high", "Observed in runtime telemetry.");
+  if (searchParams.get("biasAlertsObserved") === "yes") set("biasAlertsObserved", "high", "Observed in runtime telemetry.");
+
+  return fields;
+}
+
+function derivePreviewAnswers(form: typeof defaultForm) {
+  let personalData = form.personalData;
+  if (form.piiExposureObserved === "yes") {
+    personalData = personalData === "none" ? "basic" : personalData === "basic" ? "sensitive" : personalData;
+  }
+
+  let humanOversight = form.humanOversight;
+  if (form.customerFacing === "yes" && humanOversight === "full_control") {
+    humanOversight = "in_loop";
+  }
+
+  let intendedUse = form.intendedUse;
+  if (form.customerFacing === "yes" && intendedUse === "automation") {
+    intendedUse = "decision_support";
+  }
+
+  return {
+    intendedUse,
+    domain: form.domain,
+    personalData,
+    usersImpacted: form.usersImpacted,
+    decisionImpact: form.decisionImpact,
+    humanOversight,
+    geography: form.geography,
+    biometricUse: form.biometricUse,
+    vulnerableGroups: form.vulnerableGroups,
+    purpose: form.purpose,
+  };
+}
+
+function buildRiskPreview(answers: ReturnType<typeof derivePreviewAnswers>) {
+  let score = 0;
+  const factors: string[] = [];
+  const suggestedControls: string[] = [];
+
+  if (answers.intendedUse === "autonomous_decisions") {
+    score += 30;
+    factors.push("Autonomous decision-making");
+  } else if (answers.intendedUse === "decision_support") {
+    score += 15;
+    factors.push("Decision-support usage");
+  } else if (answers.intendedUse === "automation") {
+    score += 10;
+    factors.push("Operational automation");
+  }
+
+  if (answers.domain === "healthcare" || answers.domain === "law_enforcement") {
+    score += 25;
+    factors.push(`High-stakes domain: ${answers.domain}`);
+  } else if (["finance", "employment", "education"].includes(answers.domain)) {
+    score += 20;
+    factors.push(`Regulated domain: ${answers.domain}`);
+  } else if (answers.domain === "critical_infrastructure") {
+    score += 25;
+    factors.push("Critical infrastructure usage");
+  } else if (answers.domain === "general") {
+    score += 5;
+    factors.push("General-purpose application");
+  }
+
+  if (answers.personalData === "special_category") {
+    score += 20;
+    factors.push("Special category personal data");
+  } else if (answers.personalData === "sensitive") {
+    score += 15;
+    factors.push("Sensitive personal data");
+  } else if (answers.personalData === "basic") {
+    score += 8;
+    factors.push("Basic personal data");
+  }
+
+  if (answers.usersImpacted === "over_100k") {
+    score += 15;
+    factors.push("Large user impact");
+  } else if (answers.usersImpacted === "10k_100k") {
+    score += 10;
+    factors.push("Medium-large user impact");
+  } else if (answers.usersImpacted === "1k_10k") {
+    score += 5;
+    factors.push("Moderate user impact");
+  }
+
+  if (answers.decisionImpact === "legal_significant") {
+    score += 20;
+    factors.push("Legally or materially significant decisions");
+  } else if (answers.decisionImpact === "material") {
+    score += 10;
+    factors.push("Material decision impact");
+  } else if (answers.decisionImpact === "minor") {
+    score += 4;
+    factors.push("Minor decision impact");
+  }
+
+  if (answers.humanOversight === "none") {
+    score += 15;
+    factors.push("No human oversight");
+  } else if (answers.humanOversight === "post_hoc") {
+    score += 10;
+    factors.push("Post-hoc oversight only");
+  } else if (answers.humanOversight === "in_loop") {
+    score += 5;
+    factors.push("Human in the loop");
+  }
+
+  if (answers.geography === "eu" || answers.geography === "global") {
+    score += 5;
+    factors.push("Cross-border or EU governance exposure");
+  }
+
+  if (answers.biometricUse === "yes") {
+    score += 20;
+    factors.push("Biometric usage");
+  }
+
+  if (answers.vulnerableGroups === "yes") {
+    score += 15;
+    factors.push("Affects vulnerable groups");
+  }
+
+  if (score >= 80) {
+    suggestedControls.push(
+      "Governance committee approval",
+      "Continuous telemetry monitoring",
+      "Decision trace and outcome logging",
+      "Human-in-the-loop review",
+    );
+    return { riskLevel: "high", score, factors, suggestedControls };
+  }
+
+  if (score >= 45) {
+    suggestedControls.push(
+      "Risk owner review",
+      "Documented oversight procedure",
+      "Quarterly reassessment cadence",
+    );
+    return { riskLevel: "medium", score, factors, suggestedControls };
+  }
+
+  suggestedControls.push(
+    "Baseline control mapping",
+    "Standard operational logging",
+    "Annual reassessment",
+  );
+  return { riskLevel: "low", score, factors, suggestedControls };
+}
+
+function calculateIntakeConfidence(
+  form: typeof defaultForm,
+  fieldInferences: Partial<Record<keyof typeof defaultForm, FieldInference>>,
+) {
+  const keys: Array<keyof typeof defaultForm> = [
+    "systemName",
+    "owner",
+    "purpose",
+    "provider",
+    "modelName",
+    "gateway",
+    "domain",
+    "personalData",
+    "decisionImpact",
+    "humanOversight",
+    "geography",
+    "customerFacing",
+  ];
+
+  let total = 0;
+  let resolved = 0;
+  let autoDetected = 0;
+  let inferred = 0;
+  let reviewNeeded = 0;
+  let manual = 0;
+
+  for (const key of keys) {
+    total += 1;
+    const rawValue = form[key];
+    const value = typeof rawValue === "string" ? rawValue.trim() : rawValue;
+    if (!value) continue;
+
+    const inference = fieldInferences[key];
+    if (!inference) {
+      resolved += 0.85;
+      manual += 1;
+      continue;
+    }
+
+    if (inference.confidence === "high") {
+      resolved += 1;
+      autoDetected += 1;
+    } else if (inference.confidence === "medium") {
+      resolved += 0.75;
+      inferred += 1;
+    } else {
+      resolved += 0.5;
+      reviewNeeded += 1;
+    }
+  }
+
+  return {
+    score: Math.round((resolved / total) * 100),
+    autoDetected,
+    inferred,
+    reviewNeeded,
+    manual,
+  };
+}
+
 type AutoRegistrationResponse = {
   system: {
     id: string;
@@ -128,6 +377,7 @@ export default function ConnectAiApplicationPage() {
 
   const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const isSdkPrefilled = searchParams.get("source") === "sdk";
+  const fieldInferences = buildFieldInferences(searchParams);
 
   const discoverySummary = useMemo(() => {
     const signals = [] as string[];
@@ -173,6 +423,9 @@ export default function ConnectAiApplicationPage() {
   }, [form]);
 
   const completionPercent = Math.round((resolvedFieldCount / 13) * 100);
+  const intakeConfidence = useMemo(() => calculateIntakeConfidence(form, fieldInferences), [form, fieldInferences]);
+  const previewAnswers = useMemo(() => derivePreviewAnswers(form), [form]);
+  const riskPreview = useMemo(() => buildRiskPreview(previewAnswers), [previewAnswers]);
 
   const stepCanAdvance = useMemo(() => {
     if (currentStep === 0) return Boolean(form.systemName || form.provider || form.gateway || form.modelName);
@@ -320,20 +573,20 @@ export default function ConnectAiApplicationPage() {
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="System name" value={form.systemName} onChange={(value) => setForm((current) => ({ ...current, systemName: value }))} />
-                  <Field label="Deployment context" value={form.deploymentContext} onChange={(value) => setForm((current) => ({ ...current, deploymentContext: value }))} />
-                  <Field label="Provider" value={form.provider} onChange={(value) => setForm((current) => ({ ...current, provider: value }))} />
-                  <Field label="Model name" value={form.modelName} onChange={(value) => setForm((current) => ({ ...current, modelName: value }))} />
+                  <Field label="System name" value={form.systemName} onChange={(value) => setForm((current) => ({ ...current, systemName: value }))} inference={fieldInferences.systemName} />
+                  <Field label="Deployment context" value={form.deploymentContext} onChange={(value) => setForm((current) => ({ ...current, deploymentContext: value }))} inference={fieldInferences.deploymentContext} />
+                  <Field label="Provider" value={form.provider} onChange={(value) => setForm((current) => ({ ...current, provider: value }))} inference={fieldInferences.provider} />
+                  <Field label="Model name" value={form.modelName} onChange={(value) => setForm((current) => ({ ...current, modelName: value }))} inference={fieldInferences.modelName} />
                   <Field label="Model type" value={form.modelType} onChange={(value) => setForm((current) => ({ ...current, modelType: value }))} />
-                  <Field label="Gateway" value={form.gateway} onChange={(value) => setForm((current) => ({ ...current, gateway: value }))} />
+                  <Field label="Gateway" value={form.gateway} onChange={(value) => setForm((current) => ({ ...current, gateway: value }))} inference={fieldInferences.gateway} />
                   <Field label="Vendor" value={form.vendor} onChange={(value) => setForm((current) => ({ ...current, vendor: value }))} />
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <YesNoField label="Production traffic observed" value={form.productionTraffic} onChange={(value) => setForm((current) => ({ ...current, productionTraffic: value }))} />
-                  <YesNoField label="PII exposure observed" value={form.piiExposureObserved} onChange={(value) => setForm((current) => ({ ...current, piiExposureObserved: value }))} />
-                  <YesNoField label="Safety alerts observed" value={form.safetyAlertsObserved} onChange={(value) => setForm((current) => ({ ...current, safetyAlertsObserved: value }))} />
-                  <YesNoField label="Bias alerts observed" value={form.biasAlertsObserved} onChange={(value) => setForm((current) => ({ ...current, biasAlertsObserved: value }))} />
+                  <YesNoField label="Production traffic observed" value={form.productionTraffic} onChange={(value) => setForm((current) => ({ ...current, productionTraffic: value }))} inference={fieldInferences.productionTraffic} />
+                  <YesNoField label="PII exposure observed" value={form.piiExposureObserved} onChange={(value) => setForm((current) => ({ ...current, piiExposureObserved: value }))} inference={fieldInferences.piiExposureObserved} />
+                  <YesNoField label="Safety alerts observed" value={form.safetyAlertsObserved} onChange={(value) => setForm((current) => ({ ...current, safetyAlertsObserved: value }))} inference={fieldInferences.safetyAlertsObserved} />
+                  <YesNoField label="Bias alerts observed" value={form.biasAlertsObserved} onChange={(value) => setForm((current) => ({ ...current, biasAlertsObserved: value }))} inference={fieldInferences.biasAlertsObserved} />
                 </div>
               </div>
             ) : null}
@@ -346,13 +599,21 @@ export default function ConnectAiApplicationPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Purpose</Label>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label>Purpose</Label>
+                    {fieldInferences.purpose ? (
+                      <Badge variant={badgeVariantForConfidence(fieldInferences.purpose.confidence)}>
+                        {confidenceLabel(fieldInferences.purpose.confidence)}
+                      </Badge>
+                    ) : null}
+                  </div>
                   <Textarea
                     value={form.purpose}
                     onChange={(event) => setForm((current) => ({ ...current, purpose: event.target.value }))}
                     className="min-h-[120px]"
                     placeholder="Describe what the application does, who it affects, and what decision it supports or automates."
                   />
+                  {fieldInferences.purpose ? <p className="text-xs text-muted-foreground">{fieldInferences.purpose.reason}</p> : null}
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -362,7 +623,7 @@ export default function ConnectAiApplicationPage() {
                     ["automation", "Automation"],
                     ["analytics", "Analytics"],
                   ]} />
-                  <EnumField label="Domain" value={form.domain} onChange={(value) => setForm((current) => ({ ...current, domain: value }))} options={[
+                  <EnumField label="Domain" value={form.domain} onChange={(value) => setForm((current) => ({ ...current, domain: value }))} inference={fieldInferences.domain} options={[
                     ["healthcare", "Healthcare"],
                     ["law_enforcement", "Law enforcement"],
                     ["finance", "Finance"],
@@ -371,7 +632,7 @@ export default function ConnectAiApplicationPage() {
                     ["critical_infrastructure", "Critical infrastructure"],
                     ["general", "General"],
                   ]} />
-                  <YesNoField label="Customer-facing" value={form.customerFacing} onChange={(value) => setForm((current) => ({ ...current, customerFacing: value }))} />
+                  <YesNoField label="Customer-facing" value={form.customerFacing} onChange={(value) => setForm((current) => ({ ...current, customerFacing: value }))} inference={fieldInferences.customerFacing} />
                 </div>
               </div>
             ) : null}
@@ -379,7 +640,7 @@ export default function ConnectAiApplicationPage() {
             {currentStep === 2 ? (
               <div className="space-y-5">
                 <div className="grid gap-4 md:grid-cols-2">
-                  <EnumField label="Personal data" value={form.personalData} onChange={(value) => setForm((current) => ({ ...current, personalData: value }))} options={[
+                  <EnumField label="Personal data" value={form.personalData} onChange={(value) => setForm((current) => ({ ...current, personalData: value }))} inference={fieldInferences.personalData} options={[
                     ["special_category", "Special category"],
                     ["sensitive", "Sensitive"],
                     ["basic", "Basic personal data"],
@@ -391,7 +652,7 @@ export default function ConnectAiApplicationPage() {
                     ["1k_10k", "1k to 10k"],
                     ["under_1k", "Under 1k"],
                   ]} />
-                  <EnumField label="Decision impact" value={form.decisionImpact} onChange={(value) => setForm((current) => ({ ...current, decisionImpact: value }))} options={[
+                  <EnumField label="Decision impact" value={form.decisionImpact} onChange={(value) => setForm((current) => ({ ...current, decisionImpact: value }))} inference={fieldInferences.decisionImpact} options={[
                     ["legal_significant", "Legal or significant"],
                     ["material", "Material"],
                     ["minor", "Minor"],
@@ -403,7 +664,7 @@ export default function ConnectAiApplicationPage() {
                     ["in_loop", "In the loop"],
                     ["full_control", "Full control"],
                   ]} />
-                  <EnumField label="Geography" value={form.geography} onChange={(value) => setForm((current) => ({ ...current, geography: value }))} options={[
+                  <EnumField label="Geography" value={form.geography} onChange={(value) => setForm((current) => ({ ...current, geography: value }))} inference={fieldInferences.geography} options={[
                     ["eu", "EU"],
                     ["global", "Global"],
                     ["us", "US"],
@@ -466,6 +727,56 @@ export default function ConnectAiApplicationPage() {
                 <div className="font-medium text-foreground">Current step</div>
                 <div className="mt-1 text-muted-foreground">{wizardSteps[currentStep].description}</div>
               </div>
+              <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                <div className="font-medium text-foreground">Inference model</div>
+                <div className="mt-1 text-muted-foreground">
+                  High-confidence values came directly from integration context. Medium-confidence values were inferred from runtime payload patterns. Review-needed values are suggestions only and should be confirmed by the user.
+                </div>
+              </div>
+              <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                <div className="font-medium text-foreground">Overall intake confidence</div>
+                <div className="mt-1 text-muted-foreground">
+                  {intakeConfidence.score}% based on the mix of auto-detected, inferred, and manually confirmed fields.
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4" />
+                Classification preview
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge>{riskPreview.riskLevel.toUpperCase()}</Badge>
+                <Badge variant="outline">Score {riskPreview.score}/100</Badge>
+                <Badge variant="outline">Confidence {intakeConfidence.score}%</Badge>
+              </div>
+              <div className="rounded-md border bg-muted/20 p-3">
+                <div className="mb-2 text-sm font-medium text-foreground">Why this level</div>
+                <div className="flex flex-wrap gap-2">
+                  {riskPreview.factors.length ? riskPreview.factors.map((factor) => (
+                    <Badge key={factor} variant="outline">{factor}</Badge>
+                  )) : <span className="text-sm text-muted-foreground">Add more business context to preview classification drivers.</span>}
+                </div>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                <SummaryDetail label="Auto-detected" value={`${intakeConfidence.autoDetected}`} />
+                <SummaryDetail label="Inferred" value={`${intakeConfidence.inferred}`} />
+                <SummaryDetail label="Review needed" value={`${intakeConfidence.reviewNeeded}`} />
+                <SummaryDetail label="Manual confirmations" value={`${intakeConfidence.manual}`} />
+              </div>
+              <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                <div className="mb-2 font-medium text-foreground">Suggested controls</div>
+                <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+                  {riskPreview.suggestedControls.map((control) => (
+                    <li key={control}>{control}</li>
+                  ))}
+                </ul>
+              </div>
             </CardContent>
           </Card>
 
@@ -523,8 +834,28 @@ export default function ConnectAiApplicationPage() {
                   <Badge variant="outline">Score {result.assessment.riskScore}/100</Badge>
                   <Badge variant="outline">Status {result.system.status}</Badge>
                 </div>
-                <div className="rounded-md border bg-muted/20 p-3 text-sm whitespace-pre-wrap">
-                  {result.assessment.riskExplanation}
+                <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                  <div className="mb-2 font-medium text-foreground">Detected signals</div>
+                  <div className="flex flex-wrap gap-2">
+                    {discoverySummary.length ? discoverySummary.map((signal) => (
+                      <Badge key={signal} variant="outline">{signal}</Badge>
+                    )) : <span className="text-muted-foreground">No elevated runtime signals detected during intake.</span>}
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                  <div className="mb-2 font-medium text-foreground">Confirmed business context</div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <SummaryDetail label="Owner" value={form.owner} />
+                    <SummaryDetail label="Department" value={form.department || "Not set"} />
+                    <SummaryDetail label="Domain" value={labelForOption(form.domain, [["healthcare", "Healthcare"], ["law_enforcement", "Law enforcement"], ["finance", "Finance"], ["employment", "Employment"], ["education", "Education"], ["critical_infrastructure", "Critical infrastructure"], ["general", "General"]])} />
+                    <SummaryDetail label="Decision impact" value={labelForOption(form.decisionImpact, [["legal_significant", "Legal or significant"], ["material", "Material"], ["minor", "Minor"], ["none", "None"]])} />
+                    <SummaryDetail label="Human oversight" value={labelForOption(form.humanOversight, [["none", "None"], ["post_hoc", "Post hoc"], ["in_loop", "In the loop"], ["full_control", "Full control"]])} />
+                    <SummaryDetail label="Geography" value={labelForOption(form.geography, [["eu", "EU"], ["global", "Global"], ["us", "US"], ["other", "Other"]])} />
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                  <div className="mb-2 font-medium text-foreground">Resulting risk posture</div>
+                  <div className="whitespace-pre-wrap text-muted-foreground">{result.assessment.riskExplanation}</div>
                 </div>
                 {result.assessment.suggestedControls?.length ? (
                   <div className="rounded-md border bg-muted/20 p-3 text-sm">
@@ -556,11 +887,25 @@ export default function ConnectAiApplicationPage() {
   );
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function Field({
+  label,
+  value,
+  onChange,
+  inference,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  inference?: FieldInference;
+}) {
   return (
     <label className="space-y-2 text-sm">
-      <span className="font-medium">{label}</span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium">{label}</span>
+        {inference ? <Badge variant={badgeVariantForConfidence(inference.confidence)}>{confidenceLabel(inference.confidence)}</Badge> : null}
+      </div>
       <Input value={value} onChange={(event) => onChange(event.target.value)} />
+      {inference ? <p className="text-xs text-muted-foreground">{inference.reason}</p> : null}
     </label>
   );
 }
@@ -575,10 +920,14 @@ function EnumField({
   value: string;
   onChange: (value: string) => void;
   options: ReadonlyArray<readonly [string, string]>;
+  inference?: FieldInference;
 }) {
   return (
     <label className="space-y-2 text-sm">
-      <span className="font-medium">{label}</span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium">{label}</span>
+        {inference ? <Badge variant={badgeVariantForConfidence(inference.confidence)}>{confidenceLabel(inference.confidence)}</Badge> : null}
+      </div>
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger>
           <SelectValue />
@@ -591,10 +940,34 @@ function EnumField({
           ))}
         </SelectContent>
       </Select>
+      {inference ? <p className="text-xs text-muted-foreground">{inference.reason}</p> : null}
     </label>
   );
 }
 
-function YesNoField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <EnumField label={label} value={value} onChange={onChange} options={booleanOptions.map((option) => [option.value, option.label] as const)} />;
+function YesNoField({
+  label,
+  value,
+  onChange,
+  inference,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  inference?: FieldInference;
+}) {
+  return <EnumField label={label} value={value} onChange={onChange} options={booleanOptions.map((option) => [option.value, option.label] as const)} inference={inference} />;
+}
+
+function SummaryDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border bg-background px-3 py-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 font-medium">{value}</div>
+    </div>
+  );
+}
+
+function labelForOption(value: string, options: ReadonlyArray<readonly [string, string]>) {
+  return options.find(([optionValue]) => optionValue === value)?.[1] ?? value;
 }

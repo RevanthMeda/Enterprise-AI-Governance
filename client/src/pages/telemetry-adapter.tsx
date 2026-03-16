@@ -29,6 +29,85 @@ type RotatedKeyResponse = {
   plainTextKey: string;
 };
 
+function inferDomainFromPayload(payload: Record<string, unknown>) {
+  const runtimeContext =
+    payload.runtimeContext && typeof payload.runtimeContext === "object" && !Array.isArray(payload.runtimeContext)
+      ? (payload.runtimeContext as Record<string, unknown>)
+      : {};
+  const corpus = [
+    typeof payload.summary === "string" ? payload.summary : "",
+    typeof payload.promptText === "string" ? payload.promptText : "",
+    typeof payload.modelOutput === "string" ? payload.modelOutput : "",
+    typeof runtimeContext.channel === "string" ? runtimeContext.channel : "",
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (/(patient|clinical|diagnostic|radiology|medical|health)/.test(corpus)) return "healthcare";
+  if (/(credit|loan|claim|insurance|bank|finance|underwriting)/.test(corpus)) return "finance";
+  if (/(candidate|hiring|recruit|resume|talent|employment)/.test(corpus)) return "employment";
+  if (/(student|education|school|scholarship|counselor)/.test(corpus)) return "education";
+  if (/(grid|utility|outage|dispatch|wildfire|infrastructure)/.test(corpus)) return "critical_infrastructure";
+  if (/(police|law enforcement|forensic)/.test(corpus)) return "law_enforcement";
+  return "general";
+}
+
+function inferCustomerFacingFromPayload(payload: Record<string, unknown>) {
+  const runtimeContext =
+    payload.runtimeContext && typeof payload.runtimeContext === "object" && !Array.isArray(payload.runtimeContext)
+      ? (payload.runtimeContext as Record<string, unknown>)
+      : {};
+  const channel = typeof runtimeContext.channel === "string" ? runtimeContext.channel.toLowerCase() : "";
+  return /(support|chat|customer|member|patient|student|candidate|consumer|claims)/.test(channel);
+}
+
+function inferPurposeFromPayload(payload: Record<string, unknown>) {
+  if (typeof payload.summary === "string" && payload.summary.trim()) {
+    return payload.summary.trim();
+  }
+  if (typeof payload.promptText === "string" && payload.promptText.trim()) {
+    return payload.promptText.trim().slice(0, 220);
+  }
+  return "";
+}
+
+function inferPersonalDataFromPayload(payload: Record<string, unknown>) {
+  const piiFlags = Array.isArray(payload.piiFlags)
+    ? payload.piiFlags.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  if (piiFlags.some((flag) => /(social_security|ssn|health|biometric)/i.test(flag))) return "special_category";
+  if (piiFlags.length > 0) return "sensitive";
+  return "none";
+}
+
+function inferGeographyFromPayload(payload: Record<string, unknown>) {
+  const runtimeContext =
+    payload.runtimeContext && typeof payload.runtimeContext === "object" && !Array.isArray(payload.runtimeContext)
+      ? (payload.runtimeContext as Record<string, unknown>)
+      : {};
+  const region = typeof runtimeContext.region === "string" ? runtimeContext.region.toLowerCase() : "";
+  if (region === "uk" || region === "eu" || region.includes("europe")) return "eu";
+  if (region === "us" || region.includes("america")) return "us";
+  if (region === "global") return "global";
+  return "other";
+}
+
+function inferDecisionImpactFromPayload(payload: Record<string, unknown>, domain: string) {
+  const corpus = [
+    typeof payload.summary === "string" ? payload.summary : "",
+    typeof payload.promptText === "string" ? payload.promptText : "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  if (["healthcare", "finance", "employment", "education", "critical_infrastructure", "law_enforcement"].includes(domain)) {
+    return "material";
+  }
+  if (/(approve|deny|rank|eligibility|screen|triage|underwrite)/.test(corpus)) {
+    return "material";
+  }
+  return "minor";
+}
+
 const defaultTesterPayload = {
   systemId: "system-123",
   gateway: "gateway-prod",
@@ -288,12 +367,28 @@ if (decision.blocked) {
     const piiFlags = Array.isArray(parsedPayload.piiFlags)
       ? parsedPayload.piiFlags.filter((entry): entry is string => typeof entry === "string")
       : [];
+    const domain = inferDomainFromPayload(parsedPayload);
+    const customerFacing = inferCustomerFacingFromPayload(parsedPayload);
+    const purpose = inferPurposeFromPayload(parsedPayload);
+    const personalData = inferPersonalDataFromPayload(parsedPayload);
+    const geography = inferGeographyFromPayload(parsedPayload);
+    const decisionImpact = inferDecisionImpactFromPayload(parsedPayload, domain);
+    const runtimeContext =
+      parsedPayload.runtimeContext && typeof parsedPayload.runtimeContext === "object" && !Array.isArray(parsedPayload.runtimeContext)
+        ? (parsedPayload.runtimeContext as Record<string, unknown>)
+        : {};
     const params = new URLSearchParams({
       source: "sdk",
+      purpose,
       provider: typeof parsedPayload.provider === "string" ? parsedPayload.provider : "",
       modelName: typeof parsedPayload.modelName === "string" ? parsedPayload.modelName : "",
       gateway: typeof parsedPayload.gateway === "string" ? parsedPayload.gateway : testerGateway,
-      deploymentContext: "SDK Connected Application",
+      deploymentContext: typeof runtimeContext.environment === "string" ? runtimeContext.environment : "SDK Connected Application",
+      domain,
+      personalData,
+      decisionImpact,
+      geography,
+      customerFacing: customerFacing ? "yes" : "no",
       productionTraffic: "yes",
       piiExposureObserved: piiFlags.length > 0 ? "yes" : "no",
       safetyAlertsObserved: safetySignals.length > 0 ? "yes" : "no",
