@@ -19,6 +19,7 @@ const Compliance = lazy(() => import("@/pages/compliance"));
 const Approvals = lazy(() => import("@/pages/approvals"));
 const AuditLogPage = lazy(() => import("@/pages/audit-log"));
 const DecisionTracePage = lazy(() => import("@/pages/decision-trace"));
+const RuntimeMonitoringPage = lazy(() => import("@/pages/runtime-monitoring"));
 const ExitReadinessPage = lazy(() => import("@/pages/exit-readiness"));
 const PortfolioControlPage = lazy(() => import("@/pages/portfolio-control"));
 const TelemetryPolicyPage = lazy(() => import("@/pages/telemetry-policy"));
@@ -124,6 +125,7 @@ function AuthenticatedRouter({ isAdmin }: { isAdmin: boolean }) {
         <Route path="/approvals" component={Approvals} />
         <Route path="/audit" component={AuditLogPage} />
         <Route path="/decision-trace" component={DecisionTracePage} />
+        <Route path="/runtime-monitoring" component={isAdmin ? RuntimeMonitoringPage : Dashboard} />
         <Route path="/exit-readiness" component={isAdmin ? ExitReadinessPage : Dashboard} />
         <Route path="/portfolio-control" component={isAdmin ? PortfolioControlPage : Dashboard} />
         <Route path="/telemetry-policy" component={isAdmin ? TelemetryPolicyPage : Dashboard} />
@@ -258,6 +260,7 @@ function AuthenticatedApp() {
       ["/approvals", "Approval Workflows"],
       ["/audit", "Audit Log"],
       ["/decision-trace", "Decision Trace"],
+      ["/runtime-monitoring", "Runtime Monitoring"],
       ["/exit-readiness", "Exit Readiness"],
       ["/portfolio-control", "Portfolio Control"],
       ["/telemetry-policy", "Telemetry Policy"],

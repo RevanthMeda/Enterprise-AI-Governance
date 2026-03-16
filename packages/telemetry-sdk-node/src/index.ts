@@ -11,6 +11,13 @@ export type TelemetryEventInput = {
   severity?: TelemetrySeverity;
   driftScore?: number | null;
   biasFlags?: string[];
+  safetySignals?: string[];
+  toxicityScore?: number | null;
+  piiFlags?: string[];
+  promptText?: string | null;
+  modelOutput?: string | null;
+  runtimeContext?: TelemetryMetadata;
+  correlationId?: string | null;
   summary: string;
   metadata?: TelemetryMetadata;
   detectedAt?: string | Date;
@@ -18,20 +25,12 @@ export type TelemetryEventInput = {
 
 export type TelemetryIngestResult = {
   id: string;
-  organizationId: string;
-  systemId: string | null;
-  modelName: string | null;
-  provider: string | null;
-  gateway: string | null;
-  eventType: string;
-  severity: TelemetrySeverity;
-  driftScore: number | null;
-  biasFlags: string[];
-  summary: string;
-  metadata: TelemetryMetadata;
-  detectedAt: string;
-  resolvedAt: string | null;
-  createdAt: string;
+  ok: boolean;
+  decision: "allow" | "warn" | "escalate" | "block";
+  blocked: boolean;
+  thresholdBreaches: string[];
+  escalatedIncidentId: string | null;
+  restrictedPromptMatches: string[];
 };
 
 export type TelemetryClientDefaults = Omit<Partial<TelemetryEventInput>, "eventType" | "summary">;
@@ -175,6 +174,10 @@ export class AiControlTowerTelemetryClient {
       severity: input.severity ?? "warning",
     });
   }
+
+  async evaluateRuntime(input: TelemetryEventInput): Promise<TelemetryIngestResult> {
+    return this.ingest(input);
+  }
 }
 
 export function createTelemetryClient(config: TelemetryClientConfig) {
@@ -200,6 +203,13 @@ function normalizeEvent(input: TelemetryEventInput): Record<string, unknown> {
     severity: input.severity ?? "info",
     driftScore: input.driftScore ?? null,
     biasFlags: input.biasFlags ?? [],
+    safetySignals: input.safetySignals ?? [],
+    toxicityScore: input.toxicityScore ?? null,
+    piiFlags: input.piiFlags ?? [],
+    promptText: input.promptText ?? null,
+    modelOutput: input.modelOutput ?? null,
+    runtimeContext: input.runtimeContext ?? {},
+    correlationId: input.correlationId ?? null,
     summary: input.summary,
     metadata: input.metadata ?? {},
     detectedAt:

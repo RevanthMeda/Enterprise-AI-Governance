@@ -18,6 +18,8 @@ import {
   Cpu,
   Download,
   Paperclip,
+  Radio,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -94,6 +96,25 @@ function OverviewTab({ system }: { system: AiSystem }) {
         <InfoItem icon={Users} label="Users Impacted" value={(system.usersImpacted || 0).toLocaleString()} />
         <InfoItem icon={Clock} label="Last Assessment" value={system.lastAssessment ? new Date(system.lastAssessment).toLocaleDateString() : "Not assessed"} />
       </div>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-xs font-semibold">Runtime Governance</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Button asChild size="sm" variant="outline">
+            <Link href={`/telemetry-policy?systemId=${encodeURIComponent(system.id)}`}>
+              <SlidersHorizontal className="mr-2 h-4 w-4" />
+              Telemetry policy
+            </Link>
+          </Button>
+          <Button asChild size="sm">
+            <Link href={`/runtime-monitoring?systemId=${encodeURIComponent(system.id)}`}>
+              <Radio className="mr-2 h-4 w-4" />
+              Runtime monitoring
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
       {system.description && (
         <Card>
           <CardHeader className="pb-2">

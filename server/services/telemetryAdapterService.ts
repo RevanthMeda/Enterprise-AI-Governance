@@ -30,6 +30,7 @@ export class TelemetryAdapterService {
       createdAt: adapter.createdAt,
       updatedAt: adapter.updatedAt,
       ingestPath: "/api/telemetry/sdk-ingest",
+      evaluatePath: "/api/telemetry/sdk-evaluate",
       headerName: "x-telemetry-key",
     };
   }

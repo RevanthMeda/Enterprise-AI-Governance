@@ -64,7 +64,7 @@ if (allowedCorsOrigins.size > 0) {
 
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token, X-Telemetry-Key, X-API-Key, Authorization");
     res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS,POST,PUT,PATCH,DELETE");
     res.setHeader("Access-Control-Expose-Headers", "X-CSRF-Token");
     res.append("Vary", "Origin");
@@ -161,7 +161,7 @@ process.on("uncaughtExceptionMonitor", (error, origin) => {
   app.use(
     createCsrfMiddleware({
       enforced: process.env.CSRF_ENFORCED === "true",
-      exemptPaths: ["/api/track", "/api/leads", "/api/monitoring/client-errors", "/api/telemetry/sdk-ingest"],
+      exemptPaths: ["/api/track", "/api/leads", "/api/monitoring/client-errors", "/api/telemetry/sdk-ingest", "/api/telemetry/sdk-evaluate"],
     }),
   );
 

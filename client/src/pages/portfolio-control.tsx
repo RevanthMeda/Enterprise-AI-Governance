@@ -37,12 +37,20 @@ type PortfolioControlResponse = {
     driftCriticalThreshold: number;
     biasFlagThreshold: number;
     safetyFlagThreshold: number;
+    toxicityWarningThreshold: number;
+    toxicityCriticalThreshold: number;
+    piiFlagThreshold: number;
     overrideRateWarningThreshold: number;
     overrideRateCriticalThreshold: number;
     errorRateWarningThreshold: number;
     errorRateCriticalThreshold: number;
     autoEscalateCritical: boolean;
     notifyOnWarning: boolean;
+    enforceBlocking: boolean;
+    blockOnPii: boolean;
+    blockOnSafetyCritical: boolean;
+    blockOnRestrictedPrompt: boolean;
+    restrictedPromptPatterns: string[];
   } | null;
   organizations: Array<{
     linkId: string;
@@ -127,12 +135,20 @@ export default function PortfolioControlPage() {
           driftCriticalThreshold: draftPolicy.driftCriticalThreshold,
           biasFlagThreshold: draftPolicy.biasFlagThreshold,
           safetyFlagThreshold: draftPolicy.safetyFlagThreshold,
+          toxicityWarningThreshold: draftPolicy.toxicityWarningThreshold,
+          toxicityCriticalThreshold: draftPolicy.toxicityCriticalThreshold,
+          piiFlagThreshold: draftPolicy.piiFlagThreshold,
           overrideRateWarningThreshold: draftPolicy.overrideRateWarningThreshold,
           overrideRateCriticalThreshold: draftPolicy.overrideRateCriticalThreshold,
           errorRateWarningThreshold: draftPolicy.errorRateWarningThreshold,
           errorRateCriticalThreshold: draftPolicy.errorRateCriticalThreshold,
           autoEscalateCritical: draftPolicy.autoEscalateCritical,
           notifyOnWarning: draftPolicy.notifyOnWarning,
+          enforceBlocking: draftPolicy.enforceBlocking,
+          blockOnPii: draftPolicy.blockOnPii,
+          blockOnSafetyCritical: draftPolicy.blockOnSafetyCritical,
+          blockOnRestrictedPrompt: draftPolicy.blockOnRestrictedPrompt,
+          restrictedPromptPatterns: draftPolicy.restrictedPromptPatterns,
         },
       );
       return response.json();
@@ -298,6 +314,21 @@ export default function PortfolioControlPage() {
               onChange={(value) => setDraftPolicy((current) => current ? { ...current, safetyFlagThreshold: value } : current)}
             />
             <ThresholdField
+              label="Toxicity warning threshold"
+              value={draftPolicy?.toxicityWarningThreshold ?? 60}
+              onChange={(value) => setDraftPolicy((current) => current ? { ...current, toxicityWarningThreshold: value } : current)}
+            />
+            <ThresholdField
+              label="Toxicity critical threshold"
+              value={draftPolicy?.toxicityCriticalThreshold ?? 80}
+              onChange={(value) => setDraftPolicy((current) => current ? { ...current, toxicityCriticalThreshold: value } : current)}
+            />
+            <ThresholdField
+              label="PII flag threshold"
+              value={draftPolicy?.piiFlagThreshold ?? 1}
+              onChange={(value) => setDraftPolicy((current) => current ? { ...current, piiFlagThreshold: value } : current)}
+            />
+            <ThresholdField
               label="Override warning threshold (%)"
               value={draftPolicy?.overrideRateWarningThreshold ?? 40}
               onChange={(value) => setDraftPolicy((current) => current ? { ...current, overrideRateWarningThreshold: value } : current)}
@@ -327,9 +358,40 @@ export default function PortfolioControlPage() {
               checked={draftPolicy?.notifyOnWarning ?? true}
               onChange={(checked) => setDraftPolicy((current) => current ? { ...current, notifyOnWarning: checked } : current)}
             />
+            <ToggleField
+              label="Enable runtime blocking"
+              checked={draftPolicy?.enforceBlocking ?? false}
+              onChange={(checked) => setDraftPolicy((current) => current ? { ...current, enforceBlocking: checked } : current)}
+            />
+            <ToggleField
+              label="Block on PII"
+              checked={draftPolicy?.blockOnPii ?? true}
+              onChange={(checked) => setDraftPolicy((current) => current ? { ...current, blockOnPii: checked } : current)}
+            />
+            <ToggleField
+              label="Block on safety-critical signals"
+              checked={draftPolicy?.blockOnSafetyCritical ?? true}
+              onChange={(checked) => setDraftPolicy((current) => current ? { ...current, blockOnSafetyCritical: checked } : current)}
+            />
+            <ToggleField
+              label="Block on restricted prompts"
+              checked={draftPolicy?.blockOnRestrictedPrompt ?? true}
+              onChange={(checked) => setDraftPolicy((current) => current ? { ...current, blockOnRestrictedPrompt: checked } : current)}
+            />
+            <label className="space-y-1 text-sm md:col-span-2">
+              <span className="font-medium">Restricted prompt patterns</span>
+              <Input
+                value={draftPolicy?.restrictedPromptPatterns.join(", ") ?? ""}
+                onChange={(event) =>
+                  setDraftPolicy((current) => current ? { ...current, restrictedPromptPatterns: parseCsv(event.target.value) } : current)
+                }
+                placeholder="social security number, bypass policy, dump all customers"
+              />
+            </label>
           </div>
           <div className="space-y-3 rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
             <p>Portfolio defaults apply to all linked operating companies unless that company has an explicit telemetry override.</p>
+            <p>These defaults now control both passive evidence capture and active runtime allow-or-block decisions for inherited organizations.</p>
             <p>Organization overrides: {data?.summary?.telemetryPolicySources.organization ?? 0}</p>
             <p>Inherited from portfolio: {data?.summary?.telemetryPolicySources.portfolio ?? 0}</p>
             <p>Falling back to platform defaults: {data?.summary?.telemetryPolicySources.default ?? 0}</p>
@@ -460,4 +522,11 @@ function ToggleField({
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 rounded border" />
     </label>
   );
+}
+
+function parseCsv(value: string) {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }

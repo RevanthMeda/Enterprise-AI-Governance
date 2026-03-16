@@ -421,6 +421,13 @@ const telemetryEventPayloadSchema = z.object({
   severity: z.enum(["info", "warning", "critical"]).default("info"),
   driftScore: z.number().int().min(0).max(100).optional().nullable(),
   biasFlags: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  safetySignals: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  toxicityScore: z.number().int().min(0).max(100).optional().nullable(),
+  piiFlags: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  promptText: z.string().trim().max(20000).optional().nullable(),
+  modelOutput: z.string().trim().max(40000).optional().nullable(),
+  runtimeContext: z.record(z.string(), z.unknown()).optional(),
+  correlationId: z.string().trim().max(200).optional().nullable(),
   summary: z.string().trim().min(1).max(4000),
   metadata: z.record(z.string(), z.unknown()).optional(),
   detectedAt: z.coerce.date().optional(),
@@ -431,12 +438,20 @@ const telemetryPolicyPatchSchema = z.object({
   driftCriticalThreshold: z.number().int().min(1).max(100).optional(),
   biasFlagThreshold: z.number().int().min(1).max(20).optional(),
   safetyFlagThreshold: z.number().int().min(1).max(20).optional(),
+  toxicityWarningThreshold: z.number().int().min(1).max(100).optional(),
+  toxicityCriticalThreshold: z.number().int().min(1).max(100).optional(),
+  piiFlagThreshold: z.number().int().min(1).max(20).optional(),
   overrideRateWarningThreshold: z.number().int().min(1).max(100).optional(),
   overrideRateCriticalThreshold: z.number().int().min(1).max(100).optional(),
   errorRateWarningThreshold: z.number().int().min(1).max(100).optional(),
   errorRateCriticalThreshold: z.number().int().min(1).max(100).optional(),
   autoEscalateCritical: z.boolean().optional(),
   notifyOnWarning: z.boolean().optional(),
+  enforceBlocking: z.boolean().optional(),
+  blockOnPii: z.boolean().optional(),
+  blockOnSafetyCritical: z.boolean().optional(),
+  blockOnRestrictedPrompt: z.boolean().optional(),
+  restrictedPromptPatterns: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
 }).refine((value) => Object.keys(value).length > 0, {
   message: "At least one telemetry threshold setting must be provided",
 });
@@ -2141,6 +2156,85 @@ export async function registerRoutes(
   );
 
   app.get(
+    "/api/ai-systems/:id/telemetry-policy",
+    requireAuth,
+    requireTenant,
+    async (req, res) => {
+      const systemId = routeParam(req.params.id);
+      const system = await storage.getAiSystemById(req.tenant!.organizationId, systemId);
+      if (!system) {
+        return res.status(404).json({ message: "AI system not found" });
+      }
+
+      const policy = await telemetryPolicyService.getEffectiveForSystem(req.tenant!.organizationId, systemId);
+      return res.json(policy);
+    },
+  );
+
+  app.patch(
+    "/api/ai-systems/:id/telemetry-policy",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "system_owner"),
+    async (req, res) => {
+      try {
+        const systemId = routeParam(req.params.id);
+        const system = await storage.getAiSystemById(req.tenant!.organizationId, systemId);
+        if (!system) {
+          return res.status(404).json({ message: "AI system not found" });
+        }
+
+        const parsed = telemetryPolicyPatchSchema.parse(req.body);
+        const updated = await telemetryPolicyService.updateForSystem(req.tenant!.organizationId, systemId, parsed);
+        await recordAdminAuditEvent({
+          organizationId: req.tenant!.organizationId,
+          actorUserId: req.user!.id,
+          actorName: req.user!.fullName,
+          action: "system.telemetry_policy.updated",
+          targetType: "ai_system",
+          targetId: systemId,
+          metadata: {
+            systemName: system.name,
+            ...parsed,
+          },
+        });
+        return res.json(updated);
+      } catch (err: any) {
+        return res.status(400).json({ message: err.message || "Failed to update system telemetry policy" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/ai-systems/:id/telemetry-policy/reset",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "system_owner"),
+    async (req, res) => {
+      const systemId = routeParam(req.params.id);
+      const system = await storage.getAiSystemById(req.tenant!.organizationId, systemId);
+      if (!system) {
+        return res.status(404).json({ message: "AI system not found" });
+      }
+
+      const updated = await telemetryPolicyService.resetSystemOverride(req.tenant!.organizationId, systemId);
+      await recordAdminAuditEvent({
+        organizationId: req.tenant!.organizationId,
+        actorUserId: req.user!.id,
+        actorName: req.user!.fullName,
+        action: "system.telemetry_policy.reset",
+        targetType: "ai_system",
+        targetId: systemId,
+        metadata: {
+          systemName: system.name,
+          source: updated.source,
+        },
+      });
+      return res.json(updated);
+    },
+  );
+
+  app.get(
     "/api/organization/telemetry-adapter",
     requireAuth,
     requireTenant,
@@ -3514,6 +3608,13 @@ export async function registerRoutes(
           gateway: parsed.gateway ?? null,
           driftScore: parsed.driftScore ?? null,
           biasFlags: parsed.biasFlags ?? [],
+          safetySignals: parsed.safetySignals ?? [],
+          toxicityScore: parsed.toxicityScore ?? null,
+          piiFlags: parsed.piiFlags ?? [],
+          promptText: parsed.promptText ?? null,
+          modelOutput: parsed.modelOutput ?? null,
+          runtimeContext: parsed.runtimeContext ?? {},
+          correlationId: parsed.correlationId ?? null,
           metadata: parsed.metadata ?? {},
           detectedAt: parsed.detectedAt ?? new Date(),
         });
@@ -3525,7 +3626,7 @@ export async function registerRoutes(
             entityId: created.id,
             action: "created",
             performedBy: req.user!.fullName,
-            details: `Telemetry event \"${created.eventType}\" recorded${Array.isArray((created.metadata as any)?.thresholdBreaches) && (created.metadata as any).thresholdBreaches.length > 0 ? ` with threshold breaches: ${(created.metadata as any).thresholdBreaches.join(", ")}` : ""}`,
+            details: `Telemetry event \"${created.eventType}\" recorded with action \"${created.actionTaken}\"${Array.isArray((created.metadata as any)?.thresholdBreaches) && (created.metadata as any).thresholdBreaches.length > 0 ? ` and threshold breaches: ${(created.metadata as any).thresholdBreaches.join(", ")}` : ""}`,
           },
         });
         res.status(201).json(created);
@@ -3535,7 +3636,7 @@ export async function registerRoutes(
     },
   );
 
-  app.post("/api/telemetry/sdk-ingest", async (req, res) => {
+  app.post(["/api/telemetry/sdk-ingest", "/api/telemetry/sdk-evaluate"], async (req, res) => {
     try {
       const rawKey =
         req.get("x-telemetry-key") ||
@@ -3569,6 +3670,13 @@ export async function registerRoutes(
         gateway: parsed.gateway ?? null,
         driftScore: parsed.driftScore ?? null,
         biasFlags: parsed.biasFlags ?? [],
+        safetySignals: parsed.safetySignals ?? [],
+        toxicityScore: parsed.toxicityScore ?? null,
+        piiFlags: parsed.piiFlags ?? [],
+        promptText: parsed.promptText ?? null,
+        modelOutput: parsed.modelOutput ?? null,
+        runtimeContext: parsed.runtimeContext ?? {},
+        correlationId: parsed.correlationId ?? null,
         metadata: {
           ...(parsed.metadata ?? {}),
           adapterKeyPrefix: adapter.keyPrefix,
@@ -3592,15 +3700,23 @@ export async function registerRoutes(
           entityId: created.id,
           action: "sdk_ingested",
           performedBy: "Telemetry SDK",
-          details: `Telemetry SDK event "${created.eventType}" recorded${parsed.gateway ? ` from ${parsed.gateway}` : ""}`,
+          details: `Telemetry SDK event "${created.eventType}" recorded${parsed.gateway ? ` from ${parsed.gateway}` : ""} with decision "${created.actionTaken}"`,
         },
       });
 
+      const metadata = created.metadata as Record<string, unknown>;
       return res.status(201).json({
         id: created.id,
         ok: true,
-        thresholdBreaches: Array.isArray((created.metadata as Record<string, unknown>)?.thresholdBreaches)
-          ? ((created.metadata as Record<string, unknown>).thresholdBreaches as string[])
+        decision: created.actionTaken,
+        blocked: created.blocked,
+        thresholdBreaches: Array.isArray(metadata?.thresholdBreaches)
+          ? (metadata.thresholdBreaches as string[])
+          : [],
+        escalatedIncidentId:
+          typeof metadata?.escalatedIncidentId === "string" ? metadata.escalatedIncidentId : null,
+        restrictedPromptMatches: Array.isArray(metadata?.restrictedPromptMatches)
+          ? (metadata.restrictedPromptMatches as string[])
           : [],
       });
     } catch (err: any) {

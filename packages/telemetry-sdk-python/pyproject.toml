@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-control-tower-telemetry"
+version = "0.1.0"
+description = "Python SDK for AI Control Tower runtime telemetry ingestion and evaluation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [
+  { name = "AI Control Tower" }
+]
+keywords = ["ai", "governance", "telemetry", "runtime-monitoring", "compliance"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: Other/Proprietary License",
+  "Operating System :: OS Independent",
+  "Typing :: Typed"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+ai_control_tower_telemetry = ["py.typed"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

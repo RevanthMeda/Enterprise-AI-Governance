@@ -162,12 +162,20 @@ export const portfolioTelemetryPolicies = pgTable("portfolio_telemetry_policies"
   driftCriticalThreshold: integer("drift_critical_threshold").notNull().default(10),
   biasFlagThreshold: integer("bias_flag_threshold").notNull().default(1),
   safetyFlagThreshold: integer("safety_flag_threshold").notNull().default(1),
+  toxicityWarningThreshold: integer("toxicity_warning_threshold").notNull().default(60),
+  toxicityCriticalThreshold: integer("toxicity_critical_threshold").notNull().default(80),
+  piiFlagThreshold: integer("pii_flag_threshold").notNull().default(1),
   overrideRateWarningThreshold: integer("override_rate_warning_threshold").notNull().default(40),
   overrideRateCriticalThreshold: integer("override_rate_critical_threshold").notNull().default(60),
   errorRateWarningThreshold: integer("error_rate_warning_threshold").notNull().default(5),
   errorRateCriticalThreshold: integer("error_rate_critical_threshold").notNull().default(10),
   autoEscalateCritical: boolean("auto_escalate_critical").notNull().default(true),
   notifyOnWarning: boolean("notify_on_warning").notNull().default(true),
+  enforceBlocking: boolean("enforce_blocking").notNull().default(false),
+  blockOnPii: boolean("block_on_pii").notNull().default(true),
+  blockOnSafetyCritical: boolean("block_on_safety_critical").notNull().default(true),
+  blockOnRestrictedPrompt: boolean("block_on_restricted_prompt").notNull().default(true),
+  restrictedPromptPatterns: jsonb("restricted_prompt_patterns").notNull().default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
@@ -335,12 +343,20 @@ export const organizationTelemetryPolicies = pgTable("organization_telemetry_pol
   driftCriticalThreshold: integer("drift_critical_threshold").notNull().default(10),
   biasFlagThreshold: integer("bias_flag_threshold").notNull().default(1),
   safetyFlagThreshold: integer("safety_flag_threshold").notNull().default(1),
+  toxicityWarningThreshold: integer("toxicity_warning_threshold").notNull().default(60),
+  toxicityCriticalThreshold: integer("toxicity_critical_threshold").notNull().default(80),
+  piiFlagThreshold: integer("pii_flag_threshold").notNull().default(1),
   overrideRateWarningThreshold: integer("override_rate_warning_threshold").notNull().default(40),
   overrideRateCriticalThreshold: integer("override_rate_critical_threshold").notNull().default(60),
   errorRateWarningThreshold: integer("error_rate_warning_threshold").notNull().default(5),
   errorRateCriticalThreshold: integer("error_rate_critical_threshold").notNull().default(10),
   autoEscalateCritical: boolean("auto_escalate_critical").notNull().default(true),
   notifyOnWarning: boolean("notify_on_warning").notNull().default(true),
+  enforceBlocking: boolean("enforce_blocking").notNull().default(false),
+  blockOnPii: boolean("block_on_pii").notNull().default(true),
+  blockOnSafetyCritical: boolean("block_on_safety_critical").notNull().default(true),
+  blockOnRestrictedPrompt: boolean("block_on_restricted_prompt").notNull().default(true),
+  restrictedPromptPatterns: jsonb("restricted_prompt_patterns").notNull().default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
@@ -355,6 +371,44 @@ export const insertOrganizationTelemetryPolicySchema = createInsertSchema(organi
 
 export type InsertOrganizationTelemetryPolicy = z.infer<typeof insertOrganizationTelemetryPolicySchema>;
 export type OrganizationTelemetryPolicy = typeof organizationTelemetryPolicies.$inferSelect;
+
+export const systemTelemetryPolicies = pgTable("system_telemetry_policies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  systemId: varchar("system_id").notNull(),
+  driftAlertThreshold: integer("drift_alert_threshold").notNull().default(5),
+  driftCriticalThreshold: integer("drift_critical_threshold").notNull().default(10),
+  biasFlagThreshold: integer("bias_flag_threshold").notNull().default(1),
+  safetyFlagThreshold: integer("safety_flag_threshold").notNull().default(1),
+  toxicityWarningThreshold: integer("toxicity_warning_threshold").notNull().default(60),
+  toxicityCriticalThreshold: integer("toxicity_critical_threshold").notNull().default(80),
+  piiFlagThreshold: integer("pii_flag_threshold").notNull().default(1),
+  overrideRateWarningThreshold: integer("override_rate_warning_threshold").notNull().default(40),
+  overrideRateCriticalThreshold: integer("override_rate_critical_threshold").notNull().default(60),
+  errorRateWarningThreshold: integer("error_rate_warning_threshold").notNull().default(5),
+  errorRateCriticalThreshold: integer("error_rate_critical_threshold").notNull().default(10),
+  autoEscalateCritical: boolean("auto_escalate_critical").notNull().default(true),
+  notifyOnWarning: boolean("notify_on_warning").notNull().default(true),
+  enforceBlocking: boolean("enforce_blocking").notNull().default(false),
+  blockOnPii: boolean("block_on_pii").notNull().default(true),
+  blockOnSafetyCritical: boolean("block_on_safety_critical").notNull().default(true),
+  blockOnRestrictedPrompt: boolean("block_on_restricted_prompt").notNull().default(true),
+  restrictedPromptPatterns: jsonb("restricted_prompt_patterns").notNull().default(sql`'[]'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  systemUnique: uniqueIndex("system_telemetry_policies_system_unique").on(table.organizationId, table.systemId),
+  orgSystemIdx: index("system_telemetry_policies_org_system_idx").on(table.organizationId, table.systemId),
+}));
+
+export const insertSystemTelemetryPolicySchema = createInsertSchema(systemTelemetryPolicies).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertSystemTelemetryPolicy = z.infer<typeof insertSystemTelemetryPolicySchema>;
+export type SystemTelemetryPolicy = typeof systemTelemetryPolicies.$inferSelect;
 
 export const organizationTelemetryAdapters = pgTable("organization_telemetry_adapters", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -568,7 +622,16 @@ export const aiTelemetryEvents = pgTable("ai_telemetry_events", {
   severity: text("severity").notNull().default("info"),
   driftScore: integer("drift_score"),
   biasFlags: jsonb("bias_flags").notNull().default(sql`'[]'::jsonb`),
+  safetySignals: jsonb("safety_signals").notNull().default(sql`'[]'::jsonb`),
+  toxicityScore: integer("toxicity_score"),
+  piiFlags: jsonb("pii_flags").notNull().default(sql`'[]'::jsonb`),
+  promptText: text("prompt_text"),
+  modelOutput: text("model_output"),
+  runtimeContext: jsonb("runtime_context").notNull().default(sql`'{}'::jsonb`),
+  correlationId: text("correlation_id"),
   summary: text("summary").notNull(),
+  actionTaken: text("action_taken").notNull().default("allow"),
+  blocked: boolean("blocked").notNull().default(false),
   metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
   detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),

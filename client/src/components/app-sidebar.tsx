@@ -20,6 +20,7 @@ import {
   Archive,
   CreditCard,
   PlugZap,
+  Radio,
 } from "lucide-react";
 import {
   Sidebar,
@@ -53,6 +54,7 @@ const mainNav = [
   { title: "Calendar", url: "/calendar", icon: CalendarDays },
   { title: "Approvals", url: "/approvals", icon: FileText },
   { title: "Decision Trace", url: "/decision-trace", icon: Fingerprint },
+  { title: "Runtime Monitoring", url: "/runtime-monitoring", icon: Radio },
   { title: "Exit Readiness", url: "/exit-readiness", icon: Gauge },
   { title: "Portfolio Control", url: "/portfolio-control", icon: Building2 },
   { title: "Incidents", url: "/incidents", icon: AlertTriangle },
