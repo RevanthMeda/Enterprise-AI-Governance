@@ -270,8 +270,8 @@ if (decision.blocked) {
       ? (testerResult.body as { decision: string }).decision
       : null;
 
-  const testerGateway = adapter.allowedGateways[0] ?? "gateway-prod";
-  const connectHref = useMemo(() => {
+  const testerGateway = adapter?.allowedGateways[0] ?? "gateway-prod";
+  const connectHref = (() => {
     let parsedPayload: Record<string, unknown> = {};
     try {
       const candidate = JSON.parse(testPayload);
@@ -303,7 +303,7 @@ if (decision.blocked) {
           : "no",
     });
     return `/registry/connect?${params.toString()}`;
-  }, [testPayload, testerGateway]);
+  })();
 
   const loadTesterScenario = (scenario: "allow" | "warn" | "block") => {
     const payload =
