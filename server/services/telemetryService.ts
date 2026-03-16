@@ -5,6 +5,9 @@ import { incidentService } from "./incidentService";
 import { notificationService } from "./notificationService";
 import { storage } from "../storage";
 import { telemetryPolicyService } from "./telemetryPolicyService";
+import { riskAssessmentService } from "./riskAssessmentService";
+import { auditService } from "./auditService";
+import { autoDiscoveryService } from "./autoDiscoveryService";
 
 type ThresholdEvaluation = {
   thresholdBreaches: string[];
@@ -212,6 +215,8 @@ export class TelemetryService {
       await this.notifyOperatorsForThresholdBreach(organizationId, created, evaluation);
     }
 
+    let finalEvent = created;
+
     if (evaluation.shouldEscalateIncident) {
       const incidentId = await this.escalateThresholdBreach(organizationId, created, evaluation);
       if (incidentId) {
@@ -225,11 +230,13 @@ export class TelemetryService {
           })
           .where(eq(aiTelemetryEvents.id, created.id))
           .returning();
-        return updated;
+        finalEvent = updated;
       }
     }
 
-    return created;
+    await this.maybeTriggerAutoReassessment(organizationId, finalEvent, evaluation);
+
+    return finalEvent;
   }
 
   async getSummaryForOrg(organizationId: string) {
@@ -345,6 +352,98 @@ export class TelemetryService {
     });
 
     return created.id;
+  }
+
+  private async maybeTriggerAutoReassessment(
+    organizationId: string,
+    event: AiTelemetryEvent,
+    evaluation: ThresholdEvaluation,
+  ) {
+    if (!event.systemId) return;
+    if (evaluation.thresholdBreaches.length === 0 && evaluation.decision === "allow") return;
+
+    const system = await storage.getAiSystemById(organizationId, event.systemId);
+    if (!system) return;
+
+    const manifest = autoDiscoveryService.buildManifestFromSystemAndTelemetry(system, {
+      provider: (event as { provider?: string | null }).provider,
+      modelName: (event as { modelName?: string | null }).modelName,
+      gateway: (event as { gateway?: string | null }).gateway,
+      eventType: event.eventType,
+      summary: event.summary,
+      severity: event.severity,
+      driftScore: event.driftScore,
+      biasFlags: event.biasFlags,
+      safetySignals: event.safetySignals,
+      piiFlags: event.piiFlags,
+      metadata: {
+        ...(getMetadataRecord(event.metadata)),
+        autoReassessmentTriggeredBy: "runtime_telemetry",
+        thresholdBreaches: evaluation.thresholdBreaches,
+        policyDecision: evaluation.decision,
+      },
+    });
+
+    const answers = {
+      ...autoDiscoveryService.deriveAnswers(manifest),
+      telemetrySignals: manifest.telemetrySignals,
+      autoReassessment: {
+        source: "runtime_telemetry",
+        telemetryEventId: event.id,
+        thresholdBreaches: evaluation.thresholdBreaches,
+        decision: evaluation.decision,
+      },
+    };
+    const { riskLevel, score, explanation, suggestedControls } = autoDiscoveryService.computeRiskClassification(answers);
+    const existingAssessments = await storage.getRiskAssessmentsBySystemForOrg(organizationId, event.systemId);
+    const latest = existingAssessments[0];
+
+    if (
+      latest &&
+      latest.riskOutcome === riskLevel &&
+      JSON.stringify(latest.answers ?? null) === JSON.stringify(answers)
+    ) {
+      return;
+    }
+
+    const runtimeActor = {
+      id: "runtime-telemetry-engine",
+      username: "runtime_telemetry_engine",
+      fullName: "Runtime Telemetry Engine",
+      email: null,
+      role: "system",
+    };
+
+    await riskAssessmentService.createAssessment({
+      organizationId,
+      actor: runtimeActor,
+      input: {
+        systemId: system.id,
+        systemName: system.name,
+        answers,
+        riskOutcome: riskLevel,
+        riskScore: score,
+        riskExplanation: explanation,
+        suggestedControls,
+      },
+    });
+
+    await storage.updateAiSystemByOrg(organizationId, system.id, {
+      ...autoDiscoveryService.buildAutoReassessedSystemInput(manifest, riskLevel),
+      lastAssessment: new Date(),
+    });
+
+    await auditService.createLog({
+      organizationId,
+      actor: runtimeActor,
+      input: {
+        entityType: "ai_system",
+        entityId: system.id,
+        action: "runtime_telemetry_auto_reassess",
+        performedBy: runtimeActor.fullName,
+        details: `Runtime telemetry auto-reassessment set "${system.name}" to ${riskLevel} risk (${score}). Event ${event.id}.`,
+      },
+    });
   }
 }
 

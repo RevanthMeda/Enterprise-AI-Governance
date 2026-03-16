@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   Plus,
   Search,
@@ -169,6 +169,12 @@ export default function Registry() {
           <Button variant="outline" size="sm" onClick={() => exportSystemRegistryCsv(systems)} data-testid="button-export-registry">
             <Download className="h-3.5 w-3.5 mr-1.5" />
             Export CSV
+          </Button>
+          <Button asChild variant="outline" size="sm" data-testid="button-connect-ai-application">
+            <Link href="/registry/connect">
+              <Server className="h-3.5 w-3.5 mr-1.5" />
+              Connect AI Application
+            </Link>
           </Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>

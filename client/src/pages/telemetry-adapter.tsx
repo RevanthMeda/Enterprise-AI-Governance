@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { resolveApiUrl } from "@/lib/api-url";
@@ -270,6 +271,39 @@ if (decision.blocked) {
       : null;
 
   const testerGateway = adapter.allowedGateways[0] ?? "gateway-prod";
+  const connectHref = useMemo(() => {
+    let parsedPayload: Record<string, unknown> = {};
+    try {
+      const candidate = JSON.parse(testPayload);
+      if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+        parsedPayload = candidate as Record<string, unknown>;
+      }
+    } catch {
+      parsedPayload = {};
+    }
+
+    const safetySignals = Array.isArray(parsedPayload.safetySignals)
+      ? parsedPayload.safetySignals.filter((entry): entry is string => typeof entry === "string")
+      : [];
+    const piiFlags = Array.isArray(parsedPayload.piiFlags)
+      ? parsedPayload.piiFlags.filter((entry): entry is string => typeof entry === "string")
+      : [];
+    const params = new URLSearchParams({
+      source: "sdk",
+      provider: typeof parsedPayload.provider === "string" ? parsedPayload.provider : "",
+      modelName: typeof parsedPayload.modelName === "string" ? parsedPayload.modelName : "",
+      gateway: typeof parsedPayload.gateway === "string" ? parsedPayload.gateway : testerGateway,
+      deploymentContext: "SDK Connected Application",
+      productionTraffic: "yes",
+      piiExposureObserved: piiFlags.length > 0 ? "yes" : "no",
+      safetyAlertsObserved: safetySignals.length > 0 ? "yes" : "no",
+      biasAlertsObserved:
+        Array.isArray(parsedPayload.biasFlags) && parsedPayload.biasFlags.some((entry) => typeof entry === "string")
+          ? "yes"
+          : "no",
+    });
+    return `/registry/connect?${params.toString()}`;
+  }, [testPayload, testerGateway]);
 
   const loadTesterScenario = (scenario: "allow" | "warn" | "block") => {
     const payload =
@@ -428,6 +462,25 @@ if (decision.blocked) {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-semibold">Manifest-assisted onboarding</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm text-muted-foreground">
+          <p>
+            API keys and runtime payloads are not enough to defensibly infer business purpose or regulatory impact. Use the connected-application manifest flow to create the registry record and baseline risk assessment, then let runtime telemetry drive reassessment over time.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Button asChild>
+              <Link href={connectHref}>Continue to application manifest</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/runtime-monitoring">Open runtime monitoring</Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

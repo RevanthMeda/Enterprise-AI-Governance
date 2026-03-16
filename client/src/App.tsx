@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import NotFound from "@/pages/not-found";
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const Registry = lazy(() => import("@/pages/registry"));
+const ConnectAiApplicationPage = lazy(() => import("@/pages/connect-ai-application"));
 const RiskAssessment = lazy(() => import("@/pages/risk-assessment"));
 const Compliance = lazy(() => import("@/pages/compliance"));
 const Approvals = lazy(() => import("@/pages/approvals"));
@@ -117,6 +118,7 @@ function AuthenticatedRouter({ isAdmin }: { isAdmin: boolean }) {
         <Route path="/activity" component={MyActivity} />
         <Route path="/my-activity" component={ActivityAliasRedirect} />
         <Route path="/registry" component={Registry} />
+        <Route path="/registry/connect" component={ConnectAiApplicationPage} />
         <Route path="/systems/:id" component={SystemDetail} />
         <Route path="/risk" component={RiskAssessment} />
         <Route path="/risk-assessment" component={RiskAliasRedirect} />
@@ -254,6 +256,7 @@ function AuthenticatedApp() {
       ["/dashboard", "Dashboard"],
       ["/activity", "My Activity"],
       ["/registry", "AI Registry"],
+      ["/registry/connect", "Connect AI Application"],
       ["/risk", "Risk Assessment"],
       ["/compliance", "Compliance"],
       ["/calendar", "Compliance Calendar"],

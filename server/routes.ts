@@ -69,6 +69,7 @@ import { telemetryPolicyService } from "./services/telemetryPolicyService";
 import { telemetryAdapterService } from "./services/telemetryAdapterService";
 import { telemetryService } from "./services/telemetryService";
 import { workflowService } from "./services/workflowService";
+import { autoDiscoveryService } from "./services/autoDiscoveryService";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -2930,6 +2931,201 @@ export async function registerRoutes(
     res.json(logs);
   });
 
+  const autoDiscoveryManifestSchema = z.object({
+    systemName: z.string().min(1, "System name is required"),
+    owner: z.string().min(1, "Owner is required"),
+    department: z.string().optional(),
+    purpose: z.string().min(1, "Purpose is required"),
+    vendor: z.string().optional(),
+    provider: z.string().optional(),
+    modelName: z.string().optional(),
+    modelType: z.string().optional(),
+    gateway: z.string().optional(),
+    deploymentContext: z.string().optional(),
+    intendedUse: z.enum(["autonomous_decisions", "decision_support", "automation", "analytics"]),
+    domain: z.enum(["healthcare", "law_enforcement", "finance", "employment", "education", "critical_infrastructure", "general"]),
+    personalData: z.enum(["special_category", "sensitive", "basic", "none"]),
+    usersImpacted: z.enum(["over_100k", "10k_100k", "1k_10k", "under_1k"]),
+    decisionImpact: z.enum(["legal_significant", "material", "minor", "none"]),
+    humanOversight: z.enum(["none", "post_hoc", "in_loop", "full_control"]),
+    geography: z.enum(["eu", "global", "us", "other"]).default("other"),
+    biometricUse: z.enum(["yes", "no"]).default("no"),
+    vulnerableGroups: z.enum(["yes", "no"]).default("no"),
+    customerFacing: z.boolean().optional().default(false),
+    telemetrySignals: z.object({
+      productionTraffic: z.boolean().optional().default(false),
+      piiExposureObserved: z.boolean().optional().default(false),
+      safetyAlertsObserved: z.boolean().optional().default(false),
+      biasAlertsObserved: z.boolean().optional().default(false),
+    }).optional().default({}),
+  });
+
+  app.post(
+    "/api/ai-systems/auto-register",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "system_owner"),
+    async (req, res) => {
+      try {
+        const manifest = autoDiscoveryManifestSchema.parse(req.body);
+        const derivedAnswers = autoDiscoveryService.deriveAnswers(manifest);
+        const { riskLevel, score, explanation, suggestedControls } = autoDiscoveryService.computeRiskClassification(derivedAnswers);
+        const discoveryNotes = buildAutoDiscoveryNotes(manifest);
+        const riskExplanation = discoveryNotes.length
+          ? `${explanation}\n\nAuto-discovery signals:\n${discoveryNotes.map((note) => `• ${note}`).join("\n")}`
+          : explanation;
+
+        const system = await systemService.createSystem({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: autoDiscoveryService.buildAutoRegisteredSystemInput(manifest, riskLevel),
+        });
+
+        const assessment = await riskAssessmentService.createAssessment({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            systemId: system.id,
+            systemName: system.name,
+            answers: {
+              ...derivedAnswers,
+              discovery: {
+                provider: manifest.provider ?? null,
+                modelName: manifest.modelName ?? null,
+                gateway: manifest.gateway ?? null,
+                customerFacing: manifest.customerFacing,
+                telemetrySignals: manifest.telemetrySignals,
+              },
+            },
+            riskOutcome: riskLevel,
+            riskScore: score,
+            riskExplanation,
+            suggestedControls,
+          },
+        });
+
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "ai_system",
+            entityId: system.id,
+            action: "auto_registered",
+            performedBy: req.user!.fullName,
+            details: `AI application "${system.name}" auto-registered from SDK/application manifest`,
+          },
+        });
+
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "risk_assessment",
+            entityId: assessment.id,
+            action: "created",
+            performedBy: req.user!.fullName,
+            details: `Derived risk assessment created for "${system.name}": ${riskLevel} (${score})`,
+          },
+        });
+
+        if (riskLevel === "high" || riskLevel === "unacceptable") {
+          await notifyAllAdmins(
+            req.tenant!.organizationId,
+            "High-Risk Application Connected",
+            `"${system.name}" was auto-registered as ${riskLevel} risk from SDK/application intake`,
+            "high_risk_created",
+            "ai_system",
+            system.id,
+          );
+        }
+
+        res.status(201).json({ system, assessment, derivedAnswers });
+      } catch (err: any) {
+        res.status(400).json({ message: err.message });
+      }
+    },
+  );
+
+  app.post(
+    "/api/ai-systems/:id/auto-reassess",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "system_owner"),
+    async (req, res) => {
+      try {
+        const systemId = routeParam(req.params.id);
+        const system = await systemService.getSystem({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          systemId,
+        });
+        if (!system) {
+          return res.status(404).json({ message: "System not found" });
+        }
+
+        const manifest = autoDiscoveryManifestSchema.parse({
+          ...req.body,
+          systemName: req.body.systemName || system.name,
+          owner: req.body.owner || system.owner,
+          purpose: req.body.purpose || system.purpose || system.description || system.name,
+        });
+
+        const derivedAnswers = autoDiscoveryService.deriveAnswers(manifest);
+        const { riskLevel, score, explanation, suggestedControls } = autoDiscoveryService.computeRiskClassification(derivedAnswers);
+        const discoveryNotes = buildAutoDiscoveryNotes(manifest);
+        const riskExplanation = discoveryNotes.length
+          ? `${explanation}\n\nAuto-discovery signals:\n${discoveryNotes.map((note) => `• ${note}`).join("\n")}`
+          : explanation;
+
+        const updatedSystem = await systemService.updateSystem({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          systemId,
+          input: autoDiscoveryService.buildAutoReassessedSystemInput(manifest, riskLevel),
+        });
+
+        const assessment = await riskAssessmentService.createAssessment({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            systemId,
+            systemName: system.name,
+            answers: {
+              ...derivedAnswers,
+              discovery: {
+                provider: manifest.provider ?? null,
+                modelName: manifest.modelName ?? null,
+                gateway: manifest.gateway ?? null,
+                customerFacing: manifest.customerFacing,
+                telemetrySignals: manifest.telemetrySignals,
+              },
+            },
+            riskOutcome: riskLevel,
+            riskScore: score,
+            riskExplanation,
+            suggestedControls,
+          },
+        });
+
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "ai_system",
+            entityId: systemId,
+            action: "auto_reassessed",
+            performedBy: req.user!.fullName,
+            details: `AI application "${system.name}" auto-reassessed from SDK/application manifest: ${riskLevel} (${score})`,
+          },
+        });
+
+        res.json({ system: updatedSystem ?? system, assessment, derivedAnswers });
+      } catch (err: any) {
+        res.status(400).json({ message: err.message });
+      }
+    },
+  );
+
   app.post(
     "/api/ai-systems",
     requireAuth,
@@ -4228,6 +4424,116 @@ export async function registerRoutes(
   );
 
   return httpServer;
+}
+
+function buildAutoDiscoveryNotes(manifest: any): string[] {
+  const notes: string[] = [];
+  if (manifest.provider || manifest.modelName) {
+    notes.push(`Model provider: ${[manifest.provider, manifest.modelName].filter(Boolean).join(" / ")}`);
+  }
+  if (manifest.gateway) {
+    notes.push(`Gateway connected: ${manifest.gateway}`);
+  }
+  if (manifest.customerFacing) {
+    notes.push("Customer-facing runtime detected");
+  }
+  if (manifest.telemetrySignals?.productionTraffic) {
+    notes.push("Production traffic signal present");
+  }
+  if (manifest.telemetrySignals?.piiExposureObserved) {
+    notes.push("Runtime telemetry observed PII exposure risk");
+  }
+  if (manifest.telemetrySignals?.safetyAlertsObserved) {
+    notes.push("Runtime telemetry observed safety alerts");
+  }
+  if (manifest.telemetrySignals?.biasAlertsObserved) {
+    notes.push("Runtime telemetry observed bias alerts");
+  }
+  return notes;
+}
+
+function deriveAutoDiscoveryAnswers(manifest: any) {
+  let personalData = manifest.personalData;
+  if (manifest.telemetrySignals?.piiExposureObserved) {
+    personalData = personalData === "none" ? "basic" : personalData === "basic" ? "sensitive" : personalData;
+  }
+
+  let humanOversight = manifest.humanOversight;
+  if (manifest.customerFacing && humanOversight === "full_control") {
+    humanOversight = "in_loop";
+  }
+
+  let intendedUse = manifest.intendedUse;
+  if (manifest.customerFacing && intendedUse === "automation") {
+    intendedUse = "decision_support";
+  }
+
+  return {
+    intendedUse,
+    domain: manifest.domain,
+    personalData,
+    usersImpacted: manifest.usersImpacted,
+    decisionImpact: manifest.decisionImpact,
+    humanOversight,
+    geography: manifest.geography,
+    biometricUse: manifest.biometricUse,
+    vulnerableGroups: manifest.vulnerableGroups,
+    purpose: manifest.purpose,
+  };
+}
+
+function mapPersonalDataToSensitivity(personalData: string) {
+  if (personalData === "special_category") return "restricted";
+  if (personalData === "sensitive") return "confidential";
+  if (personalData === "basic") return "internal";
+  return "public";
+}
+
+function mapUsersImpacted(usersImpacted: string) {
+  if (usersImpacted === "over_100k") return 100000;
+  if (usersImpacted === "10k_100k") return 25000;
+  if (usersImpacted === "1k_10k") return 5000;
+  return 500;
+}
+
+function mapGeographyLabel(geography: string) {
+  if (geography === "eu") return "EU";
+  if (geography === "us") return "US";
+  if (geography === "global") return "Global";
+  return "Other";
+}
+
+function buildAutoRegisteredSystemInput(manifest: any, riskLevel: string) {
+  return {
+    name: manifest.systemName,
+    description: `Auto-discovered via SDK/application manifest. ${manifest.purpose}`,
+    owner: manifest.owner,
+    department: manifest.department || "AI Operations",
+    vendor: manifest.vendor || manifest.provider || "Unknown",
+    modelType: manifest.modelType || [manifest.provider, manifest.modelName].filter(Boolean).join(" / ") || "Unknown",
+    riskLevel,
+    status: "under_review",
+    deploymentContext: manifest.deploymentContext || "SDK Connected Application",
+    dataSensitivity: mapPersonalDataToSensitivity(manifest.personalData),
+    geography: mapGeographyLabel(manifest.geography),
+    purpose: manifest.purpose,
+    usersImpacted: mapUsersImpacted(manifest.usersImpacted),
+  };
+}
+
+function buildAutoReassessedSystemInput(manifest: any, riskLevel: string) {
+  return {
+    department: manifest.department || undefined,
+    vendor: manifest.vendor || manifest.provider || undefined,
+    modelType: manifest.modelType || [manifest.provider, manifest.modelName].filter(Boolean).join(" / ") || undefined,
+    riskLevel,
+    status: "under_review",
+    deploymentContext: manifest.deploymentContext || undefined,
+    dataSensitivity: mapPersonalDataToSensitivity(manifest.personalData),
+    geography: mapGeographyLabel(manifest.geography),
+    purpose: manifest.purpose,
+    usersImpacted: mapUsersImpacted(manifest.usersImpacted),
+  };
 }
 
 function computeRiskClassification(answers: any): {
