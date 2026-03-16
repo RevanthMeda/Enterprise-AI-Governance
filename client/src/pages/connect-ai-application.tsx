@@ -915,6 +915,7 @@ function EnumField({
   value,
   onChange,
   options,
+  inference,
 }: {
   label: string;
   value: string;
