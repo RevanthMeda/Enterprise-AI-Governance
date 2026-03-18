@@ -55,8 +55,16 @@ const initialForm = {
 export default function IncidentsPage() {
   const [form, setForm] = useState(initialForm);
   const [reviews, setReviews] = useState<Record<string, { rootCause: string; reviewSummary: string; affectedDecisionTraceIds: string; regulatoryNotifications: string }>>({});
-  const summaryQuery = useQuery<IncidentSummary>({ queryKey: ["/api/incidents/summary"] });
-  const listQuery = useQuery<Incident[]>({ queryKey: ["/api/incidents"] });
+  const summaryQuery = useQuery<IncidentSummary>({
+    queryKey: ["/api/incidents/summary"],
+    refetchInterval: 15_000,
+    staleTime: 5_000,
+  });
+  const listQuery = useQuery<Incident[]>({
+    queryKey: ["/api/incidents"],
+    refetchInterval: 15_000,
+    staleTime: 5_000,
+  });
 
   const createMutation = useMutation({
     mutationFn: async () => {

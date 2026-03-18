@@ -172,10 +172,14 @@ export default function RiskAssessment() {
 
   const { data: systems = [], isLoading: systemsLoading } = useQuery<AiSystem[]>({
     queryKey: ["/api/ai-systems"],
+    refetchInterval: 30_000,
+    staleTime: 10_000,
   });
 
   const { data: pastAssessments = [], isLoading: assessmentsLoading } = useQuery<RiskAssessmentType[]>({
     queryKey: ["/api/risk-assessments"],
+    refetchInterval: 15_000,
+    staleTime: 5_000,
   });
 
   const submitMutation = useMutation({

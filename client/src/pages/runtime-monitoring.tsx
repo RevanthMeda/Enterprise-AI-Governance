@@ -143,6 +143,8 @@ export default function RuntimeMonitoringPage() {
 
   const systemsQuery = useQuery<AiSystem[]>({
     queryKey: ["runtime-monitoring-systems"],
+    refetchInterval: 30_000,
+    staleTime: 10_000,
     queryFn: async () => {
       const response = await fetch("/api/ai-systems", { credentials: "include" });
       if (!response.ok) {
@@ -154,6 +156,8 @@ export default function RuntimeMonitoringPage() {
 
   const telemetrySummaryQuery = useQuery<any>({
     queryKey: ["runtime-monitoring-summary"],
+    refetchInterval: 10_000,
+    staleTime: 5_000,
     queryFn: async () => {
       const response = await fetch("/api/telemetry/summary", { credentials: "include" });
       if (!response.ok) {
@@ -165,6 +169,8 @@ export default function RuntimeMonitoringPage() {
 
   const incidentSummaryQuery = useQuery<any>({
     queryKey: ["runtime-monitoring-incidents"],
+    refetchInterval: 10_000,
+    staleTime: 5_000,
     queryFn: async () => {
       const response = await fetch("/api/incidents/summary", { credentials: "include" });
       if (!response.ok) {
@@ -176,6 +182,8 @@ export default function RuntimeMonitoringPage() {
 
   const adapterQuery = useQuery<any>({
     queryKey: ["runtime-monitoring-adapter"],
+    refetchInterval: 30_000,
+    staleTime: 10_000,
     queryFn: async () => {
       const response = await fetch("/api/organization/telemetry-adapter", { credentials: "include" });
       if (!response.ok) {

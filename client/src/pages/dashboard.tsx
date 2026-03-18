@@ -1015,18 +1015,26 @@ export default function Dashboard() {
   const { user } = useAuth();
   const { data: systems = [], isLoading: loadingSystems } = useQuery<AiSystem[]>({
     queryKey: ["/api/ai-systems"],
+    refetchInterval: 30_000,
+    staleTime: 10_000,
   });
 
   const { data: workflows = [], isLoading: loadingWorkflows } = useQuery<ApprovalWorkflow[]>({
     queryKey: ["/api/approval-workflows"],
+    refetchInterval: 15_000,
+    staleTime: 5_000,
   });
 
   const { data: systemControls = [], isLoading: loadingControls } = useQuery<SystemControl[]>({
     queryKey: ["/api/system-controls"],
+    refetchInterval: 30_000,
+    staleTime: 10_000,
   });
 
   const { data: trends } = useQuery<TrendData>({
     queryKey: ["/api/dashboard/trends"],
+    refetchInterval: 30_000,
+    staleTime: 10_000,
   });
 
   const { data: ready } = useQuery<ReadyStatus>({

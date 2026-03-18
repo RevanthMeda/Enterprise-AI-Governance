@@ -51,6 +51,8 @@ export default function AuditLogPage() {
 
   const { data: logs = [], isLoading } = useQuery<AuditLog[]>({
     queryKey: ["/api/audit-logs", queryParams.toString()],
+    refetchInterval: 15_000,
+    staleTime: 5_000,
     queryFn: async () => {
       const res = await fetch(`/api/audit-logs?${queryParams.toString()}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch logs");

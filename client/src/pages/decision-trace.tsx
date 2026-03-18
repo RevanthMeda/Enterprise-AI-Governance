@@ -105,13 +105,31 @@ export default function DecisionTracePage() {
   const [editingTraceId, setEditingTraceId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const summaryQuery = useQuery<DecisionSummary>({ queryKey: ["/api/decision-audits/summary"] });
-  const telemetryQuery = useQuery<TelemetrySummary>({ queryKey: ["/api/telemetry/summary"] });
-  const chainQuery = useQuery<ChainStatus>({ queryKey: ["/api/audit-logs/verify-chain"] });
-  const listQuery = useQuery<DecisionAudit[]>({ queryKey: ["/api/decision-audits"] });
+  const summaryQuery = useQuery<DecisionSummary>({
+    queryKey: ["/api/decision-audits/summary"],
+    refetchInterval: 15_000,
+    staleTime: 5_000,
+  });
+  const telemetryQuery = useQuery<TelemetrySummary>({
+    queryKey: ["/api/telemetry/summary"],
+    refetchInterval: 15_000,
+    staleTime: 5_000,
+  });
+  const chainQuery = useQuery<ChainStatus>({
+    queryKey: ["/api/audit-logs/verify-chain"],
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+  });
+  const listQuery = useQuery<DecisionAudit[]>({
+    queryKey: ["/api/decision-audits"],
+    refetchInterval: 15_000,
+    staleTime: 5_000,
+  });
   const versionsQuery = useQuery<DecisionAuditVersion[]>({
     queryKey: ["/api/decision-audits", editingTraceId, "versions"],
     enabled: Boolean(editingTraceId),
+    refetchInterval: editingTraceId ? 15_000 : false,
+    staleTime: 5_000,
     queryFn: async () => {
       const response = await apiRequest("GET", `/api/decision-audits/${editingTraceId}/versions`);
       return response.json();
