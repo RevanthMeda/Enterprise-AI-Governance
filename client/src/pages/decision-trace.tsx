@@ -623,11 +623,27 @@ function formatTraceList(values: unknown[] | null | undefined) {
           return preferred;
         }
 
-        try {
-          return JSON.stringify(record);
-        } catch {
-          return String(value);
+        const detailParts = [
+          record.type,
+          record.system,
+          record.version,
+          record.source,
+          record.region,
+          record.channel,
+        ].filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+        if (detailParts.length > 0) {
+          return detailParts.join(" • ");
         }
+
+        const flattened = Object.entries(record)
+          .filter(([, entry]) => ["string", "number", "boolean"].includes(typeof entry))
+          .slice(0, 4)
+          .map(([key, entry]) => `${key}: ${String(entry)}`);
+        if (flattened.length > 0) {
+          return flattened.join(" • ");
+        }
+
+        return "Structured source";
       }
 
       return String(value);

@@ -1,6 +1,12 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
-import { aiTelemetryEvents, type AiTelemetryEvent, type InsertAiTelemetryEvent } from "@shared/schema";
+import {
+  aiTelemetryEvents,
+  type AiSystem,
+  type AiTelemetryEvent,
+  type InsertAiSystem,
+  type InsertAiTelemetryEvent,
+} from "@shared/schema";
 import { incidentService } from "./incidentService";
 import { notificationService } from "./notificationService";
 import { storage } from "../storage";
@@ -8,18 +14,26 @@ import { telemetryPolicyService } from "./telemetryPolicyService";
 import { riskAssessmentService } from "./riskAssessmentService";
 import { auditService } from "./auditService";
 import { autoDiscoveryService } from "./autoDiscoveryService";
+import { telemetryReviewerExceptionService } from "./telemetryReviewerExceptionService";
 
 type ThresholdEvaluation = {
   thresholdBreaches: string[];
   shouldEscalateIncident: boolean;
   shouldNotify: boolean;
   shouldBlock: boolean;
-  incidentCategory: "bias" | "reliability" | "safety" | "privacy";
+  incidentCategory: "bias" | "reliability" | "safety" | "privacy" | "security";
   severity: "info" | "warning" | "critical";
   decision: "allow" | "warn" | "escalate" | "block";
   restrictedPromptMatches: string[];
   notificationRoles: string[];
+  appliedReviewerExceptions: Array<{
+    id: string;
+    promptPattern: string;
+    suppressedThresholds: string[];
+  }>;
 };
+
+type TelemetryCollectionProfile = "minimal" | "redacted" | "full_evidence";
 
 function getMetadataRecord(metadata: unknown) {
   return metadata && typeof metadata === "object" && !Array.isArray(metadata)
@@ -39,6 +53,236 @@ function getStringValue(value: unknown) {
   return typeof value === "string" ? value : null;
 }
 
+function normalizeText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toTitleCase(value: string) {
+  const knownProviders: Record<string, string> = {
+    openai: "OpenAI",
+    anthropic: "Anthropic",
+    google: "Google",
+    azure: "Azure",
+    aws: "AWS",
+  };
+  const normalized = value.trim().toLowerCase();
+  if (knownProviders[normalized]) {
+    return knownProviders[normalized];
+  }
+
+  return value
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function sanitizeRuntimeContext(
+  runtimeContext: unknown,
+  collectionProfile: TelemetryCollectionProfile,
+) {
+  const record = getMetadataRecord(runtimeContext);
+  if (collectionProfile === "full_evidence") {
+    return record;
+  }
+
+  const allowedKeys = [
+    "channel",
+    "region",
+    "environment",
+    "surface",
+    "route",
+    "locale",
+    "integration",
+  ];
+  return Object.fromEntries(
+    Object.entries(record).filter(([key, value]) => {
+      return allowedKeys.includes(key) && ["string", "number", "boolean"].includes(typeof value);
+    }),
+  );
+}
+
+function redactEvidenceText(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  return value
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[REDACTED_EMAIL]")
+    .replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[REDACTED_SSN]")
+    .replace(/\b(?:\d[ -]*?){12,19}\b/g, "[REDACTED_ACCOUNT]")
+    .replace(/\bsk-[A-Za-z0-9_-]{16,}\b/g, "[REDACTED_SECRET]")
+    .replace(/\b(?:api|secret|private)\s+key\b/gi, "[REDACTED_SECRET_REFERENCE]");
+}
+
+function sanitizeTelemetryForStorage(
+  input: Omit<InsertAiTelemetryEvent, "organizationId">,
+  collectionProfile: TelemetryCollectionProfile,
+) {
+  const metadata = getMetadataRecord(input.metadata);
+  const profileMetadata = {
+    ...metadata,
+    collectionProfileApplied: collectionProfile,
+    rawPromptReceived: Boolean(input.promptText),
+    rawOutputReceived: Boolean(input.modelOutput),
+  };
+
+  if (collectionProfile === "full_evidence") {
+    return {
+      ...input,
+      runtimeContext: sanitizeRuntimeContext(input.runtimeContext, collectionProfile),
+      metadata: profileMetadata,
+    };
+  }
+
+  if (collectionProfile === "redacted") {
+    return {
+      ...input,
+      promptText: redactEvidenceText(input.promptText),
+      modelOutput: redactEvidenceText(input.modelOutput),
+      runtimeContext: sanitizeRuntimeContext(input.runtimeContext, collectionProfile),
+      metadata: {
+        ...profileMetadata,
+        evidenceRedacted: true,
+      },
+    };
+  }
+
+  return {
+    ...input,
+    promptText: null,
+    modelOutput: null,
+    runtimeContext: sanitizeRuntimeContext(input.runtimeContext, collectionProfile),
+    metadata: {
+      ...profileMetadata,
+      evidenceRedacted: true,
+      rawEvidenceStored: false,
+    },
+  };
+}
+
+function deriveSeverityFromBreaches(
+  thresholdBreaches: string[],
+  _fallbackSeverity: "info" | "warning" | "critical" | undefined,
+): "info" | "warning" | "critical" {
+  if (thresholdBreaches.length === 0) {
+    return "info";
+  }
+
+  const criticalBreaches = new Set([
+    "pii_detected",
+    "safety_flags_detected",
+    "bias_flags_detected",
+    "restricted_prompt_detected",
+    "disallowed_tool_requested",
+    "disallowed_tool_returned",
+    "tool_arguments_invalid_json",
+    "disallowed_tool_argument_key",
+    "disallowed_tool_argument_value",
+    "tool_argument_oversize",
+    "tool_argument_missing_required",
+    "tool_argument_type_mismatch",
+    "tool_argument_out_of_range",
+    "tool_argument_enum_violation",
+  ]);
+
+  return thresholdBreaches.some((breach) => criticalBreaches.has(breach)) ? "critical" : "warning";
+}
+
+function deriveIncidentCategoryFromBreaches(thresholdBreaches: string[]) {
+  if (
+    thresholdBreaches.includes("disallowed_tool_requested") ||
+    thresholdBreaches.includes("disallowed_tool_returned") ||
+    thresholdBreaches.includes("tool_arguments_invalid_json") ||
+    thresholdBreaches.includes("disallowed_tool_argument_key") ||
+    thresholdBreaches.includes("disallowed_tool_argument_value") ||
+    thresholdBreaches.includes("tool_argument_oversize") ||
+    thresholdBreaches.includes("tool_argument_missing_required") ||
+    thresholdBreaches.includes("tool_argument_type_mismatch") ||
+    thresholdBreaches.includes("tool_argument_out_of_range") ||
+    thresholdBreaches.includes("tool_argument_enum_violation")
+  ) {
+    return "security" as const;
+  }
+  if (thresholdBreaches.includes("pii_detected")) {
+    return "privacy" as const;
+  }
+  if (
+    thresholdBreaches.includes("safety_flags_detected") ||
+    thresholdBreaches.includes("toxicity_warning") ||
+    thresholdBreaches.includes("restricted_prompt_detected")
+  ) {
+    return "safety" as const;
+  }
+  if (thresholdBreaches.includes("bias_flags_detected")) {
+    return "bias" as const;
+  }
+  return "reliability" as const;
+}
+
+function buildThresholdOutcome(params: {
+  inputSeverity: "info" | "warning" | "critical" | undefined;
+  thresholdBreaches: string[];
+  policy: Awaited<ReturnType<typeof telemetryPolicyService.getEffectiveForOrg>>;
+}) {
+  const severity = deriveSeverityFromBreaches(params.thresholdBreaches, params.inputSeverity);
+  const hasHardActionPolicyViolation =
+    params.thresholdBreaches.includes("disallowed_tool_requested") ||
+    params.thresholdBreaches.includes("disallowed_tool_returned") ||
+    params.thresholdBreaches.includes("tool_arguments_invalid_json") ||
+    params.thresholdBreaches.includes("disallowed_tool_argument_key") ||
+    params.thresholdBreaches.includes("disallowed_tool_argument_value") ||
+    params.thresholdBreaches.includes("tool_argument_oversize") ||
+    params.thresholdBreaches.includes("tool_argument_missing_required") ||
+    params.thresholdBreaches.includes("tool_argument_type_mismatch") ||
+    params.thresholdBreaches.includes("tool_argument_out_of_range") ||
+    params.thresholdBreaches.includes("tool_argument_enum_violation");
+  const shouldBlock =
+    hasHardActionPolicyViolation ||
+    (
+      params.policy.enforceBlocking &&
+      (
+        (params.policy.blockOnPii && params.thresholdBreaches.includes("pii_detected")) ||
+        (params.policy.blockOnSafetyCritical &&
+          (
+            params.thresholdBreaches.includes("safety_flags_detected") ||
+            params.thresholdBreaches.includes("toxicity_warning")
+          )) ||
+        (params.policy.blockOnRestrictedPrompt && params.thresholdBreaches.includes("restricted_prompt_detected"))
+      )
+    );
+  const shouldEscalateIncident =
+    params.thresholdBreaches.length > 0 && severity === "critical" && params.policy.autoEscalateCritical;
+  const shouldNotify =
+    params.thresholdBreaches.length > 0 && (severity === "critical" || params.policy.notifyOnWarning);
+  const notificationRoles =
+    severity === "critical"
+      ? ["system_owner", "compliance_lead", "owner", "admin", "cro", "ciso"]
+      : ["system_owner", "compliance_lead"];
+  const decision =
+    shouldBlock
+      ? "block"
+      : shouldEscalateIncident
+        ? "escalate"
+        : params.thresholdBreaches.length > 0
+          ? "warn"
+          : "allow";
+
+  return {
+    severity,
+    shouldBlock,
+    shouldEscalateIncident,
+    shouldNotify,
+    notificationRoles,
+    incidentCategory: deriveIncidentCategoryFromBreaches(params.thresholdBreaches),
+    decision,
+  };
+}
+
 function evaluateThresholds(
   input: Omit<InsertAiTelemetryEvent, "organizationId">,
   policy: Awaited<ReturnType<typeof telemetryPolicyService.getEffectiveForOrg>>,
@@ -50,11 +294,45 @@ function evaluateThresholds(
   const overrideRate = getNumberValue(metadata.overrideRate);
   const errorRate = getNumberValue(metadata.errorRate);
   const toxicityScore = input.toxicityScore ?? getNumberValue(metadata.toxicityScore);
-  const promptText = (getStringValue(input.promptText) ?? "").toLowerCase();
+  const promptText = normalizeText(getStringValue(input.promptText) ?? "");
+  const requestedToolNames = getStringArray(metadata.requestedToolNames);
+  const returnedToolNames = getStringArray(metadata.returnedToolNames);
+  const toolArgumentBreaches = getStringArray(metadata.toolArgumentBreaches);
+  const allowedToolNames = new Set(getStringArray(metadata.allowedToolNames));
   const thresholdBreaches: string[] = [];
-  const restrictedPromptMatches = policy.restrictedPromptPatterns.filter((pattern) =>
-    promptText.includes(pattern.toLowerCase()),
+  const defaultRestrictedPromptPatterns = [
+    "bypass safety",
+    "ignore safety",
+    "ignore previous instructions",
+    "ignore all previous instructions",
+    "override previous instructions",
+    "disregard prior instructions",
+    "developer message",
+    "system prompt",
+    "reveal system prompt",
+    "show hidden prompt",
+    "jailbreak",
+    "do anything now",
+    "dan mode",
+    "bypass guardrails",
+    "forget the rules",
+    "disable safety",
+    "social security number",
+    "ssn",
+    "api key",
+    "secret key",
+    "private key",
+  ];
+  const restrictedPromptCandidates = Array.from(
+    new Set(
+      [...policy.restrictedPromptPatterns, ...defaultRestrictedPromptPatterns]
+        .filter((pattern): pattern is string => typeof pattern === "string" && pattern.trim().length > 0),
+    ),
   );
+  const restrictedPromptMatches = restrictedPromptCandidates.filter((pattern) => {
+    const normalizedPattern = normalizeText(pattern);
+    return normalizedPattern.length > 0 && promptText.includes(normalizedPattern);
+  });
 
   if ((input.driftScore ?? 0) >= policy.driftAlertThreshold) {
     thresholdBreaches.push("drift_gt_5_percent");
@@ -80,6 +358,13 @@ function evaluateThresholds(
   if (restrictedPromptMatches.length > 0) {
     thresholdBreaches.push("restricted_prompt_detected");
   }
+  if (allowedToolNames.size > 0 && requestedToolNames.some((tool) => !allowedToolNames.has(tool))) {
+    thresholdBreaches.push("disallowed_tool_requested");
+  }
+  if (allowedToolNames.size > 0 && returnedToolNames.some((tool) => !allowedToolNames.has(tool))) {
+    thresholdBreaches.push("disallowed_tool_returned");
+  }
+  thresholdBreaches.push(...toolArgumentBreaches);
   if (input.eventType === "override_spike") {
     thresholdBreaches.push("override_rate_spike");
   }
@@ -87,68 +372,23 @@ function evaluateThresholds(
     thresholdBreaches.push("error_rate_anomaly");
   }
 
-  const severity: "info" | "warning" | "critical" =
-    thresholdBreaches.length === 0
-      ? input.severity === "critical" ? "critical" : input.severity === "warning" ? "warning" : "info"
-      :
-    input.severity === "critical" ||
-    safetySignals.length >= policy.safetyFlagThreshold ||
-    biasFlags.length >= policy.biasFlagThreshold ||
-    piiFlags.length >= policy.piiFlagThreshold ||
-    (toxicityScore ?? 0) >= policy.toxicityCriticalThreshold ||
-    (input.driftScore ?? 0) >= policy.driftCriticalThreshold ||
-    (overrideRate ?? 0) >= policy.overrideRateCriticalThreshold ||
-    (errorRate ?? 0) >= policy.errorRateCriticalThreshold ||
-    restrictedPromptMatches.length > 0
-      ? "critical"
-      : "warning";
-
-  const incidentCategory =
-    piiFlags.length > 0
-      ? "privacy"
-      : safetySignals.length > 0 || (toxicityScore ?? 0) >= policy.toxicityWarningThreshold || restrictedPromptMatches.length > 0
-        ? "safety"
-        : biasFlags.length > 0
-          ? "bias"
-          : "reliability";
-
-  const shouldBlock =
-    policy.enforceBlocking &&
-    (
-      (policy.blockOnPii && piiFlags.length >= policy.piiFlagThreshold) ||
-      (policy.blockOnSafetyCritical &&
-        (
-          safetySignals.length >= policy.safetyFlagThreshold ||
-          (toxicityScore ?? 0) >= policy.toxicityCriticalThreshold
-        )) ||
-      (policy.blockOnRestrictedPrompt && restrictedPromptMatches.length > 0)
-    );
-
-  const shouldEscalateIncident = thresholdBreaches.length > 0 && severity === "critical" && policy.autoEscalateCritical;
-  const shouldNotify = thresholdBreaches.length > 0 && (severity === "critical" || policy.notifyOnWarning);
-  const notificationRoles =
-    severity === "critical"
-      ? ["system_owner", "compliance_lead", "owner", "admin", "cro", "ciso"]
-      : ["system_owner", "compliance_lead"];
-  const decision =
-    shouldBlock
-      ? "block"
-      : shouldEscalateIncident
-        ? "escalate"
-        : thresholdBreaches.length > 0
-          ? "warn"
-          : "allow";
+  const thresholdOutcome = buildThresholdOutcome({
+    inputSeverity: input.severity,
+    thresholdBreaches: Array.from(new Set(thresholdBreaches)),
+    policy,
+  });
 
   return {
     thresholdBreaches: Array.from(new Set(thresholdBreaches)),
-    shouldEscalateIncident,
-    shouldNotify,
-    shouldBlock,
-    incidentCategory,
-    severity,
-    decision,
+    shouldEscalateIncident: thresholdOutcome.shouldEscalateIncident,
+    shouldNotify: thresholdOutcome.shouldNotify,
+    shouldBlock: thresholdOutcome.shouldBlock,
+    incidentCategory: thresholdOutcome.incidentCategory,
+    severity: thresholdOutcome.severity,
+    decision: thresholdOutcome.decision,
     restrictedPromptMatches,
-    notificationRoles,
+    notificationRoles: thresholdOutcome.notificationRoles,
+    appliedReviewerExceptions: [],
   };
 }
 
@@ -162,14 +402,21 @@ export class TelemetryService {
       .limit(limit);
   }
 
-  async createForOrg(organizationId: string, input: Omit<InsertAiTelemetryEvent, "organizationId">): Promise<AiTelemetryEvent> {
+  async createForOrg(
+    organizationId: string,
+    input: Omit<InsertAiTelemetryEvent, "organizationId">,
+    options?: { collectionProfile?: TelemetryCollectionProfile },
+  ): Promise<AiTelemetryEvent> {
     const metadata = getMetadataRecord(input.metadata);
     const policy = input.systemId
       ? await telemetryPolicyService.getEffectiveForSystem(organizationId, input.systemId)
       : await telemetryPolicyService.getEffectiveForOrg(organizationId);
-    const evaluation = evaluateThresholds(input, policy);
+    let evaluation = evaluateThresholds(input, policy);
+    evaluation = await this.applyReviewerExceptions(organizationId, input, evaluation, policy);
+    const collectionProfile = options?.collectionProfile ?? "full_evidence";
+    const sanitizedInput = sanitizeTelemetryForStorage(input, collectionProfile);
     const enrichedMetadata = {
-      ...metadata,
+      ...getMetadataRecord(sanitizedInput.metadata),
       thresholdBreaches: evaluation.thresholdBreaches,
       thresholdEvaluatedAt: new Date().toISOString(),
       thresholdPolicy: {
@@ -191,6 +438,15 @@ export class TelemetryService {
         restrictedPromptPatterns: policy.restrictedPromptPatterns,
       },
       restrictedPromptMatches: evaluation.restrictedPromptMatches,
+      appliedReviewerExceptions: evaluation.appliedReviewerExceptions,
+      suppressedThresholds:
+        evaluation.appliedReviewerExceptions.length > 0
+          ? Array.from(
+              new Set(
+                evaluation.appliedReviewerExceptions.flatMap((exception) => exception.suppressedThresholds),
+              ),
+            )
+          : [],
       notificationRoles: evaluation.notificationRoles,
       policyDecision: evaluation.decision,
     };
@@ -198,13 +454,14 @@ export class TelemetryService {
     const [created] = await db
       .insert(aiTelemetryEvents)
       .values({
-        ...input,
+        ...sanitizedInput,
         organizationId,
-        safetySignals: input.safetySignals ?? getStringArray(metadata.safetySignals ?? metadata.safetyFlags),
-        piiFlags: input.piiFlags ?? getStringArray(metadata.piiFlags),
-        toxicityScore: input.toxicityScore ?? getNumberValue(metadata.toxicityScore),
-        runtimeContext: getMetadataRecord(input.runtimeContext),
-        correlationId: input.correlationId ?? null,
+        severity: evaluation.severity,
+        safetySignals: sanitizedInput.safetySignals ?? getStringArray(metadata.safetySignals ?? metadata.safetyFlags),
+        piiFlags: sanitizedInput.piiFlags ?? getStringArray(metadata.piiFlags),
+        toxicityScore: sanitizedInput.toxicityScore ?? getNumberValue(metadata.toxicityScore),
+        runtimeContext: sanitizeRuntimeContext(sanitizedInput.runtimeContext, collectionProfile),
+        correlationId: sanitizedInput.correlationId ?? null,
         actionTaken: evaluation.decision,
         blocked: evaluation.shouldBlock,
         metadata: enrichedMetadata,
@@ -237,6 +494,53 @@ export class TelemetryService {
     await this.maybeTriggerAutoReassessment(organizationId, finalEvent, evaluation);
 
     return finalEvent;
+  }
+
+  private async applyReviewerExceptions(
+    organizationId: string,
+    input: Omit<InsertAiTelemetryEvent, "organizationId">,
+    evaluation: ThresholdEvaluation,
+    policy: Awaited<ReturnType<typeof telemetryPolicyService.getEffectiveForOrg>>,
+  ): Promise<ThresholdEvaluation> {
+    const matches = await telemetryReviewerExceptionService.findApplicableForEvent(organizationId, {
+      systemId: input.systemId ?? null,
+      gateway: input.gateway ?? null,
+      promptText: input.promptText ?? null,
+    });
+
+    if (matches.length === 0) {
+      return evaluation;
+    }
+
+    const suppressedThresholds = new Set(
+      matches.flatMap((exception) => telemetryReviewerExceptionService.getSuppressedThresholds(exception)),
+    );
+    const thresholdBreaches = evaluation.thresholdBreaches.filter((breach) => !suppressedThresholds.has(breach));
+    const restrictedPromptMatches = suppressedThresholds.has("restricted_prompt_detected")
+      ? []
+      : evaluation.restrictedPromptMatches;
+    const thresholdOutcome = buildThresholdOutcome({
+      inputSeverity: input.severity,
+      thresholdBreaches,
+      policy,
+    });
+
+    return {
+      thresholdBreaches,
+      shouldEscalateIncident: thresholdOutcome.shouldEscalateIncident,
+      shouldNotify: thresholdOutcome.shouldNotify,
+      shouldBlock: thresholdOutcome.shouldBlock,
+      incidentCategory: thresholdOutcome.incidentCategory,
+      severity: thresholdOutcome.severity,
+      decision: thresholdOutcome.decision,
+      restrictedPromptMatches,
+      notificationRoles: thresholdOutcome.notificationRoles,
+      appliedReviewerExceptions: matches.map((exception) => ({
+        id: exception.id,
+        promptPattern: exception.promptPattern,
+        suppressedThresholds: telemetryReviewerExceptionService.getSuppressedThresholds(exception),
+      })),
+    };
   }
 
   async getSummaryForOrg(organizationId: string) {
@@ -378,12 +682,18 @@ export class TelemetryService {
     evaluation: ThresholdEvaluation,
   ) {
     if (!event.systemId) return;
-    if (evaluation.thresholdBreaches.length === 0 && evaluation.decision === "allow") return;
 
     const system = await storage.getAiSystemById(organizationId, event.systemId);
     if (!system) return;
+    const enrichedSystem = await this.maybeSyncSystemRegistryFromRuntimeObservation(
+      organizationId,
+      system,
+      event,
+    );
 
-    const manifest = autoDiscoveryService.buildManifestFromSystemAndTelemetry(system, {
+    if (evaluation.thresholdBreaches.length === 0 && evaluation.decision === "allow") return;
+
+    const manifest = autoDiscoveryService.buildManifestFromSystemAndTelemetry(enrichedSystem, {
       provider: (event as { provider?: string | null }).provider,
       modelName: (event as { modelName?: string | null }).modelName,
       gateway: (event as { gateway?: string | null }).gateway,
@@ -432,8 +742,8 @@ export class TelemetryService {
       organizationId,
       actor: runtimeActor,
       input: {
-        systemId: system.id,
-        systemName: system.name,
+        systemId: enrichedSystem.id,
+        systemName: enrichedSystem.name,
         answers,
         riskOutcome: riskLevel,
         riskScore: score,
@@ -442,7 +752,7 @@ export class TelemetryService {
       },
     });
 
-    await storage.updateAiSystemByOrg(organizationId, system.id, {
+    await storage.updateAiSystemByOrg(organizationId, enrichedSystem.id, {
       ...autoDiscoveryService.buildAutoReassessedSystemInput(manifest, riskLevel),
       lastAssessment: new Date(),
     });
@@ -452,12 +762,68 @@ export class TelemetryService {
       actor: runtimeActor,
       input: {
         entityType: "ai_system",
-        entityId: system.id,
+        entityId: enrichedSystem.id,
         action: "runtime_telemetry_auto_reassess",
         performedBy: runtimeActor.fullName,
-        details: `Runtime telemetry auto-reassessment set "${system.name}" to ${riskLevel} risk (${score}). Event ${event.id}.`,
+        details: `Runtime telemetry auto-reassessment set "${enrichedSystem.name}" to ${riskLevel} risk (${score}). Event ${event.id}.`,
       },
     });
+  }
+
+  private async maybeSyncSystemRegistryFromRuntimeObservation(
+    organizationId: string,
+    system: AiSystem,
+    event: AiTelemetryEvent,
+  ) {
+    const runtimeContext = getMetadataRecord(event.runtimeContext);
+    const environment = getStringValue(runtimeContext.environment);
+    const provider = getStringValue((event as { provider?: string | null }).provider);
+    const modelName = getStringValue((event as { modelName?: string | null }).modelName);
+    const gateway = getStringValue((event as { gateway?: string | null }).gateway);
+
+    const observedModel = [provider ? toTitleCase(provider) : null, modelName].filter(Boolean).join(" / ");
+    const normalizedModelType = (system.modelType ?? "").trim().toLowerCase();
+    const looksGenericModelType =
+      !normalizedModelType ||
+      ["unknown", "llm", "multimodal", "classification", "classification model", "ranking model"].includes(
+        normalizedModelType,
+      );
+
+    const deploymentLabel =
+      environment === "production"
+        ? "Production runtime connected application"
+        : environment
+          ? `${toTitleCase(environment)} runtime connected application`
+          : system.deploymentContext || "Runtime connected application";
+
+    const updates: Partial<InsertAiSystem> = {};
+
+    if ((!system.vendor || system.vendor === "Unknown") && provider) {
+      updates.vendor = toTitleCase(provider);
+    }
+
+    if (observedModel && (looksGenericModelType || !normalizedModelType.includes((modelName ?? "").toLowerCase()))) {
+      updates.modelType = observedModel;
+    }
+
+    if (!system.deploymentContext || /runtime connected application|sdk connected application/i.test(system.deploymentContext)) {
+      updates.deploymentContext = gateway ? `${deploymentLabel} via ${gateway}` : deploymentLabel;
+    }
+
+    if (!system.purpose && event.summary) {
+      updates.purpose = event.summary;
+    }
+
+    if (system.status === "draft") {
+      updates.status = "under_review";
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return system;
+    }
+
+    const updated = await storage.updateAiSystemByOrg(organizationId, system.id, updates);
+    return updated ?? system;
   }
 }
 

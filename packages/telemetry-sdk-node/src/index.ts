@@ -33,6 +33,38 @@ export type TelemetryIngestResult = {
   restrictedPromptMatches: string[];
 };
 
+export type GuardStage = "input" | "output";
+
+export type GuardPreflightInput = Omit<TelemetryEventInput, "eventType" | "summary"> & {
+  summary: string;
+  eventType?: string;
+};
+
+export type GuardPostflightInput = Omit<TelemetryEventInput, "eventType" | "summary"> & {
+  summary: string;
+  eventType?: string;
+};
+
+export type GuardExecutionInput<TOutput> = {
+  preflight: GuardPreflightInput;
+  execute: () => Promise<{
+    output: TOutput;
+    postflight: GuardPostflightInput;
+  }>;
+  correlationId?: string;
+};
+
+export type GuardExecutionResult<TOutput> = {
+  correlationId: string;
+  preflight: TelemetryIngestResult;
+  postflight: TelemetryIngestResult | null;
+  blocked: boolean;
+  blockStage: GuardStage | null;
+  modelCallExecuted: boolean;
+  releasedToEndUser: boolean;
+  output: TOutput | null;
+};
+
 export type TelemetryClientDefaults = Omit<Partial<TelemetryEventInput>, "eventType" | "summary">;
 
 export type TelemetryClientConfig = {
@@ -178,6 +210,62 @@ export class AiControlTowerTelemetryClient {
   async evaluateRuntime(input: TelemetryEventInput): Promise<TelemetryIngestResult> {
     return this.ingest(input);
   }
+
+  async guardRuntimeExecution<TOutput>(
+    input: GuardExecutionInput<TOutput>,
+  ): Promise<GuardExecutionResult<TOutput>> {
+    const correlationId = input.correlationId ?? createCorrelationId();
+    const preflight = await this.evaluateRuntime({
+      ...input.preflight,
+      eventType: input.preflight.eventType ?? "runtime.preflight",
+      modelOutput: input.preflight.modelOutput ?? null,
+      correlationId,
+    });
+
+    if (preflight.blocked) {
+      return {
+        correlationId,
+        preflight,
+        postflight: null,
+        blocked: true,
+        blockStage: "input",
+        modelCallExecuted: false,
+        releasedToEndUser: false,
+        output: null,
+      };
+    }
+
+    const executed = await input.execute();
+    const postflight = await this.evaluateRuntime({
+      ...input.preflight,
+      ...executed.postflight,
+      eventType: executed.postflight.eventType ?? "runtime.evaluation",
+      promptText: executed.postflight.promptText ?? input.preflight.promptText ?? null,
+      modelOutput:
+        executed.postflight.modelOutput ??
+        (typeof executed.output === "string" ? executed.output : null),
+      correlationId,
+      metadata: {
+        ...(input.preflight.metadata ?? {}),
+        ...(executed.postflight.metadata ?? {}),
+      },
+      runtimeContext: {
+        ...(input.preflight.runtimeContext ?? {}),
+        ...(executed.postflight.runtimeContext ?? {}),
+      },
+    });
+
+    return {
+      correlationId,
+      preflight,
+      postflight,
+      blocked: postflight.blocked,
+      blockStage: postflight.blocked ? "output" : null,
+      modelCallExecuted: true,
+      releasedToEndUser: !postflight.blocked,
+      output: postflight.blocked ? null : executed.output,
+    };
+  }
 }
 
 export function createTelemetryClient(config: TelemetryClientConfig) {
@@ -227,4 +315,12 @@ async function parseResponseBody(response: Response): Promise<unknown> {
 
   const text = await response.text();
   return text ? { message: text } : null;
+}
+
+function createCorrelationId() {
+  if (typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `corr_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
 }

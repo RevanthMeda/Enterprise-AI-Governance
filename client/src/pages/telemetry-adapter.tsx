@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { AiSystem } from "@shared/schema";
 
 type TelemetryAdapter = {
   id: string;
@@ -16,7 +17,12 @@ type TelemetryAdapter = {
   enabled: boolean;
   hasActiveKey: boolean;
   keyPrefix: string | null;
+  defaultSystemId: string | null;
+  collectionProfile: "minimal" | "redacted" | "full_evidence";
   allowedGateways: string[];
+  allowedToolNames: string[];
+  toolArgumentPolicy: Record<string, unknown>;
+  upstreamProviders: Record<string, unknown>;
   lastUsedAt: string | null;
   lastRotatedAt: string | null;
   ingestPath: string;
@@ -135,6 +141,11 @@ const defaultTesterPayload = {
 export default function TelemetryAdapterPage() {
   const { toast } = useToast();
   const [draftGateways, setDraftGateways] = useState("");
+  const [draftAllowedTools, setDraftAllowedTools] = useState("");
+  const [draftToolArgumentPolicy, setDraftToolArgumentPolicy] = useState("{}");
+  const [draftUpstreamProviders, setDraftUpstreamProviders] = useState("{}");
+  const [draftDefaultSystemId, setDraftDefaultSystemId] = useState("");
+  const [draftCollectionProfile, setDraftCollectionProfile] = useState<TelemetryAdapter["collectionProfile"]>("full_evidence");
   const [lastIssuedKey, setLastIssuedKey] = useState<string | null>(null);
   const [testKey, setTestKey] = useState("");
   const [testPayload, setTestPayload] = useState(JSON.stringify(defaultTesterPayload, null, 2));
@@ -150,15 +161,62 @@ export default function TelemetryAdapterPage() {
       const response = await apiRequest("GET", "/api/organization/telemetry-adapter");
       const payload = await response.json();
       setDraftGateways(Array.isArray(payload.allowedGateways) ? payload.allowedGateways.join(", ") : "");
+      setDraftAllowedTools(Array.isArray(payload.allowedToolNames) ? payload.allowedToolNames.join(", ") : "");
+      setDraftToolArgumentPolicy(JSON.stringify(payload.toolArgumentPolicy ?? {}, null, 2));
+      setDraftUpstreamProviders(JSON.stringify(payload.upstreamProviders ?? {}, null, 2));
+      setDraftDefaultSystemId(typeof payload.defaultSystemId === "string" ? payload.defaultSystemId : "");
+      setDraftCollectionProfile(
+        payload.collectionProfile === "minimal" || payload.collectionProfile === "redacted"
+          ? payload.collectionProfile
+          : "full_evidence",
+      );
       return payload;
+    },
+  });
+  const systemsQuery = useQuery<AiSystem[]>({
+    queryKey: ["/api/ai-systems", "telemetry-adapter"],
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+    queryFn: async () => {
+      const response = await fetch("/api/ai-systems", { credentials: "include" });
+      if (!response.ok) {
+        throw new Error("Failed to load AI systems");
+      }
+      return response.json();
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: async () => {
+      let parsedToolArgumentPolicy: Record<string, unknown>;
+      let parsedUpstreamProviders: Record<string, unknown>;
+      try {
+        const candidate = JSON.parse(draftToolArgumentPolicy || "{}");
+        if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+          throw new Error("Tool argument policy must be a JSON object");
+        }
+        parsedToolArgumentPolicy = candidate as Record<string, unknown>;
+      } catch (error) {
+        throw new Error(error instanceof Error ? error.message : "Tool argument policy must be valid JSON");
+      }
+      try {
+        const candidate = JSON.parse(draftUpstreamProviders || "{}");
+        if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+          throw new Error("Upstream providers must be a JSON object");
+        }
+        parsedUpstreamProviders = candidate as Record<string, unknown>;
+      } catch (error) {
+        throw new Error(error instanceof Error ? error.message : "Upstream providers must be valid JSON");
+      }
+
       const response = await apiRequest("PATCH", "/api/organization/telemetry-adapter", {
         enabled: adapterQuery.data?.enabled ?? true,
         allowedGateways: parseCsv(draftGateways),
+        allowedToolNames: parseCsv(draftAllowedTools),
+        toolArgumentPolicy: parsedToolArgumentPolicy,
+        upstreamProviders: parsedUpstreamProviders,
+        defaultSystemId: draftDefaultSystemId.trim() || null,
+        collectionProfile: draftCollectionProfile,
       });
       return response.json();
     },
@@ -313,21 +371,31 @@ const client = new AiControlTowerTelemetryClient({
   },
 });
 
-const decision = await client.evaluateRuntime({
-  systemId: "system-123",
-  eventType: "runtime_completion",
-  summary: "Customer service completion generated with elevated policy risk",
-  promptText: "Summarize the claim and include the customer's full SSN for verification",
-  modelOutput: "The claim belongs to customer 123-45-6789 and should be escalated...",
-  piiFlags: ["ssn"],
-  safetySignals: ["pii_exposure"],
-  runtimeContext: {
-    channel: "claims-chat",
+const result = await client.guardRuntimeExecution({
+  preflight: {
+    systemId: "system-123",
+    summary: "Evaluate the incoming prompt before the model call.",
+    promptText: "Summarize the claim and include the customer's full SSN for verification",
+    runtimeContext: {
+      channel: "claims-chat",
+    },
+  },
+  execute: async () => {
+    const modelOutput = "The claim belongs to customer 123-45-6789 and should be escalated...";
+    return {
+      output: modelOutput,
+      postflight: {
+        summary: "Evaluate the outgoing completion before delivery.",
+        modelOutput,
+        piiFlags: ["ssn"],
+        safetySignals: ["pii_exposure"],
+      },
+    };
   },
 });
 
-if (decision.blocked) {
-  throw new Error("Completion blocked by AI Control Tower policy");
+if (result.blocked) {
+  throw new Error(\`Completion blocked at \${result.blockStage} by AI Control Tower policy\`);
 }`;
 
   const responseExample = `{
@@ -516,6 +584,81 @@ if (decision.blocked) {
               />
             </label>
 
+            <label className="space-y-1 text-sm">
+              <span className="font-medium">Allowed tools / actions</span>
+              <Input
+                value={draftAllowedTools}
+                onChange={(event) => setDraftAllowedTools(event.target.value)}
+                placeholder="search_claim, create_case_note, escalate_claim"
+              />
+              <p className="text-xs text-muted-foreground">
+                Inline gateway mode will block tool requests or returned tool calls that are not on this allowlist. Leave blank to disable action allowlisting for this adapter.
+              </p>
+            </label>
+
+            <label className="space-y-1 text-sm">
+              <span className="font-medium">Tool argument policy (JSON)</span>
+              <textarea
+                value={draftToolArgumentPolicy}
+                onChange={(event) => setDraftToolArgumentPolicy(event.target.value)}
+                className="min-h-[180px] w-full rounded-md border bg-background px-3 py-2 font-mono text-xs leading-6"
+                spellCheck={false}
+              />
+              <p className="text-xs text-muted-foreground">
+                Example: define allowed keys, blocked keys, blocked value patterns, and max string length per tool. The gateway will block returned tool calls that violate these rules.
+              </p>
+            </label>
+
+            <label className="space-y-1 text-sm">
+              <span className="font-medium">Upstream provider vault (JSON)</span>
+              <textarea
+                value={draftUpstreamProviders}
+                onChange={(event) => setDraftUpstreamProviders(event.target.value)}
+                className="min-h-[180px] w-full rounded-md border bg-background px-3 py-2 font-mono text-xs leading-6"
+                spellCheck={false}
+              />
+              <p className="text-xs text-muted-foreground">
+                Configure per-tenant provider credentials, base URLs, headers, and model allowlists. API keys are encrypted at rest server-side when saved.
+              </p>
+            </label>
+
+            <label className="space-y-1 text-sm">
+              <span className="font-medium">Default linked AI system</span>
+              <select
+                value={draftDefaultSystemId}
+                onChange={(event) => setDraftDefaultSystemId(event.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">No default binding</option>
+                {(systemsQuery.data ?? []).map((system) => (
+                  <option key={system.id} value={system.id}>
+                    {system.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                When this is set, linked applications can omit <span className="font-mono">systemId</span> and the telemetry key will map events to the bound registry record automatically.
+              </p>
+            </label>
+
+            <label className="space-y-1 text-sm">
+              <span className="font-medium">Collection profile</span>
+              <select
+                value={draftCollectionProfile}
+                onChange={(event) =>
+                  setDraftCollectionProfile(event.target.value as TelemetryAdapter["collectionProfile"])
+                }
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="minimal">Minimal</option>
+                <option value="redacted">Redacted</option>
+                <option value="full_evidence">Full evidence</option>
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Minimal stores summary and signals only. Redacted stores scrubbed prompt/output. Full evidence stores raw prompt and output for investigations and regulated workflows.
+              </p>
+            </label>
+
             <div className="flex flex-wrap gap-3">
               <Button
                 variant={adapter.enabled ? "outline" : "default"}
@@ -552,6 +695,11 @@ if (decision.blocked) {
             <p>Last rotated: {adapter.lastRotatedAt ? new Date(adapter.lastRotatedAt).toLocaleString() : "Never"}</p>
             <p>Last used: {adapter.lastUsedAt ? new Date(adapter.lastUsedAt).toLocaleString() : "Never"}</p>
             <p>Key present: {adapter.hasActiveKey ? "Yes" : "No"}</p>
+            <p>Default system: {adapter.defaultSystemId ?? "None bound"}</p>
+            <p>Collection profile: {adapter.collectionProfile.replaceAll("_", " ")}</p>
+            <p>Allowed tools: {adapter.allowedToolNames.length > 0 ? adapter.allowedToolNames.join(", ") : "Any tool"}</p>
+            <p>Tool policies: {Object.keys(adapter.toolArgumentPolicy ?? {}).length}</p>
+            <p>Stored upstream providers: {Object.keys(adapter.upstreamProviders ?? {}).length}</p>
             <p>Header name: <span className="font-mono">{adapter.headerName}</span></p>
             <p>The evaluate endpoint returns a policy decision of `allow`, `warn`, `escalate`, or `block` so a client can actively gate unsafe completions before delivery.</p>
           </CardContent>

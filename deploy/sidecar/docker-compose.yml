@@ -1,0 +1,17 @@
+services:
+  aict-gateway-sidecar:
+    build:
+      context: ../..
+      dockerfile: deploy/sidecar/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DATABASE_URL: ${DATABASE_URL}
+      CONTROL_TOWER_VAULT_SECRET: ${CONTROL_TOWER_VAULT_SECRET}
+      SESSION_SECRET: ${SESSION_SECRET}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+

@@ -73,6 +73,8 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 const riskColors: Record<string, string> = {
+  low: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  medium: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
   unacceptable: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
   high: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
   limited: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
@@ -107,6 +109,8 @@ export default function Registry() {
 
   const { data: systems = [], isLoading } = useQuery<AiSystem[]>({
     queryKey: ["/api/ai-systems", queryParams.toString()],
+    refetchInterval: 30_000,
+    staleTime: 10_000,
     queryFn: async () => {
       const res = await fetch(`/api/ai-systems?${queryParams.toString()}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch systems");
@@ -357,6 +361,8 @@ export default function Registry() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Risks</SelectItem>
+                <SelectItem value="low">Low</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
                 <SelectItem value="minimal">Minimal</SelectItem>
                 <SelectItem value="limited">Limited</SelectItem>
                 <SelectItem value="high">High</SelectItem>
@@ -472,6 +478,10 @@ export default function Registry() {
                 {system.description && (
                   <p className="text-[11px] text-muted-foreground line-clamp-2 mb-3">{system.description}</p>
                 )}
+                <div className="mb-3 space-y-1 text-[11px] text-muted-foreground">
+                  {system.modelType ? <p>Observed model: {system.modelType}</p> : null}
+                  {system.deploymentContext ? <p>Runtime context: {system.deploymentContext}</p> : null}
+                </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${riskColors[system.riskLevel]}`}>
                     {system.riskLevel}

@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { organizationTelemetryAdapters } from "@shared/schema";
+import { upstreamProviderVaultService } from "./upstreamProviderVaultService";
 
 function hashKey(rawKey: string) {
   return createHash("sha256").update(rawKey).digest("hex");
@@ -14,6 +15,11 @@ function buildSdkKey() {
 type AdapterPatch = {
   enabled?: boolean;
   allowedGateways?: string[];
+  allowedToolNames?: string[];
+  toolArgumentPolicy?: Record<string, unknown>;
+  upstreamProviders?: Record<string, unknown>;
+  defaultSystemId?: string | null;
+  collectionProfile?: "minimal" | "redacted" | "full_evidence";
 };
 
 export class TelemetryAdapterService {
@@ -24,7 +30,16 @@ export class TelemetryAdapterService {
       enabled: adapter.enabled,
       hasActiveKey: Boolean(adapter.ingestKeyHash),
       keyPrefix: adapter.keyPrefix,
+      defaultSystemId: adapter.defaultSystemId,
+      collectionProfile: adapter.collectionProfile,
       allowedGateways: Array.isArray(adapter.allowedGateways) ? adapter.allowedGateways : [],
+      allowedToolNames: Array.isArray(adapter.allowedToolNames) ? adapter.allowedToolNames : [],
+      toolArgumentPolicy:
+        adapter.toolArgumentPolicy && typeof adapter.toolArgumentPolicy === "object" && !Array.isArray(adapter.toolArgumentPolicy)
+          ? adapter.toolArgumentPolicy
+          : {},
+      upstreamProviders:
+        upstreamProviderVaultService.sanitizeForClient(adapter.upstreamProviders),
       lastUsedAt: adapter.lastUsedAt,
       lastRotatedAt: adapter.lastRotatedAt,
       createdAt: adapter.createdAt,
@@ -53,7 +68,12 @@ export class TelemetryAdapterService {
         enabled: true,
         ingestKeyHash: null,
         keyPrefix: null,
+        defaultSystemId: null,
+        collectionProfile: "full_evidence",
         allowedGateways: [],
+        allowedToolNames: [],
+        toolArgumentPolicy: {},
+        upstreamProviders: {},
         lastUsedAt: null,
         lastRotatedAt: null,
         updatedAt: new Date(),
@@ -65,12 +85,29 @@ export class TelemetryAdapterService {
 
   async updateForOrg(organizationId: string, patch: AdapterPatch) {
     await this.getForOrg(organizationId);
+    const [existing] = await db
+      .select()
+      .from(organizationTelemetryAdapters)
+      .where(eq(organizationTelemetryAdapters.organizationId, organizationId))
+      .limit(1);
 
     const [updated] = await db
       .update(organizationTelemetryAdapters)
       .set({
         ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
         ...(patch.allowedGateways !== undefined ? { allowedGateways: patch.allowedGateways } : {}),
+        ...(patch.allowedToolNames !== undefined ? { allowedToolNames: patch.allowedToolNames } : {}),
+        ...(patch.toolArgumentPolicy !== undefined ? { toolArgumentPolicy: patch.toolArgumentPolicy } : {}),
+        ...(patch.upstreamProviders !== undefined
+          ? {
+              upstreamProviders: upstreamProviderVaultService.mergeForStorage(
+                existing?.upstreamProviders ?? {},
+                patch.upstreamProviders,
+              ),
+            }
+          : {}),
+        ...(patch.defaultSystemId !== undefined ? { defaultSystemId: patch.defaultSystemId } : {}),
+        ...(patch.collectionProfile !== undefined ? { collectionProfile: patch.collectionProfile } : {}),
         updatedAt: new Date(),
       })
       .where(eq(organizationTelemetryAdapters.organizationId, organizationId))

@@ -51,6 +51,32 @@ async function main() {
     ALTER TABLE organization_telemetry_policies ADD COLUMN IF NOT EXISTS block_on_restricted_prompt boolean NOT NULL DEFAULT true;
     ALTER TABLE organization_telemetry_policies ADD COLUMN IF NOT EXISTS restricted_prompt_patterns jsonb NOT NULL DEFAULT '[]'::jsonb;
 
+    ALTER TABLE organization_telemetry_adapters ADD COLUMN IF NOT EXISTS default_system_id varchar;
+    ALTER TABLE organization_telemetry_adapters ADD COLUMN IF NOT EXISTS collection_profile text NOT NULL DEFAULT 'full_evidence';
+    ALTER TABLE organization_telemetry_adapters ADD COLUMN IF NOT EXISTS allowed_tool_names jsonb NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE organization_telemetry_adapters ADD COLUMN IF NOT EXISTS tool_argument_policy jsonb NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE organization_telemetry_adapters ADD COLUMN IF NOT EXISTS upstream_providers jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+    CREATE TABLE IF NOT EXISTS telemetry_reviewer_exceptions (
+      id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+      organization_id varchar NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      system_id varchar,
+      gateway text,
+      prompt_pattern text NOT NULL,
+      normalized_prompt_pattern text NOT NULL,
+      suppressed_thresholds jsonb NOT NULL DEFAULT '["restricted_prompt_detected"]'::jsonb,
+      reviewer_note text NOT NULL,
+      active boolean NOT NULL DEFAULT true,
+      expires_at timestamptz,
+      created_by text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS telemetry_reviewer_exceptions_org_active_idx
+      ON telemetry_reviewer_exceptions (organization_id, active);
+    CREATE INDEX IF NOT EXISTS telemetry_reviewer_exceptions_org_system_idx
+      ON telemetry_reviewer_exceptions (organization_id, system_id);
+
     ALTER TABLE ai_telemetry_events ADD COLUMN IF NOT EXISTS safety_signals jsonb NOT NULL DEFAULT '[]'::jsonb;
     ALTER TABLE ai_telemetry_events ADD COLUMN IF NOT EXISTS toxicity_score integer;
     ALTER TABLE ai_telemetry_events ADD COLUMN IF NOT EXISTS pii_flags jsonb NOT NULL DEFAULT '[]'::jsonb;

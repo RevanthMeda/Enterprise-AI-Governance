@@ -416,7 +416,12 @@ export const organizationTelemetryAdapters = pgTable("organization_telemetry_ada
   enabled: boolean("enabled").notNull().default(true),
   ingestKeyHash: text("ingest_key_hash"),
   keyPrefix: text("key_prefix"),
+  defaultSystemId: varchar("default_system_id"),
+  collectionProfile: text("collection_profile").notNull().default("full_evidence"),
   allowedGateways: jsonb("allowed_gateways").notNull().default(sql`'[]'::jsonb`),
+  allowedToolNames: jsonb("allowed_tool_names").notNull().default(sql`'[]'::jsonb`),
+  toolArgumentPolicy: jsonb("tool_argument_policy").notNull().default(sql`'{}'::jsonb`),
+  upstreamProviders: jsonb("upstream_providers").notNull().default(sql`'{}'::jsonb`),
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   lastRotatedAt: timestamp("last_rotated_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -434,6 +439,35 @@ export const insertOrganizationTelemetryAdapterSchema = createInsertSchema(organ
 
 export type InsertOrganizationTelemetryAdapter = z.infer<typeof insertOrganizationTelemetryAdapterSchema>;
 export type OrganizationTelemetryAdapter = typeof organizationTelemetryAdapters.$inferSelect;
+
+export const telemetryReviewerExceptions = pgTable("telemetry_reviewer_exceptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  systemId: varchar("system_id"),
+  gateway: text("gateway"),
+  promptPattern: text("prompt_pattern").notNull(),
+  normalizedPromptPattern: text("normalized_prompt_pattern").notNull(),
+  suppressedThresholds: jsonb("suppressed_thresholds").notNull().default(sql`'["restricted_prompt_detected"]'::jsonb`),
+  reviewerNote: text("reviewer_note").notNull(),
+  active: boolean("active").notNull().default(true),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  orgActiveIdx: index("telemetry_reviewer_exceptions_org_active_idx").on(table.organizationId, table.active),
+  orgSystemIdx: index("telemetry_reviewer_exceptions_org_system_idx").on(table.organizationId, table.systemId),
+}));
+
+export const insertTelemetryReviewerExceptionSchema = createInsertSchema(telemetryReviewerExceptions).omit({
+  id: true,
+  normalizedPromptPattern: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertTelemetryReviewerException = z.infer<typeof insertTelemetryReviewerExceptionSchema>;
+export type TelemetryReviewerException = typeof telemetryReviewerExceptions.$inferSelect;
 
 export const jiraSyncStatuses = ["not_configured", "pending", "linked", "error"] as const;
 export const decisionTiers = ["tier_1", "tier_2", "tier_3"] as const;

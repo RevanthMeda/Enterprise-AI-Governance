@@ -68,6 +68,9 @@ import { systemService } from "./services/systemService";
 import { telemetryPolicyService } from "./services/telemetryPolicyService";
 import { telemetryAdapterService } from "./services/telemetryAdapterService";
 import { telemetryService } from "./services/telemetryService";
+import { controlTowerGatewayService } from "./services/controlTowerGatewayService";
+import { telemetryReviewerExceptionService } from "./services/telemetryReviewerExceptionService";
+import { upstreamProviderVaultService } from "./services/upstreamProviderVaultService";
 import { workflowService } from "./services/workflowService";
 import { autoDiscoveryService } from "./services/autoDiscoveryService";
 import { getUploadsRoot } from "./runtime-paths";
@@ -458,8 +461,129 @@ const telemetryPolicyPatchSchema = z.object({
 const telemetryAdapterPatchSchema = z.object({
   enabled: z.boolean().optional(),
   allowedGateways: z.array(z.string().trim().min(1).max(120)).max(25).optional(),
+  allowedToolNames: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+  toolArgumentPolicy: z.record(
+    z.string().trim().min(1).max(120),
+    z.object({
+      allowedArgumentKeys: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+      blockedArgumentKeys: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+      blockedValuePatterns: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+      maxStringLength: z.number().int().min(1).max(20000).optional(),
+      argumentSchema: z.record(
+        z.string().trim().min(1).max(200),
+        z.object({
+          type: z.enum(["string", "number", "boolean", "object", "array"]).optional(),
+          required: z.boolean().optional(),
+          enumValues: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+          minLength: z.number().int().min(0).max(20000).optional(),
+          maxLength: z.number().int().min(1).max(20000).optional(),
+          minimum: z.number().optional(),
+          maximum: z.number().optional(),
+        }),
+      ).optional(),
+    }),
+  ).optional(),
+  upstreamProviders: z.object({
+    openai: z.object({
+      enabled: z.boolean().optional(),
+      apiKey: z.string().trim().max(4000).nullable().optional(),
+      clearStoredApiKey: z.boolean().optional(),
+      baseUrl: z.string().trim().url().max(1000).nullable().optional(),
+      headers: z.record(z.string().trim().min(1).max(120), z.string().trim().min(1).max(2000)).optional(),
+      modelAllowlist: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+    }).optional(),
+    anthropic: z.object({
+      enabled: z.boolean().optional(),
+      apiKey: z.string().trim().max(4000).nullable().optional(),
+      clearStoredApiKey: z.boolean().optional(),
+      baseUrl: z.string().trim().url().max(1000).nullable().optional(),
+      headers: z.record(z.string().trim().min(1).max(120), z.string().trim().min(1).max(2000)).optional(),
+      modelAllowlist: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+    }).optional(),
+    gemini: z.object({
+      enabled: z.boolean().optional(),
+      apiKey: z.string().trim().max(4000).nullable().optional(),
+      clearStoredApiKey: z.boolean().optional(),
+      baseUrl: z.string().trim().url().max(1000).nullable().optional(),
+      headers: z.record(z.string().trim().min(1).max(120), z.string().trim().min(1).max(2000)).optional(),
+      modelAllowlist: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+    }).optional(),
+    azureOpenAi: z.object({
+      enabled: z.boolean().optional(),
+      apiKey: z.string().trim().max(4000).nullable().optional(),
+      clearStoredApiKey: z.boolean().optional(),
+      baseUrl: z.string().trim().url().max(1000).nullable().optional(),
+      apiVersion: z.string().trim().max(120).nullable().optional(),
+      headers: z.record(z.string().trim().min(1).max(120), z.string().trim().min(1).max(2000)).optional(),
+      modelAllowlist: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+    }).optional(),
+    vertexAi: z.object({
+      enabled: z.boolean().optional(),
+      apiKey: z.string().trim().max(4000).nullable().optional(),
+      clearStoredApiKey: z.boolean().optional(),
+      baseUrl: z.string().trim().url().max(1000).nullable().optional(),
+      headers: z.record(z.string().trim().min(1).max(120), z.string().trim().min(1).max(2000)).optional(),
+      modelAllowlist: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+    }).optional(),
+    bedrock: z.object({
+      enabled: z.boolean().optional(),
+      baseUrl: z.string().trim().url().max(1000).nullable().optional(),
+      region: z.string().trim().max(120).nullable().optional(),
+      accessKeyId: z.string().trim().max(4000).nullable().optional(),
+      secretAccessKey: z.string().trim().max(4000).nullable().optional(),
+      sessionToken: z.string().trim().max(8000).nullable().optional(),
+      clearStoredAwsCredentials: z.boolean().optional(),
+      headers: z.record(z.string().trim().min(1).max(120), z.string().trim().min(1).max(2000)).optional(),
+      modelAllowlist: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+    }).optional(),
+    compatibleProviders: z.record(
+      z.string().trim().min(1).max(120),
+      z.object({
+        enabled: z.boolean().optional(),
+        apiKey: z.string().trim().max(4000).nullable().optional(),
+        clearStoredApiKey: z.boolean().optional(),
+        baseUrl: z.string().trim().url().max(1000).nullable().optional(),
+        headers: z.record(z.string().trim().min(1).max(120), z.string().trim().min(1).max(2000)).optional(),
+        modelAllowlist: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+      }),
+    ).optional(),
+  }).optional(),
+  defaultSystemId: z.string().trim().min(1).max(120).nullable().optional(),
+  collectionProfile: z.enum(["minimal", "redacted", "full_evidence"]).optional(),
 }).refine((value) => Object.keys(value).length > 0, {
   message: "At least one telemetry adapter setting must be provided",
+});
+
+const telemetryReviewerThresholdNames = [
+  "drift_gt_5_percent",
+  "bias_flags_detected",
+  "safety_flags_detected",
+  "toxicity_warning",
+  "pii_detected",
+  "override_rate_spike",
+  "error_rate_anomaly",
+  "restricted_prompt_detected",
+] as const;
+
+const telemetryReviewerExceptionSchema = z.object({
+  systemId: z.string().trim().min(1).max(120).nullable().optional(),
+  gateway: z.string().trim().min(1).max(120).nullable().optional(),
+  promptPattern: z.string().trim().min(3).max(1000),
+  suppressedThresholds: z.array(z.enum(telemetryReviewerThresholdNames)).max(20).optional(),
+  reviewerNote: z.string().trim().min(3).max(4000),
+  active: z.boolean().optional(),
+  expiresAt: z.coerce.date().nullable().optional(),
+});
+
+const telemetryReviewerExceptionPatchSchema = z.object({
+  gateway: z.string().trim().min(1).max(120).nullable().optional(),
+  promptPattern: z.string().trim().min(3).max(1000).optional(),
+  suppressedThresholds: z.array(z.enum(telemetryReviewerThresholdNames)).max(20).optional(),
+  reviewerNote: z.string().trim().min(3).max(4000).optional(),
+  active: z.boolean().optional(),
+  expiresAt: z.coerce.date().nullable().optional(),
+}).refine((value) => Object.keys(value).length > 0, {
+  message: "At least one exception field must be provided",
 });
 
 const jiraIntegrationSchema = z.object({
@@ -2252,6 +2376,12 @@ export async function registerRoutes(
     async (req, res) => {
       try {
         const parsed = telemetryAdapterPatchSchema.parse(req.body);
+        if (parsed.defaultSystemId) {
+          const system = await storage.getAiSystemById(req.tenant!.organizationId, parsed.defaultSystemId);
+          if (!system) {
+            return res.status(404).json({ message: "Default AI system not found for this organization" });
+          }
+        }
         const updated = await telemetryAdapterService.updateForOrg(req.tenant!.organizationId, parsed);
         await recordAdminAuditEvent({
           organizationId: req.tenant!.organizationId,
@@ -2288,6 +2418,103 @@ export async function registerRoutes(
         },
       });
       return res.json(rotated);
+    },
+  );
+
+  app.get(
+    "/api/telemetry/reviewer-exceptions",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
+    async (req, res) => {
+      const systemId = typeof req.query.systemId === "string" && req.query.systemId.trim() ? req.query.systemId.trim() : null;
+      const rows = await telemetryReviewerExceptionService.listForOrg(req.tenant!.organizationId, {
+        systemId,
+      });
+      return res.json(rows);
+    },
+  );
+
+  app.post(
+    "/api/telemetry/reviewer-exceptions",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
+    async (req, res) => {
+      try {
+        const parsed = telemetryReviewerExceptionSchema.parse(req.body);
+        if (parsed.systemId) {
+          const system = await storage.getAiSystemById(req.tenant!.organizationId, parsed.systemId);
+          if (!system) {
+            return res.status(404).json({ message: "AI system not found for this organization" });
+          }
+        }
+        const created = await telemetryReviewerExceptionService.createForOrg(req.tenant!.organizationId, {
+          systemId: parsed.systemId ?? null,
+          gateway: parsed.gateway ?? null,
+          promptPattern: parsed.promptPattern,
+          suppressedThresholds: parsed.suppressedThresholds ?? ["restricted_prompt_detected"],
+          reviewerNote: parsed.reviewerNote,
+          active: parsed.active ?? true,
+          expiresAt: parsed.expiresAt ?? null,
+          createdBy: req.user!.fullName || req.user!.username,
+        });
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "telemetry_exception",
+            entityId: created.id,
+            action: "created",
+            performedBy: req.user!.fullName,
+            details: `Reviewer exception created for prompt pattern "${created.promptPattern}"`,
+          },
+        });
+        return res.status(201).json(created);
+      } catch (err: any) {
+        return res.status(400).json({ message: err.message || "Failed to create reviewer exception" });
+      }
+    },
+  );
+
+  app.patch(
+    "/api/telemetry/reviewer-exceptions/:id",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
+    async (req, res) => {
+      try {
+        const parsed = telemetryReviewerExceptionPatchSchema.parse(req.body);
+        const updated = await telemetryReviewerExceptionService.updateForOrg(
+          req.tenant!.organizationId,
+          routeParam(req.params.id),
+          {
+            gateway: parsed.gateway ?? undefined,
+            promptPattern: parsed.promptPattern ?? undefined,
+            suppressedThresholds: parsed.suppressedThresholds ?? undefined,
+            reviewerNote: parsed.reviewerNote ?? undefined,
+            active: parsed.active ?? undefined,
+            expiresAt: parsed.expiresAt ?? undefined,
+          },
+        );
+        if (!updated) {
+          return res.status(404).json({ message: "Reviewer exception not found" });
+        }
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "telemetry_exception",
+            entityId: updated.id,
+            action: "updated",
+            performedBy: req.user!.fullName,
+            details: `Reviewer exception updated for prompt pattern "${updated.promptPattern}"`,
+          },
+        });
+        return res.json(updated);
+      } catch (err: any) {
+        return res.status(400).json({ message: err.message || "Failed to update reviewer exception" });
+      }
     },
   );
 
@@ -3811,6 +4038,8 @@ export async function registerRoutes(
           correlationId: parsed.correlationId ?? null,
           metadata: parsed.metadata ?? {},
           detectedAt: parsed.detectedAt ?? new Date(),
+        }, {
+          collectionProfile: "full_evidence",
         });
         await auditService.createLog({
           organizationId: req.tenant!.organizationId,
@@ -3858,7 +4087,7 @@ export async function registerRoutes(
 
       const created = await telemetryService.createForOrg(adapter.organizationId, {
         ...parsed,
-        systemId: parsed.systemId ?? null,
+        systemId: parsed.systemId ?? adapter.defaultSystemId ?? null,
         modelName: parsed.modelName ?? null,
         provider: parsed.provider ?? null,
         gateway: parsed.gateway ?? null,
@@ -3875,8 +4104,11 @@ export async function registerRoutes(
           ...(parsed.metadata ?? {}),
           adapterKeyPrefix: adapter.keyPrefix,
           ingestSource: "sdk",
+          boundSystemId: adapter.defaultSystemId ?? null,
         },
         detectedAt: parsed.detectedAt ?? new Date(),
+      }, {
+        collectionProfile: adapter.collectionProfile ?? "full_evidence",
       });
 
       await telemetryAdapterService.markUsed(adapter.id);
@@ -3915,6 +4147,781 @@ export async function registerRoutes(
       });
     } catch (err: any) {
       return res.status(400).json({ message: err.message || "Failed to ingest telemetry event" });
+    }
+  });
+
+  app.post("/api/gateway/openai/v1/chat/completions", async (req, res) => {
+    try {
+      const rawTelemetryKey = req.get("x-telemetry-key") || req.get("x-aict-telemetry-key") || "";
+      if (!rawTelemetryKey) {
+        return res.status(401).json({ message: "Telemetry ingest key is required" });
+      }
+
+      const adapter = await telemetryAdapterService.resolveIngestKey(rawTelemetryKey.trim());
+      if (!adapter) {
+        return res.status(401).json({ message: "Invalid telemetry ingest key" });
+      }
+
+      const explicitApiKey =
+        req.get("x-openai-api-key") ||
+        req.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+        "";
+
+      const requestBody =
+        req.body && typeof req.body === "object" && !Array.isArray(req.body)
+          ? (req.body as Record<string, unknown>)
+          : null;
+      if (!requestBody || typeof requestBody.model !== "string" || !Array.isArray(requestBody.messages)) {
+        return res.status(400).json({ message: "OpenAI chat completions payload must include model and messages" });
+      }
+
+      const upstreamConfig = upstreamProviderVaultService.resolveProviderConfig(
+        adapter.upstreamProviders,
+        "openai",
+        {
+          requestApiKey: explicitApiKey,
+          requestBaseUrl: req.get("x-openai-base-url"),
+        },
+      );
+      upstreamProviderVaultService.assertModelAllowed(upstreamConfig, requestBody.model);
+
+      const result = await controlTowerGatewayService.proxyOpenAiChatCompletions(
+        adapter,
+        requestBody,
+        upstreamConfig,
+      );
+
+      await telemetryAdapterService.markUsed(adapter.id);
+
+      if (result.kind === "blocked") {
+        const decision = controlTowerGatewayService.toDecision(result.postflight ?? result.preflight);
+        await auditService.createLog({
+          organizationId: adapter.organizationId,
+          actor: {
+            id: "control-tower-gateway",
+            username: "control-tower-gateway",
+            fullName: "Control Tower Gateway",
+            email: null,
+            role: "system",
+          },
+          input: {
+            entityType: "telemetry_event",
+            entityId: decision.id,
+            action: "gateway_blocked",
+            performedBy: "Control Tower Gateway",
+            details: `OpenAI chat completion blocked at ${result.stage} stage with decision "${decision.decision}"`,
+          },
+        });
+        return res.status(403).json({
+          ok: false,
+          stage: result.stage,
+          correlationId: result.correlationId,
+          ...decision,
+        });
+      }
+
+      const preflightDecision = controlTowerGatewayService.toDecision(result.preflight);
+      const postflightDecision = controlTowerGatewayService.toDecision(result.postflight);
+      await auditService.createLog({
+        organizationId: adapter.organizationId,
+        actor: {
+          id: "control-tower-gateway",
+          username: "control-tower-gateway",
+          fullName: "Control Tower Gateway",
+          email: null,
+          role: "system",
+        },
+        input: {
+          entityType: "telemetry_event",
+          entityId: postflightDecision.id,
+          action: "gateway_proxied",
+          performedBy: "Control Tower Gateway",
+          details: `OpenAI chat completion proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
+        },
+      });
+      res.setHeader("x-aict-correlation-id", result.correlationId);
+      res.setHeader("x-aict-preflight-decision", preflightDecision.decision);
+      res.setHeader("x-aict-decision", postflightDecision.decision);
+      res.setHeader("x-aict-telemetry-event-id", postflightDecision.id);
+      if (result.upstreamText && result.upstreamContentType?.includes("text/event-stream")) {
+        res.setHeader("content-type", result.upstreamContentType);
+        res.setHeader("cache-control", "no-cache, no-transform");
+        return res.status(result.upstreamStatus).send(result.upstreamText);
+      }
+      return res.status(result.upstreamStatus).json(result.upstreamJson);
+    } catch (err: any) {
+      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+    }
+  });
+
+  app.post("/api/gateway/openai/v1/responses", async (req, res) => {
+    try {
+      const rawTelemetryKey = req.get("x-telemetry-key") || req.get("x-aict-telemetry-key") || "";
+      if (!rawTelemetryKey) {
+        return res.status(401).json({ message: "Telemetry ingest key is required" });
+      }
+
+      const adapter = await telemetryAdapterService.resolveIngestKey(rawTelemetryKey.trim());
+      if (!adapter) {
+        return res.status(401).json({ message: "Invalid telemetry ingest key" });
+      }
+
+      const explicitApiKey =
+        req.get("x-openai-api-key") ||
+        req.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+        "";
+
+      const requestBody =
+        req.body && typeof req.body === "object" && !Array.isArray(req.body)
+          ? (req.body as Record<string, unknown>)
+          : null;
+      if (!requestBody || typeof requestBody.model !== "string" || requestBody.input === undefined) {
+        return res.status(400).json({ message: "OpenAI responses payload must include model and input" });
+      }
+
+      const upstreamConfig = upstreamProviderVaultService.resolveProviderConfig(
+        adapter.upstreamProviders,
+        "openai",
+        {
+          requestApiKey: explicitApiKey,
+          requestBaseUrl: req.get("x-openai-base-url"),
+        },
+      );
+      upstreamProviderVaultService.assertModelAllowed(upstreamConfig, requestBody.model);
+
+      const result = await controlTowerGatewayService.proxyOpenAiResponses(
+        adapter,
+        requestBody,
+        upstreamConfig,
+      );
+
+      await telemetryAdapterService.markUsed(adapter.id);
+
+      if (result.kind === "blocked") {
+        const decision = controlTowerGatewayService.toDecision(result.postflight ?? result.preflight);
+        await auditService.createLog({
+          organizationId: adapter.organizationId,
+          actor: {
+            id: "control-tower-gateway",
+            username: "control-tower-gateway",
+            fullName: "Control Tower Gateway",
+            email: null,
+            role: "system",
+          },
+          input: {
+            entityType: "telemetry_event",
+            entityId: decision.id,
+            action: "gateway_blocked",
+            performedBy: "Control Tower Gateway",
+            details: `OpenAI response blocked at ${result.stage} stage with decision "${decision.decision}"`,
+          },
+        });
+        return res.status(403).json({
+          ok: false,
+          stage: result.stage,
+          correlationId: result.correlationId,
+          ...decision,
+        });
+      }
+
+      const preflightDecision = controlTowerGatewayService.toDecision(result.preflight);
+      const postflightDecision = controlTowerGatewayService.toDecision(result.postflight);
+      await auditService.createLog({
+        organizationId: adapter.organizationId,
+        actor: {
+          id: "control-tower-gateway",
+          username: "control-tower-gateway",
+          fullName: "Control Tower Gateway",
+          email: null,
+          role: "system",
+        },
+        input: {
+          entityType: "telemetry_event",
+          entityId: postflightDecision.id,
+          action: "gateway_proxied",
+          performedBy: "Control Tower Gateway",
+          details: `OpenAI response proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
+        },
+      });
+      res.setHeader("x-aict-correlation-id", result.correlationId);
+      res.setHeader("x-aict-preflight-decision", preflightDecision.decision);
+      res.setHeader("x-aict-decision", postflightDecision.decision);
+      res.setHeader("x-aict-telemetry-event-id", postflightDecision.id);
+      if (result.upstreamText && result.upstreamContentType?.includes("text/event-stream")) {
+        res.setHeader("content-type", result.upstreamContentType);
+        res.setHeader("cache-control", "no-cache, no-transform");
+        return res.status(result.upstreamStatus).send(result.upstreamText);
+      }
+      return res.status(result.upstreamStatus).json(result.upstreamJson);
+    } catch (err: any) {
+      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+    }
+  });
+
+  app.post("/api/gateway/anthropic/v1/messages", async (req, res) => {
+    try {
+      const rawTelemetryKey = req.get("x-telemetry-key") || req.get("x-aict-telemetry-key") || "";
+      if (!rawTelemetryKey) {
+        return res.status(401).json({ message: "Telemetry ingest key is required" });
+      }
+
+      const adapter = await telemetryAdapterService.resolveIngestKey(rawTelemetryKey.trim());
+      if (!adapter) {
+        return res.status(401).json({ message: "Invalid telemetry ingest key" });
+      }
+
+      const requestBody =
+        req.body && typeof req.body === "object" && !Array.isArray(req.body)
+          ? (req.body as Record<string, unknown>)
+          : null;
+      if (!requestBody || typeof requestBody.model !== "string" || !Array.isArray(requestBody.messages)) {
+        return res.status(400).json({ message: "Anthropic messages payload must include model and messages" });
+      }
+
+      const upstreamConfig = upstreamProviderVaultService.resolveProviderConfig(
+        adapter.upstreamProviders,
+        "anthropic",
+        {
+          requestApiKey:
+            req.get("x-anthropic-api-key") ||
+            req.get("x-api-key") ||
+            req.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+            "",
+          requestBaseUrl: req.get("x-anthropic-base-url"),
+          requestHeaders: req.get("anthropic-version")
+            ? { "anthropic-version": req.get("anthropic-version")! }
+            : undefined,
+        },
+      );
+      upstreamProviderVaultService.assertModelAllowed(upstreamConfig, requestBody.model);
+
+      const result = await controlTowerGatewayService.proxyAnthropicMessages(adapter, requestBody, upstreamConfig);
+      await telemetryAdapterService.markUsed(adapter.id);
+
+      if (result.kind === "blocked") {
+        const decision = controlTowerGatewayService.toDecision(result.postflight ?? result.preflight);
+        return res.status(403).json({ ok: false, stage: result.stage, correlationId: result.correlationId, ...decision });
+      }
+
+      const preflightDecision = controlTowerGatewayService.toDecision(result.preflight);
+      const postflightDecision = controlTowerGatewayService.toDecision(result.postflight);
+      await auditService.createLog({
+        organizationId: adapter.organizationId,
+        actor: {
+          id: "control-tower-gateway",
+          username: "control-tower-gateway",
+          fullName: "Control Tower Gateway",
+          email: null,
+          role: "system",
+        },
+        input: {
+          entityType: "telemetry_event",
+          entityId: postflightDecision.id,
+          action: "gateway_proxied",
+          performedBy: "Control Tower Gateway",
+          details: `Anthropic message proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
+        },
+      });
+      res.setHeader("x-aict-correlation-id", result.correlationId);
+      res.setHeader("x-aict-preflight-decision", preflightDecision.decision);
+      res.setHeader("x-aict-decision", postflightDecision.decision);
+      res.setHeader("x-aict-telemetry-event-id", postflightDecision.id);
+      return res.status(result.upstreamStatus).json(result.upstreamJson);
+    } catch (err: any) {
+      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+    }
+  });
+
+  app.post("/api/gateway/gemini/v1beta/models/:modelAction", async (req, res) => {
+    try {
+      const rawTelemetryKey = req.get("x-telemetry-key") || req.get("x-aict-telemetry-key") || "";
+      if (!rawTelemetryKey) {
+        return res.status(401).json({ message: "Telemetry ingest key is required" });
+      }
+
+      const adapter = await telemetryAdapterService.resolveIngestKey(rawTelemetryKey.trim());
+      if (!adapter) {
+        return res.status(401).json({ message: "Invalid telemetry ingest key" });
+      }
+
+      const [modelName, action] = String(req.params.modelAction || "").split(":");
+      if (!modelName || action !== "generateContent") {
+        return res.status(404).json({ message: "Unsupported Gemini gateway route" });
+      }
+
+      const requestBody =
+        req.body && typeof req.body === "object" && !Array.isArray(req.body)
+          ? (req.body as Record<string, unknown>)
+          : null;
+      if (!requestBody || !Array.isArray(requestBody.contents)) {
+        return res.status(400).json({ message: "Gemini generateContent payload must include contents" });
+      }
+
+      const upstreamConfig = upstreamProviderVaultService.resolveProviderConfig(
+        adapter.upstreamProviders,
+        "gemini",
+        {
+          requestApiKey:
+            req.get("x-gemini-api-key") ||
+            req.get("x-goog-api-key") ||
+            req.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+            "",
+          requestBaseUrl: req.get("x-gemini-base-url") || req.get("x-google-base-url"),
+        },
+      );
+      upstreamProviderVaultService.assertModelAllowed(upstreamConfig, modelName);
+
+      const result = await controlTowerGatewayService.proxyGeminiGenerateContent(
+        adapter,
+        requestBody,
+        modelName,
+        upstreamConfig,
+      );
+      await telemetryAdapterService.markUsed(adapter.id);
+
+      if (result.kind === "blocked") {
+        const decision = controlTowerGatewayService.toDecision(result.postflight ?? result.preflight);
+        return res.status(403).json({ ok: false, stage: result.stage, correlationId: result.correlationId, ...decision });
+      }
+
+      const preflightDecision = controlTowerGatewayService.toDecision(result.preflight);
+      const postflightDecision = controlTowerGatewayService.toDecision(result.postflight);
+      await auditService.createLog({
+        organizationId: adapter.organizationId,
+        actor: {
+          id: "control-tower-gateway",
+          username: "control-tower-gateway",
+          fullName: "Control Tower Gateway",
+          email: null,
+          role: "system",
+        },
+        input: {
+          entityType: "telemetry_event",
+          entityId: postflightDecision.id,
+          action: "gateway_proxied",
+          performedBy: "Control Tower Gateway",
+          details: `Gemini generateContent proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
+        },
+      });
+      res.setHeader("x-aict-correlation-id", result.correlationId);
+      res.setHeader("x-aict-preflight-decision", preflightDecision.decision);
+      res.setHeader("x-aict-decision", postflightDecision.decision);
+      res.setHeader("x-aict-telemetry-event-id", postflightDecision.id);
+      return res.status(result.upstreamStatus).json(result.upstreamJson);
+    } catch (err: any) {
+      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+    }
+  });
+
+  app.post("/api/gateway/azure-openai/openai/deployments/:deployment/chat/completions", async (req, res) => {
+    try {
+      const rawTelemetryKey = req.get("x-telemetry-key") || req.get("x-aict-telemetry-key") || "";
+      if (!rawTelemetryKey) {
+        return res.status(401).json({ message: "Telemetry ingest key is required" });
+      }
+
+      const adapter = await telemetryAdapterService.resolveIngestKey(rawTelemetryKey.trim());
+      if (!adapter) {
+        return res.status(401).json({ message: "Invalid telemetry ingest key" });
+      }
+
+      const deployment = routeParam(req.params.deployment);
+      const requestBody =
+        req.body && typeof req.body === "object" && !Array.isArray(req.body)
+          ? (req.body as Record<string, unknown>)
+          : null;
+      if (!requestBody || !Array.isArray(requestBody.messages)) {
+        return res.status(400).json({ message: "Azure OpenAI payload must include messages" });
+      }
+
+      const apiVersion =
+        typeof req.query["api-version"] === "string"
+          ? req.query["api-version"]
+          : typeof req.query.apiVersion === "string"
+            ? req.query.apiVersion
+            : req.get("x-azure-openai-api-version") || undefined;
+      const upstreamConfig = upstreamProviderVaultService.resolveProviderConfig(
+        adapter.upstreamProviders,
+        "azureOpenAi",
+        {
+          protocol: "azure_openai",
+          requestApiKey: req.get("x-azure-openai-api-key") || req.get("api-key") || "",
+          requestBaseUrl: req.get("x-azure-openai-base-url"),
+          requestApiVersion: apiVersion,
+        },
+      );
+
+      const normalizedBody = {
+        ...requestBody,
+        model: typeof requestBody.model === "string" ? requestBody.model : deployment,
+      };
+      upstreamProviderVaultService.assertModelAllowed(upstreamConfig, normalizedBody.model);
+
+      const result = await controlTowerGatewayService.proxyOpenAiChatCompletions(
+        adapter,
+        normalizedBody,
+        upstreamConfig,
+        {
+          upstreamPath: `/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(upstreamConfig.apiVersion ?? "2024-10-21")}`,
+          gatewayFallback: "azure-openai-inline-gateway",
+        },
+      );
+      await telemetryAdapterService.markUsed(adapter.id);
+
+      if (result.kind === "blocked") {
+        const decision = controlTowerGatewayService.toDecision(result.postflight ?? result.preflight);
+        return res.status(403).json({ ok: false, stage: result.stage, correlationId: result.correlationId, ...decision });
+      }
+
+      const preflightDecision = controlTowerGatewayService.toDecision(result.preflight);
+      const postflightDecision = controlTowerGatewayService.toDecision(result.postflight);
+      await auditService.createLog({
+        organizationId: adapter.organizationId,
+        actor: {
+          id: "control-tower-gateway",
+          username: "control-tower-gateway",
+          fullName: "Control Tower Gateway",
+          email: null,
+          role: "system",
+        },
+        input: {
+          entityType: "telemetry_event",
+          entityId: postflightDecision.id,
+          action: "gateway_proxied",
+          performedBy: "Control Tower Gateway",
+          details: `Azure OpenAI chat completion proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
+        },
+      });
+      res.setHeader("x-aict-correlation-id", result.correlationId);
+      res.setHeader("x-aict-preflight-decision", preflightDecision.decision);
+      res.setHeader("x-aict-decision", postflightDecision.decision);
+      res.setHeader("x-aict-telemetry-event-id", postflightDecision.id);
+      return res.status(result.upstreamStatus).json(result.upstreamJson);
+    } catch (err: any) {
+      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+    }
+  });
+
+  app.post("/api/gateway/vertex-ai/v1/projects/:projectId/locations/:location/publishers/:publisher/models/:modelAction", async (req, res) => {
+    try {
+      const rawTelemetryKey = req.get("x-telemetry-key") || req.get("x-aict-telemetry-key") || "";
+      if (!rawTelemetryKey) {
+        return res.status(401).json({ message: "Telemetry ingest key is required" });
+      }
+
+      const adapter = await telemetryAdapterService.resolveIngestKey(rawTelemetryKey.trim());
+      if (!adapter) {
+        return res.status(401).json({ message: "Invalid telemetry ingest key" });
+      }
+
+      const [modelName, action] = String(req.params.modelAction || "").split(":");
+      if (!modelName || action !== "generateContent") {
+        return res.status(404).json({ message: "Unsupported Vertex AI gateway route" });
+      }
+
+      const requestBody =
+        req.body && typeof req.body === "object" && !Array.isArray(req.body)
+          ? (req.body as Record<string, unknown>)
+          : null;
+      if (!requestBody || !Array.isArray(requestBody.contents)) {
+        return res.status(400).json({ message: "Vertex AI generateContent payload must include contents" });
+      }
+
+      const upstreamConfig = upstreamProviderVaultService.resolveProviderConfig(
+        adapter.upstreamProviders,
+        "vertexAi",
+        {
+          protocol: "vertex_ai",
+          requestApiKey:
+            req.get("x-vertex-ai-access-token") ||
+            req.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+            "",
+          requestBaseUrl: req.get("x-vertex-ai-base-url"),
+        },
+      );
+      upstreamProviderVaultService.assertModelAllowed(upstreamConfig, modelName);
+
+      const result = await controlTowerGatewayService.proxyGeminiGenerateContent(
+        adapter,
+        requestBody,
+        modelName,
+        upstreamConfig,
+        {
+          upstreamPath:
+            `${upstreamConfig.baseUrl}/v1/projects/${encodeURIComponent(routeParam(req.params.projectId))}` +
+            `/locations/${encodeURIComponent(routeParam(req.params.location))}` +
+            `/publishers/${encodeURIComponent(routeParam(req.params.publisher))}` +
+            `/models/${encodeURIComponent(modelName)}:generateContent`,
+          gatewayFallback: "vertex-ai-inline-gateway",
+        },
+      );
+      await telemetryAdapterService.markUsed(adapter.id);
+
+      if (result.kind === "blocked") {
+        const decision = controlTowerGatewayService.toDecision(result.postflight ?? result.preflight);
+        return res.status(403).json({ ok: false, stage: result.stage, correlationId: result.correlationId, ...decision });
+      }
+
+      const preflightDecision = controlTowerGatewayService.toDecision(result.preflight);
+      const postflightDecision = controlTowerGatewayService.toDecision(result.postflight);
+      await auditService.createLog({
+        organizationId: adapter.organizationId,
+        actor: {
+          id: "control-tower-gateway",
+          username: "control-tower-gateway",
+          fullName: "Control Tower Gateway",
+          email: null,
+          role: "system",
+        },
+        input: {
+          entityType: "telemetry_event",
+          entityId: postflightDecision.id,
+          action: "gateway_proxied",
+          performedBy: "Control Tower Gateway",
+          details: `Vertex AI generateContent proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
+        },
+      });
+      res.setHeader("x-aict-correlation-id", result.correlationId);
+      res.setHeader("x-aict-preflight-decision", preflightDecision.decision);
+      res.setHeader("x-aict-decision", postflightDecision.decision);
+      res.setHeader("x-aict-telemetry-event-id", postflightDecision.id);
+      return res.status(result.upstreamStatus).json(result.upstreamJson);
+    } catch (err: any) {
+      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+    }
+  });
+
+  app.post("/api/gateway/bedrock/:region/model/:modelId/converse", async (req, res) => {
+    try {
+      const rawTelemetryKey = req.get("x-telemetry-key") || req.get("x-aict-telemetry-key") || "";
+      if (!rawTelemetryKey) {
+        return res.status(401).json({ message: "Telemetry ingest key is required" });
+      }
+
+      const adapter = await telemetryAdapterService.resolveIngestKey(rawTelemetryKey.trim());
+      if (!adapter) {
+        return res.status(401).json({ message: "Invalid telemetry ingest key" });
+      }
+
+      const requestBody =
+        req.body && typeof req.body === "object" && !Array.isArray(req.body)
+          ? (req.body as Record<string, unknown>)
+          : null;
+      if (!requestBody || !Array.isArray(requestBody.messages)) {
+        return res.status(400).json({ message: "Bedrock Converse payload must include messages" });
+      }
+
+      const region = routeParam(req.params.region);
+      const modelId = routeParam(req.params.modelId);
+      const upstreamConfig = upstreamProviderVaultService.resolveProviderConfig(
+        adapter.upstreamProviders,
+        "bedrock",
+        {
+          protocol: "bedrock",
+          requestBaseUrl: req.get("x-bedrock-base-url"),
+          requestRegion: region,
+          requestAccessKeyId: req.get("x-aws-access-key-id"),
+          requestSecretAccessKey: req.get("x-aws-secret-access-key"),
+          requestSessionToken: req.get("x-aws-session-token"),
+        },
+      );
+      upstreamProviderVaultService.assertModelAllowed(upstreamConfig, modelId);
+
+      const result = await controlTowerGatewayService.proxyBedrockConverse(
+        adapter,
+        requestBody,
+        modelId,
+        upstreamConfig,
+      );
+      await telemetryAdapterService.markUsed(adapter.id);
+
+      if (result.kind === "blocked") {
+        const decision = controlTowerGatewayService.toDecision(result.postflight ?? result.preflight);
+        return res.status(403).json({ ok: false, stage: result.stage, correlationId: result.correlationId, ...decision });
+      }
+
+      const preflightDecision = controlTowerGatewayService.toDecision(result.preflight);
+      const postflightDecision = controlTowerGatewayService.toDecision(result.postflight);
+      await auditService.createLog({
+        organizationId: adapter.organizationId,
+        actor: {
+          id: "control-tower-gateway",
+          username: "control-tower-gateway",
+          fullName: "Control Tower Gateway",
+          email: null,
+          role: "system",
+        },
+        input: {
+          entityType: "telemetry_event",
+          entityId: postflightDecision.id,
+          action: "gateway_proxied",
+          performedBy: "Control Tower Gateway",
+          details: `Bedrock Converse proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
+        },
+      });
+      res.setHeader("x-aict-correlation-id", result.correlationId);
+      res.setHeader("x-aict-preflight-decision", preflightDecision.decision);
+      res.setHeader("x-aict-decision", postflightDecision.decision);
+      res.setHeader("x-aict-telemetry-event-id", postflightDecision.id);
+      return res.status(result.upstreamStatus).json(result.upstreamJson);
+    } catch (err: any) {
+      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+    }
+  });
+
+  app.post("/api/gateway/providers/:provider/v1/chat/completions", async (req, res) => {
+    try {
+      const rawTelemetryKey = req.get("x-telemetry-key") || req.get("x-aict-telemetry-key") || "";
+      if (!rawTelemetryKey) {
+        return res.status(401).json({ message: "Telemetry ingest key is required" });
+      }
+
+      const adapter = await telemetryAdapterService.resolveIngestKey(rawTelemetryKey.trim());
+      if (!adapter) {
+        return res.status(401).json({ message: "Invalid telemetry ingest key" });
+      }
+
+      const providerName = routeParam(req.params.provider).toLowerCase();
+      const requestBody =
+        req.body && typeof req.body === "object" && !Array.isArray(req.body)
+          ? (req.body as Record<string, unknown>)
+          : null;
+      if (!requestBody || typeof requestBody.model !== "string" || !Array.isArray(requestBody.messages)) {
+        return res.status(400).json({ message: "OpenAI-compatible payload must include model and messages" });
+      }
+
+      const upstreamConfig = upstreamProviderVaultService.resolveProviderConfig(
+        adapter.upstreamProviders,
+        providerName,
+        {
+          protocol: "openai",
+          requestApiKey:
+            req.get("x-provider-api-key") ||
+            req.get("x-openai-api-key") ||
+            req.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+            "",
+          requestBaseUrl: req.get("x-provider-base-url") || req.get("x-openai-base-url"),
+        },
+      );
+      upstreamProviderVaultService.assertModelAllowed(upstreamConfig, requestBody.model);
+
+      const result = await controlTowerGatewayService.proxyOpenAiChatCompletions(adapter, requestBody, upstreamConfig);
+      await telemetryAdapterService.markUsed(adapter.id);
+
+      if (result.kind === "blocked") {
+        const decision = controlTowerGatewayService.toDecision(result.postflight ?? result.preflight);
+        return res.status(403).json({ ok: false, stage: result.stage, correlationId: result.correlationId, ...decision });
+      }
+
+      const preflightDecision = controlTowerGatewayService.toDecision(result.preflight);
+      const postflightDecision = controlTowerGatewayService.toDecision(result.postflight);
+      await auditService.createLog({
+        organizationId: adapter.organizationId,
+        actor: {
+          id: "control-tower-gateway",
+          username: "control-tower-gateway",
+          fullName: "Control Tower Gateway",
+          email: null,
+          role: "system",
+        },
+        input: {
+          entityType: "telemetry_event",
+          entityId: postflightDecision.id,
+          action: "gateway_proxied",
+          performedBy: "Control Tower Gateway",
+          details: `${providerName} chat completion proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
+        },
+      });
+      res.setHeader("x-aict-correlation-id", result.correlationId);
+      res.setHeader("x-aict-preflight-decision", preflightDecision.decision);
+      res.setHeader("x-aict-decision", postflightDecision.decision);
+      res.setHeader("x-aict-telemetry-event-id", postflightDecision.id);
+      if (result.upstreamText && result.upstreamContentType?.includes("text/event-stream")) {
+        res.setHeader("content-type", result.upstreamContentType);
+        res.setHeader("cache-control", "no-cache, no-transform");
+        return res.status(result.upstreamStatus).send(result.upstreamText);
+      }
+      return res.status(result.upstreamStatus).json(result.upstreamJson);
+    } catch (err: any) {
+      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+    }
+  });
+
+  app.post("/api/gateway/providers/:provider/v1/responses", async (req, res) => {
+    try {
+      const rawTelemetryKey = req.get("x-telemetry-key") || req.get("x-aict-telemetry-key") || "";
+      if (!rawTelemetryKey) {
+        return res.status(401).json({ message: "Telemetry ingest key is required" });
+      }
+
+      const adapter = await telemetryAdapterService.resolveIngestKey(rawTelemetryKey.trim());
+      if (!adapter) {
+        return res.status(401).json({ message: "Invalid telemetry ingest key" });
+      }
+
+      const providerName = routeParam(req.params.provider).toLowerCase();
+      const requestBody =
+        req.body && typeof req.body === "object" && !Array.isArray(req.body)
+          ? (req.body as Record<string, unknown>)
+          : null;
+      if (!requestBody || typeof requestBody.model !== "string" || requestBody.input === undefined) {
+        return res.status(400).json({ message: "OpenAI-compatible payload must include model and input" });
+      }
+
+      const upstreamConfig = upstreamProviderVaultService.resolveProviderConfig(
+        adapter.upstreamProviders,
+        providerName,
+        {
+          protocol: "openai",
+          requestApiKey:
+            req.get("x-provider-api-key") ||
+            req.get("x-openai-api-key") ||
+            req.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+            "",
+          requestBaseUrl: req.get("x-provider-base-url") || req.get("x-openai-base-url"),
+        },
+      );
+      upstreamProviderVaultService.assertModelAllowed(upstreamConfig, requestBody.model);
+
+      const result = await controlTowerGatewayService.proxyOpenAiResponses(adapter, requestBody, upstreamConfig);
+      await telemetryAdapterService.markUsed(adapter.id);
+
+      if (result.kind === "blocked") {
+        const decision = controlTowerGatewayService.toDecision(result.postflight ?? result.preflight);
+        return res.status(403).json({ ok: false, stage: result.stage, correlationId: result.correlationId, ...decision });
+      }
+
+      const preflightDecision = controlTowerGatewayService.toDecision(result.preflight);
+      const postflightDecision = controlTowerGatewayService.toDecision(result.postflight);
+      await auditService.createLog({
+        organizationId: adapter.organizationId,
+        actor: {
+          id: "control-tower-gateway",
+          username: "control-tower-gateway",
+          fullName: "Control Tower Gateway",
+          email: null,
+          role: "system",
+        },
+        input: {
+          entityType: "telemetry_event",
+          entityId: postflightDecision.id,
+          action: "gateway_proxied",
+          performedBy: "Control Tower Gateway",
+          details: `${providerName} response proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
+        },
+      });
+      res.setHeader("x-aict-correlation-id", result.correlationId);
+      res.setHeader("x-aict-preflight-decision", preflightDecision.decision);
+      res.setHeader("x-aict-decision", postflightDecision.decision);
+      res.setHeader("x-aict-telemetry-event-id", postflightDecision.id);
+      if (result.upstreamText && result.upstreamContentType?.includes("text/event-stream")) {
+        res.setHeader("content-type", result.upstreamContentType);
+        res.setHeader("cache-control", "no-cache, no-transform");
+        return res.status(result.upstreamStatus).send(result.upstreamText);
+      }
+      return res.status(result.upstreamStatus).json(result.upstreamJson);
+    } catch (err: any) {
+      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
     }
   });
 
