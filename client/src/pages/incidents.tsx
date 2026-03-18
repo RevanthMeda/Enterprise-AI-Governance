@@ -9,6 +9,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 
 type Incident = {
   id: string;
+  systemId?: string | null;
   title: string;
   category: string;
   severity: string;
@@ -27,6 +28,7 @@ type Incident = {
   escalatedTo: string | null;
   dueAt: string | null;
   detectedAt: string;
+  updatedAt?: string | null;
   resolvedAt: string | null;
   postmortemCompletedAt: string | null;
   playbook: { targetContainmentHours?: number; steps?: string[] };
@@ -176,12 +178,23 @@ export default function IncidentsPage() {
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <div className="text-sm font-semibold">{incident.title}</div>
-                        <div className="text-xs text-muted-foreground">{incident.category} • detected {new Date(incident.detectedAt).toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {incident.category} • detected {new Date(incident.detectedAt).toLocaleString()}
+                          {incident.updatedAt && incident.updatedAt !== incident.detectedAt
+                            ? ` • latest activity ${new Date(incident.updatedAt).toLocaleString()}`
+                            : ""}
+                        </div>
                       </div>
                       <div className="flex gap-2">
                         <Badge variant={incident.severity === "critical" ? "destructive" : "default"}>{incident.severity}</Badge>
                         <Badge variant="outline">{incident.status}</Badge>
                       </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      {incident.systemId ? <Badge variant="outline">System {incident.systemId}</Badge> : null}
+                      {incident.owner ? <Badge variant="outline">Owner {incident.owner}</Badge> : null}
+                      {incident.escalatedTo ? <Badge variant="outline">Escalated to {incident.escalatedTo}</Badge> : null}
+                      {incident.dueAt ? <Badge variant="outline">Contain by {new Date(incident.dueAt).toLocaleString()}</Badge> : null}
                     </div>
                     <p className="mt-3 text-sm text-muted-foreground">{incident.description}</p>
                     {incident.rootCause ? (

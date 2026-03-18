@@ -319,6 +319,24 @@ export class TelemetryService {
     );
 
     if (duplicate) {
+      await incidentService.updateForOrg(organizationId, duplicate.id, {
+        severity: evaluation.severity === "critical" ? "critical" : "high",
+        description: `${event.summary}\n\nThreshold breaches: ${evaluation.thresholdBreaches.join(", ")}`,
+        playbook: {
+          ...(duplicate.playbook ?? {}),
+          targetContainmentHours: 4,
+          decision: evaluation.decision,
+          restrictedPromptMatches: evaluation.restrictedPromptMatches,
+          steps: [
+            "Freeze or narrow the affected model release or gateway route.",
+            "Review prompt, output, context, and threshold evidence captured with the event.",
+            "Confirm whether customer, safety, privacy, or fairness impact occurred.",
+            "Document containment and assign post-incident review owner.",
+          ],
+        },
+        escalatedTo: "System owner, compliance lead, and governance operations",
+        dueAt: new Date((event.detectedAt ?? new Date()).getTime() + 4 * 60 * 60 * 1000),
+      });
       return duplicate.id;
     }
 
@@ -398,11 +416,7 @@ export class TelemetryService {
     const existingAssessments = await storage.getRiskAssessmentsBySystemForOrg(organizationId, event.systemId);
     const latest = existingAssessments[0];
 
-    if (
-      latest &&
-      latest.riskOutcome === riskLevel &&
-      JSON.stringify(latest.answers ?? null) === JSON.stringify(answers)
-    ) {
+    if (latest && latest.riskOutcome === riskLevel && latest.riskScore === score) {
       return;
     }
 

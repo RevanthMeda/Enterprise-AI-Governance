@@ -90,7 +90,7 @@ export class IncidentService {
       .select()
       .from(aiIncidents)
       .where(and(...conditions))
-      .orderBy(desc(aiIncidents.detectedAt));
+      .orderBy(desc(aiIncidents.updatedAt), desc(aiIncidents.detectedAt));
   }
 
   async getSummaryForOrg(organizationId: string) {

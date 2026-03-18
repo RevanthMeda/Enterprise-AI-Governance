@@ -79,23 +79,48 @@ const steps = [
 const riskIcons: Record<string, typeof ShieldAlert> = {
   unacceptable: ShieldAlert,
   high: AlertTriangle,
+  medium: Shield,
   limited: Shield,
+  low: ShieldCheck,
   minimal: ShieldCheck,
 };
 
 const riskColors: Record<string, string> = {
   unacceptable: "text-red-600 dark:text-red-400",
   high: "text-orange-600 dark:text-orange-400",
+  medium: "text-amber-600 dark:text-amber-400",
   limited: "text-yellow-600 dark:text-yellow-400",
+  low: "text-emerald-600 dark:text-emerald-400",
   minimal: "text-green-600 dark:text-green-400",
 };
 
 const riskBgColors: Record<string, string> = {
   unacceptable: "bg-red-50 dark:bg-red-950/20",
   high: "bg-orange-50 dark:bg-orange-950/20",
+  medium: "bg-amber-50 dark:bg-amber-950/20",
   limited: "bg-yellow-50 dark:bg-yellow-950/20",
+  low: "bg-emerald-50 dark:bg-emerald-950/20",
   minimal: "bg-green-50 dark:bg-green-950/20",
 };
+
+function getRiskMeta(riskOutcome: string) {
+  const labelMap: Record<string, string> = {
+    unacceptable: "Unacceptable",
+    high: "High",
+    medium: "Medium",
+    limited: "Limited",
+    low: "Low",
+    minimal: "Minimal",
+  };
+
+  return {
+    label: labelMap[riskOutcome] ?? riskOutcome,
+    icon: riskIcons[riskOutcome] || Shield,
+    color: riskColors[riskOutcome] || "text-slate-600 dark:text-slate-400",
+    bg: riskBgColors[riskOutcome] || "bg-slate-50 dark:bg-slate-950/20",
+    framework: riskOutcome === "medium" || riskOutcome === "low" ? "Operational" : "EU AI Act",
+  };
+}
 
 function OptionCard({
   value,
@@ -273,7 +298,8 @@ export default function RiskAssessment() {
   }
 
   if (result) {
-    const RiskIcon = riskIcons[result.riskOutcome] || Shield;
+    const riskMeta = getRiskMeta(result.riskOutcome);
+    const RiskIcon = riskMeta.icon;
     const suggestedControls = (result.suggestedControls as string[]) || [];
 
     return (
@@ -282,7 +308,7 @@ export default function RiskAssessment() {
           <div>
             <h1 className="text-xl font-bold tracking-tight">Assessment Result</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Risk classification for "{result.systemName}"
+              Governance assessment for "{result.systemName}"
             </p>
           </div>
           <Button onClick={handleStartNew} data-testid="button-new-assessment">
@@ -291,13 +317,13 @@ export default function RiskAssessment() {
           </Button>
         </div>
 
-        <Card className={riskBgColors[result.riskOutcome]} data-testid="card-risk-result">
+        <Card className={riskMeta.bg} data-testid="card-risk-result">
           <CardContent className="p-6">
             <div className="flex items-center gap-3 mb-4">
-              <RiskIcon className={`h-8 w-8 ${riskColors[result.riskOutcome]}`} />
+              <RiskIcon className={`h-8 w-8 ${riskMeta.color}`} />
               <div>
                 <div className="text-lg font-bold capitalize" data-testid="text-risk-outcome">
-                  {result.riskOutcome} Risk
+                  {riskMeta.label} risk
                 </div>
                 <div className="text-sm text-muted-foreground">
                   Score: {result.riskScore}/100
@@ -310,6 +336,7 @@ export default function RiskAssessment() {
               >
                 {result.riskScore} points
               </Badge>
+              <Badge variant="outline">{riskMeta.framework}</Badge>
             </div>
 
             <Separator className="my-4" />
@@ -853,8 +880,8 @@ export default function RiskAssessment() {
   const riskCounts = {
     unacceptable: systems.filter((s) => s.riskLevel === "unacceptable").length,
     high: systems.filter((s) => s.riskLevel === "high").length,
-    limited: systems.filter((s) => s.riskLevel === "limited").length,
-    minimal: systems.filter((s) => s.riskLevel === "minimal").length,
+    moderate: systems.filter((s) => s.riskLevel === "medium" || s.riskLevel === "limited").length,
+    baseline: systems.filter((s) => s.riskLevel === "low" || s.riskLevel === "minimal").length,
   };
 
   return (
@@ -863,7 +890,7 @@ export default function RiskAssessment() {
         <div>
           <h1 className="text-xl font-bold tracking-tight">Risk Assessment</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            EU AI Act risk classification framework and assessment wizard
+            Governance classification and assessment history across EU AI Act and operational telemetry models
           </p>
         </div>
         <Button onClick={handleStartNew} data-testid="button-start-wizard">
@@ -873,21 +900,20 @@ export default function RiskAssessment() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {(["unacceptable", "high", "limited", "minimal"] as const).map((level) => {
-          const RIcon = riskIcons[level];
-          const labels: Record<string, string> = {
-            unacceptable: "Unacceptable Risk",
-            high: "High Risk",
-            limited: "Limited Risk",
-            minimal: "Minimal Risk",
-          };
-          const count = riskCounts[level];
+        {([
+          { key: "unacceptable", label: "Unacceptable", icon: ShieldAlert, color: riskColors.unacceptable, bg: riskBgColors.unacceptable },
+          { key: "high", label: "High", icon: AlertTriangle, color: riskColors.high, bg: riskBgColors.high },
+          { key: "moderate", label: "Moderate / Limited", icon: Shield, color: riskColors.medium, bg: riskBgColors.medium },
+          { key: "baseline", label: "Low / Minimal", icon: ShieldCheck, color: riskColors.low, bg: riskBgColors.low },
+        ] as const).map((level) => {
+          const RIcon = level.icon;
+          const count = riskCounts[level.key];
           return (
-            <Card key={level} className={riskBgColors[level]} data-testid={`card-risk-${level}`}>
+            <Card key={level.key} className={level.bg} data-testid={`card-risk-${level.key}`}>
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <RIcon className={`h-5 w-5 ${riskColors[level]}`} />
-                  <span className="text-sm font-semibold">{labels[level]}</span>
+                  <RIcon className={`h-5 w-5 ${level.color}`} />
+                  <span className="text-sm font-semibold">{level.label}</span>
                 </div>
                 <div className="text-2xl font-bold mb-1">{count}</div>
                 <span className="text-[11px] text-muted-foreground">
@@ -918,7 +944,8 @@ export default function RiskAssessment() {
           ) : (
             <div className="space-y-2">
               {pastAssessments.map((a) => {
-                const AIcon = riskIcons[a.riskOutcome] || Shield;
+                const riskMeta = getRiskMeta(a.riskOutcome);
+                const AIcon = riskMeta.icon;
                 return (
                   <div
                     key={a.id}
@@ -926,7 +953,7 @@ export default function RiskAssessment() {
                     data-testid={`row-assessment-${a.id}`}
                   >
                     <div className="flex items-center gap-2">
-                      <AIcon className={`h-4 w-4 ${riskColors[a.riskOutcome]}`} />
+                      <AIcon className={`h-4 w-4 ${riskMeta.color}`} />
                       <div>
                         <span className="text-sm font-medium" data-testid={`text-assessment-name-${a.id}`}>
                           {a.systemName}
@@ -938,7 +965,10 @@ export default function RiskAssessment() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="text-[10px] capitalize" data-testid={`badge-assessment-risk-${a.id}`}>
-                        {a.riskOutcome}
+                        {riskMeta.label}
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px]">
+                        {riskMeta.framework}
                       </Badge>
                       <span className="text-[10px] text-muted-foreground">
                         Score: {a.riskScore}

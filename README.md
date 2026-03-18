@@ -52,6 +52,7 @@ Detailed docs:
 - [Role-based usage guide](docs/role-based-usage-guide.md)
 - [Architecture and data flow summary](docs/architecture-data-flow-summary.md)
 - [Vercel deployment guide](docs/vercel-deployment.md)
+- [Firebase Hosting deployment guide](docs/firebase-hosting-deployment.md)
 
 ## Recommended reading order
 

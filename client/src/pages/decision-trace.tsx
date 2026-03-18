@@ -327,7 +327,7 @@ export default function DecisionTracePage() {
               <MiniMetric label="Drift alerts" value={telemetryQuery.data?.driftAlerts ?? 0} />
               <MiniMetric label="Bias flags" value={telemetryQuery.data?.biasAlerts ?? 0} />
               <MiniMetric label="Threshold breaches" value={telemetryQuery.data?.thresholdBreaches ?? 0} />
-              <MiniMetric label="Escalated incidents" value={telemetryQuery.data?.escalatedIncidents ?? 0} />
+              <MiniMetric label="Escalated runtime events" value={telemetryQuery.data?.escalatedIncidents ?? 0} />
             </CardContent>
           </Card>
           <Card>
@@ -451,9 +451,9 @@ export default function DecisionTracePage() {
                         trace.modelVersion ? `Version: ${trace.modelVersion}` : null,
                         trace.confidenceScore !== null ? `Confidence: ${trace.confidenceScore}%` : null,
                         trace.uncertaintyScore !== null ? `Uncertainty: ${trace.uncertaintyScore}%` : null,
-                        trace.inputSources?.length ? `Sources: ${trace.inputSources.join(", ")}` : null,
-                        trace.decisionConstraints?.length ? `Constraints: ${trace.decisionConstraints.join(", ")}` : null,
-                        trace.explainabilityFactors?.length ? `Factors: ${trace.explainabilityFactors.join(", ")}` : null,
+                        trace.inputSources?.length ? `Sources: ${formatTraceList(trace.inputSources)}` : null,
+                        trace.decisionConstraints?.length ? `Constraints: ${formatTraceList(trace.decisionConstraints)}` : null,
+                        trace.explainabilityFactors?.length ? `Factors: ${formatTraceList(trace.explainabilityFactors)}` : null,
                       ]
                         .filter(Boolean)
                         .join("\n") || "No model evidence captured."}
@@ -564,12 +564,12 @@ function formFromTrace(trace: DecisionAudit) {
     modelName: trace.modelName ?? "",
     modelVersion: trace.modelVersion ?? "",
     promptText: trace.promptText ?? "",
-    inputSources: trace.inputSources.join(", "),
+    inputSources: formatTraceList(trace.inputSources),
     inputSnapshot: "{\n  \n}",
-    decisionConstraints: trace.decisionConstraints.join(", "),
+    decisionConstraints: formatTraceList(trace.decisionConstraints),
     confidenceScore: trace.confidenceScore !== null ? String(trace.confidenceScore) : "",
     uncertaintyScore: trace.uncertaintyScore !== null ? String(trace.uncertaintyScore) : "",
-    explainabilityFactors: trace.explainabilityFactors.join(", "),
+    explainabilityFactors: formatTraceList(trace.explainabilityFactors),
     documentationStatus: trace.documentationStatus,
     decisionContext: trace.decisionContext,
     aiOutput: trace.aiOutput,
@@ -587,4 +587,33 @@ function InfoBlock({ label, value }: { label: string; value: string }) {
       <div className="mt-1 line-clamp-6 whitespace-pre-wrap">{value}</div>
     </div>
   );
+}
+
+function formatTraceList(values: unknown[] | null | undefined) {
+  return (values ?? [])
+    .map((value) => {
+      if (typeof value === "string") {
+        return value;
+      }
+
+      if (value && typeof value === "object") {
+        const record = value as Record<string, unknown>;
+        const preferred = [record.label, record.name, record.title, record.sourceType, record.id].find(
+          (entry) => typeof entry === "string" && entry.trim().length > 0,
+        );
+        if (typeof preferred === "string") {
+          return preferred;
+        }
+
+        try {
+          return JSON.stringify(record);
+        } catch {
+          return String(value);
+        }
+      }
+
+      return String(value);
+    })
+    .filter((entry) => entry.trim().length > 0)
+    .join(", ");
 }
