@@ -18,7 +18,11 @@ export class RetentionService {
   private draining = false;
 
   start() {
-    if (process.env.RETENTION_ENFORCEMENT_DISABLED === "true" || this.timer) {
+    if (
+      process.env.RETENTION_ENFORCEMENT_DISABLED === "true" ||
+      process.env.VERCEL === "1" ||
+      this.timer
+    ) {
       return;
     }
 
@@ -57,7 +61,9 @@ export class RetentionService {
       archived,
       dueForArchive: summary?.dueForArchive ?? 0,
       underLegalHold: summary?.underLegalHold ?? 0,
-      workerEnabled: process.env.RETENTION_ENFORCEMENT_DISABLED !== "true",
+      workerEnabled:
+        process.env.RETENTION_ENFORCEMENT_DISABLED !== "true" &&
+        process.env.VERCEL !== "1",
     };
   }
 

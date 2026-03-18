@@ -160,7 +160,11 @@ class BackgroundJobService {
   }
 
   start() {
-    if (process.env.BACKGROUND_JOBS_DISABLED === "true" || this.timer) {
+    if (
+      process.env.BACKGROUND_JOBS_DISABLED === "true" ||
+      process.env.VERCEL === "1" ||
+      this.timer
+    ) {
       return;
     }
 
@@ -179,25 +183,46 @@ class BackgroundJobService {
     }
   }
 
-  private async tick() {
+  async runPendingOnce() {
     if (this.draining) {
-      return;
+      return {
+        skipped: true,
+        claimed: 0,
+        succeeded: 0,
+        failed: 0,
+      };
     }
 
     this.draining = true;
+    let claimed = 0;
+    let succeeded = 0;
+    let failed = 0;
     try {
       const jobs = await claimNextJobs(BATCH_SIZE);
+      claimed = jobs.length;
       for (const job of jobs) {
         try {
           const result = await processJob(job);
           await markSucceeded(job.id, result);
+          succeeded += 1;
         } catch (error) {
           await markFailed(job, error instanceof Error ? error : new Error(String(error)));
+          failed += 1;
         }
       }
+      return {
+        skipped: false,
+        claimed,
+        succeeded,
+        failed,
+      };
     } finally {
       this.draining = false;
     }
+  }
+
+  private async tick() {
+    await this.runPendingOnce();
   }
 
   async getRecentFailures(limit = 20) {
@@ -257,7 +282,9 @@ class BackgroundJobService {
       .groupBy(backgroundJobs.status);
 
     return {
-      workerEnabled: process.env.BACKGROUND_JOBS_DISABLED !== "true",
+      workerEnabled:
+        process.env.BACKGROUND_JOBS_DISABLED !== "true" &&
+        process.env.VERCEL !== "1",
       pending: rows.find((row) => row.status === "pending")?.count ?? 0,
       processing: rows.find((row) => row.status === "processing")?.count ?? 0,
       succeeded: rows.find((row) => row.status === "succeeded")?.count ?? 0,

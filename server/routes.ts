@@ -70,13 +70,11 @@ import { telemetryAdapterService } from "./services/telemetryAdapterService";
 import { telemetryService } from "./services/telemetryService";
 import { workflowService } from "./services/workflowService";
 import { autoDiscoveryService } from "./services/autoDiscoveryService";
+import { getUploadsRoot } from "./runtime-paths";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
-const uploadDir = path.join(process.cwd(), "uploads");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const uploadDir = getUploadsRoot();
 
 const allowedMimeTypes = [
   "application/pdf",

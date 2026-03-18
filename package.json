@@ -8,6 +8,8 @@
     "dev": "tsx server/index.ts",
     "prebuild": "npm run openapi:sync-public",
     "build": "npm run build:sdk:telemetry && tsx script/build.ts",
+    "build:client": "vite build",
+    "build:vercel": "npm run openapi:sync-public && npm run build:client",
     "build:sdk:telemetry": "tsc -p packages/telemetry-sdk-node/tsconfig.json",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",

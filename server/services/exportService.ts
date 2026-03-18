@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { storage } from "../storage";
+import { getExportsRoot } from "../runtime-paths";
 
 type Actor = {
   id: string;
@@ -27,12 +28,8 @@ interface ExportRecord {
   createdAt: Date;
 }
 
-const exportsRoot = path.join(process.cwd(), "exports");
+const exportsRoot = getExportsRoot();
 const exportRecords = new Map<string, ExportRecord>();
-
-if (!fs.existsSync(exportsRoot)) {
-  fs.mkdirSync(exportsRoot, { recursive: true });
-}
 
 function escapeCsvValue(value: unknown): string {
   const text = String(value ?? "");

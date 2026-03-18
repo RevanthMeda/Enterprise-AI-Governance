@@ -51,6 +51,7 @@ Detailed docs:
 - [Admin operations guide](docs/admin-operations-guide.md)
 - [Role-based usage guide](docs/role-based-usage-guide.md)
 - [Architecture and data flow summary](docs/architecture-data-flow-summary.md)
+- [Vercel deployment guide](docs/vercel-deployment.md)
 
 ## Recommended reading order
 
