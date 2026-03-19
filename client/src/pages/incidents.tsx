@@ -54,6 +54,8 @@ const initialForm = {
 
 export default function IncidentsPage() {
   const [form, setForm] = useState(initialForm);
+  const [queueScope, setQueueScope] = useState<"active" | "all" | "resolved">("active");
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Record<string, { rootCause: string; reviewSummary: string; affectedDecisionTraceIds: string; regulatoryNotifications: string }>>({});
   const summaryQuery = useQuery<IncidentSummary>({
     queryKey: ["/api/incidents/summary"],
@@ -101,16 +103,48 @@ export default function IncidentsPage() {
     },
   });
 
+  const incidents = [...(listQuery.data ?? [])].sort((a, b) => {
+    const statusOrder: Record<string, number> = { open: 0, contained: 1, resolved: 2, postmortem: 3 };
+    const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    const statusDelta = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
+    if (statusDelta !== 0) return statusDelta;
+    const severityDelta = (severityOrder[a.severity] ?? 99) - (severityOrder[b.severity] ?? 99);
+    if (severityDelta !== 0) return severityDelta;
+    return new Date(b.updatedAt ?? b.detectedAt).getTime() - new Date(a.updatedAt ?? a.detectedAt).getTime();
+  });
+
+  const filteredIncidents = incidents.filter((incident) => {
+    if (queueScope === "active") return incident.status === "open" || incident.status === "contained";
+    if (queueScope === "resolved") return incident.status === "resolved" || incident.status === "postmortem";
+    return true;
+  });
+
+  const selectedIncident =
+    filteredIncidents.find((incident) => incident.id === selectedIncidentId) ??
+    incidents.find((incident) => incident.id === selectedIncidentId) ??
+    filteredIncidents[0] ??
+    incidents[0] ??
+    null;
+
   return (
-    <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">AI Incident Response</h1>
-        <p className="text-sm text-muted-foreground">
-          Run bias, security, privacy, and reliability playbooks with explicit containment targets and escalation owners.
-        </p>
+    <div className="page-shell">
+      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">AI Incident Response</h1>
+          <p className="text-sm text-muted-foreground">
+            Triage privacy, security, safety, bias, and reliability events with clear containment targets and ownership.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline">Open {summaryQuery.data?.open ?? 0}</Badge>
+          <Badge variant="outline">High severity {summaryQuery.data?.highSeverity ?? 0}</Badge>
+          <Badge variant={summaryQuery.data && summaryQuery.data.breached > 0 ? "destructive" : "outline"}>
+            SLA breached {summaryQuery.data?.breached ?? 0}
+          </Badge>
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <Metric title="Total incidents" value={summaryQuery.data?.total ?? 0} icon={AlertTriangle} />
         <Metric title="Open" value={summaryQuery.data?.open ?? 0} icon={Siren} />
         <Metric title="High severity" value={summaryQuery.data?.highSeverity ?? 0} icon={ShieldAlert} />
@@ -118,216 +152,312 @@ export default function IncidentsPage() {
         <Metric title="Postmortems pending" value={summaryQuery.data?.postmortemPending ?? 0} icon={Clock3} />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-semibold">Open a new AI incident</CardTitle>
+            <CardTitle className="text-sm font-semibold">Incident intake</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Field label="Title">
-              <input className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
-            </Field>
-            <div className="grid gap-3 md:grid-cols-2">
-              <Field label="Category">
-                <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.category} onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}>
-                  <option value="bias">Bias</option>
-                  <option value="security">Security</option>
-                  <option value="privacy">Privacy</option>
-                  <option value="reliability">Reliability</option>
-                  <option value="compliance">Compliance</option>
-                  <option value="safety">Safety</option>
-                </select>
-              </Field>
-              <Field label="Severity">
-                <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.severity} onChange={(event) => setForm((current) => ({ ...current, severity: event.target.value }))}>
-                  <option value="critical">Critical</option>
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
-              </Field>
-              <Field label="System ID">
-                <input className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.systemId} onChange={(event) => setForm((current) => ({ ...current, systemId: event.target.value }))} />
-              </Field>
-              <Field label="Owner">
-                <input className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.owner} onChange={(event) => setForm((current) => ({ ...current, owner: event.target.value }))} />
-              </Field>
-            </div>
-            <Field label="Escalated to">
-              <input className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.escalatedTo} onChange={(event) => setForm((current) => ({ ...current, escalatedTo: event.target.value }))} />
-            </Field>
-            <Field label="Description">
-              <textarea className="min-h-32 w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
-            </Field>
-            <div className="flex justify-end">
-              <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !form.title || !form.description}>
-                {createMutation.isPending ? "Creating..." : "Open incident"}
-              </Button>
-            </div>
+            <p className="text-sm text-muted-foreground">
+              Open a manual case when an event did not originate from runtime telemetry or needs separate tracking.
+            </p>
+            <details className="rounded-lg border bg-muted/20 p-3">
+              <summary className="cursor-pointer list-none text-sm font-medium">
+                Open incident record
+              </summary>
+              <div className="mt-4 space-y-3">
+                <Field label="Title">
+                  <input className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
+                </Field>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field label="Category">
+                    <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.category} onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}>
+                      <option value="bias">Bias</option>
+                      <option value="security">Security</option>
+                      <option value="privacy">Privacy</option>
+                      <option value="reliability">Reliability</option>
+                      <option value="compliance">Compliance</option>
+                      <option value="safety">Safety</option>
+                    </select>
+                  </Field>
+                  <Field label="Severity">
+                    <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.severity} onChange={(event) => setForm((current) => ({ ...current, severity: event.target.value }))}>
+                      <option value="critical">Critical</option>
+                      <option value="high">High</option>
+                      <option value="medium">Medium</option>
+                      <option value="low">Low</option>
+                    </select>
+                  </Field>
+                  <Field label="System ID">
+                    <input className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.systemId} onChange={(event) => setForm((current) => ({ ...current, systemId: event.target.value }))} />
+                  </Field>
+                  <Field label="Owner">
+                    <input className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.owner} onChange={(event) => setForm((current) => ({ ...current, owner: event.target.value }))} />
+                  </Field>
+                </div>
+                <Field label="Escalated to">
+                  <input className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.escalatedTo} onChange={(event) => setForm((current) => ({ ...current, escalatedTo: event.target.value }))} />
+                </Field>
+                <Field label="Description">
+                  <textarea className="min-h-32 w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
+                </Field>
+                <div className="flex justify-end">
+                  <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !form.title || !form.description}>
+                    {createMutation.isPending ? "Creating..." : "Open incident"}
+                  </Button>
+                </div>
+              </div>
+            </details>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-semibold">Active incident playbooks</CardTitle>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <CardTitle className="text-sm font-semibold">Active incident queue</CardTitle>
+              <div className="flex flex-wrap gap-2">
+                <Button variant={queueScope === "active" ? "default" : "outline"} size="sm" onClick={() => setQueueScope("active")}>
+                  Active
+                </Button>
+                <Button variant={queueScope === "all" ? "default" : "outline"} size="sm" onClick={() => setQueueScope("all")}>
+                  All
+                </Button>
+                <Button variant={queueScope === "resolved" ? "default" : "outline"} size="sm" onClick={() => setQueueScope("resolved")}>
+                  Resolved
+                </Button>
+              </div>
+            </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="overflow-hidden">
             {listQuery.isLoading ? (
               <div className="space-y-2">
                 <Skeleton className="h-24 w-full" />
                 <Skeleton className="h-24 w-full" />
               </div>
-            ) : (listQuery.data?.length ?? 0) === 0 ? (
-              <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">No incidents are open.</div>
+            ) : incidents.length === 0 ? (
+              <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">No incidents recorded.</div>
             ) : (
-              <div className="space-y-4">
-                {listQuery.data!.map((incident) => (
-                  <div key={incident.id} className="rounded-lg border p-4">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="grid items-start gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+                <div className="space-y-2 rounded-lg border bg-muted/10 p-2 xl:max-h-[calc(100vh-21rem)] xl:overflow-y-auto">
+                  {filteredIncidents.length === 0 ? (
+                    <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+                      No incidents match this queue view.
+                    </div>
+                  ) : (
+                    filteredIncidents.map((incident) => (
+                      <button
+                        key={incident.id}
+                        type="button"
+                        onClick={() => setSelectedIncidentId(incident.id)}
+                        className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                          selectedIncident?.id === incident.id ? "border-primary bg-primary/5" : "hover:bg-muted/30"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold">{incident.title}</div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {incident.category} • detected {new Date(incident.detectedAt).toLocaleString()}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 gap-2">
+                            <Badge variant={incident.severity === "critical" ? "destructive" : "default"}>{incident.severity}</Badge>
+                            <Badge variant="outline">{incident.status}</Badge>
+                          </div>
+                        </div>
+                        <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{incident.description}</p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                          {incident.systemId ? <Badge variant="outline">System</Badge> : null}
+                          {incident.dueAt ? <Badge variant="outline">Contain by {new Date(incident.dueAt).toLocaleString()}</Badge> : null}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+
+                {selectedIncident ? (
+                  <div className="rounded-lg border p-4 xl:max-h-[calc(100vh-21rem)] xl:overflow-y-auto">
+                    <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <div className="text-sm font-semibold">{incident.title}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {incident.category} • detected {new Date(incident.detectedAt).toLocaleString()}
-                          {incident.updatedAt && incident.updatedAt !== incident.detectedAt
-                            ? ` • latest activity ${new Date(incident.updatedAt).toLocaleString()}`
+                        <div className="text-lg font-semibold">{selectedIncident.title}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {selectedIncident.category} • detected {new Date(selectedIncident.detectedAt).toLocaleString()}
+                          {selectedIncident.updatedAt && selectedIncident.updatedAt !== selectedIncident.detectedAt
+                            ? ` • latest activity ${new Date(selectedIncident.updatedAt).toLocaleString()}`
                             : ""}
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Badge variant={incident.severity === "critical" ? "destructive" : "default"}>{incident.severity}</Badge>
-                        <Badge variant="outline">{incident.status}</Badge>
+                        <Badge variant={selectedIncident.severity === "critical" ? "destructive" : "default"}>{selectedIncident.severity}</Badge>
+                        <Badge variant="outline">{selectedIncident.status}</Badge>
                       </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      {incident.systemId ? <Badge variant="outline">System {incident.systemId}</Badge> : null}
-                      {incident.owner ? <Badge variant="outline">Owner {incident.owner}</Badge> : null}
-                      {incident.escalatedTo ? <Badge variant="outline">Escalated to {incident.escalatedTo}</Badge> : null}
-                      {incident.dueAt ? <Badge variant="outline">Contain by {new Date(incident.dueAt).toLocaleString()}</Badge> : null}
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+                      <MetaBlock label="System" value={selectedIncident.systemId ?? "Not linked"} mono />
+                      <MetaBlock label="Owner" value={selectedIncident.owner ?? "Unassigned"} />
+                      <MetaBlock label="Escalated to" value={selectedIncident.escalatedTo ?? "Not set"} />
+                      <MetaBlock label="Containment target" value={selectedIncident.dueAt ? new Date(selectedIncident.dueAt).toLocaleString() : "Not set"} />
                     </div>
-                    <p className="mt-3 text-sm text-muted-foreground">{incident.description}</p>
-                    {incident.rootCause ? (
-                      <div className="mt-3 rounded-md border bg-muted/20 p-3 text-sm">
-                        <div className="text-xs font-medium text-muted-foreground">Root cause</div>
-                        <div className="mt-1 whitespace-pre-wrap">{incident.rootCause}</div>
+
+                    <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+                      <div className="space-y-4">
+                        <SectionBlock title="Incident summary">
+                          <p className="whitespace-pre-wrap text-sm text-muted-foreground">{selectedIncident.description}</p>
+                        </SectionBlock>
+
+                        <SectionBlock title="Playbook">
+                          {(selectedIncident.playbook?.steps ?? []).length > 0 ? (
+                            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                              {(selectedIncident.playbook?.steps ?? []).map((step) => (
+                                <li key={step}>{step}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">No playbook steps recorded.</p>
+                          )}
+                        </SectionBlock>
+
+                        {selectedIncident.rootCause ? (
+                          <SectionBlock title="Root cause">
+                            <p className="whitespace-pre-wrap text-sm">{selectedIncident.rootCause}</p>
+                          </SectionBlock>
+                        ) : null}
+
+                        {selectedIncident.postIncidentReview && Object.keys(selectedIncident.postIncidentReview).length > 0 ? (
+                          <SectionBlock title="Post-incident review">
+                            <p className="whitespace-pre-wrap text-sm">
+                              {String(selectedIncident.postIncidentReview.summary ?? "Review recorded")}
+                            </p>
+                          </SectionBlock>
+                        ) : null}
                       </div>
-                    ) : null}
-                    {incident.postIncidentReview && Object.keys(incident.postIncidentReview).length > 0 ? (
-                      <div className="mt-3 rounded-md border bg-muted/20 p-3 text-sm">
-                        <div className="text-xs font-medium text-muted-foreground">Post-incident review</div>
-                        <div className="mt-1 whitespace-pre-wrap">
-                          {String(incident.postIncidentReview.summary ?? "Review recorded")}
-                        </div>
-                      </div>
-                    ) : null}
-                    <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto]">
-                      <div className="rounded-md bg-muted/30 p-3 text-sm">
-                        <div className="text-xs font-medium text-muted-foreground">Playbook</div>
-                        <ul className="mt-2 list-disc space-y-1 pl-5">
-                          {(incident.playbook?.steps ?? []).map((step) => (
-                            <li key={step}>{step}</li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Button variant="outline" onClick={() => updateIncidentMutation.mutate({ id: incident.id, payload: { status: "contained" } })} disabled={incident.status !== "open" || updateIncidentMutation.isPending}>Contain</Button>
-                        <Button onClick={() => updateIncidentMutation.mutate({ id: incident.id, payload: { status: "resolved" } })} disabled={incident.status === "resolved" || incident.status === "postmortem" || updateIncidentMutation.isPending}>Resolve</Button>
+
+                      <div className="space-y-4">
+                        <SectionBlock title="Actions">
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              onClick={() => updateIncidentMutation.mutate({ id: selectedIncident.id, payload: { status: "contained" } })}
+                              disabled={selectedIncident.status !== "open" || updateIncidentMutation.isPending}
+                            >
+                              Contain
+                            </Button>
+                            <Button
+                              onClick={() => updateIncidentMutation.mutate({ id: selectedIncident.id, payload: { status: "resolved" } })}
+                              disabled={selectedIncident.status === "resolved" || selectedIncident.status === "postmortem" || updateIncidentMutation.isPending}
+                            >
+                              Resolve
+                            </Button>
+                          </div>
+                        </SectionBlock>
                       </div>
                     </div>
-                    <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                      <Field label="Root cause">
-                        <textarea
-                          className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm"
-                          value={reviews[incident.id]?.rootCause ?? incident.rootCause ?? ""}
-                          onChange={(event) =>
-                            setReviews((current) => ({
-                              ...current,
-                              [incident.id]: {
-                                rootCause: event.target.value,
-                                reviewSummary: current[incident.id]?.reviewSummary ?? String(incident.postIncidentReview?.summary ?? ""),
-                                affectedDecisionTraceIds: current[incident.id]?.affectedDecisionTraceIds ?? (incident.affectedDecisionTraceIds ?? []).join(", "),
-                                regulatoryNotifications: current[incident.id]?.regulatoryNotifications ?? (incident.regulatoryNotifications ?? []).map((item) => item.authority).join("\n"),
+
+                    <details className="mt-4 rounded-lg border bg-muted/10 p-4">
+                      <summary className="cursor-pointer list-none text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                        Postmortem workspace
+                      </summary>
+                      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                        <Field label="Root cause">
+                          <textarea
+                            className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                            value={reviews[selectedIncident.id]?.rootCause ?? selectedIncident.rootCause ?? ""}
+                            onChange={(event) =>
+                              setReviews((current) => ({
+                                ...current,
+                                [selectedIncident.id]: {
+                                  rootCause: event.target.value,
+                                  reviewSummary: current[selectedIncident.id]?.reviewSummary ?? String(selectedIncident.postIncidentReview?.summary ?? ""),
+                                  affectedDecisionTraceIds: current[selectedIncident.id]?.affectedDecisionTraceIds ?? (selectedIncident.affectedDecisionTraceIds ?? []).join(", "),
+                                  regulatoryNotifications: current[selectedIncident.id]?.regulatoryNotifications ?? (selectedIncident.regulatoryNotifications ?? []).map((item) => item.authority).join("\n"),
+                                },
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Post-incident review summary">
+                          <textarea
+                            className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                            value={reviews[selectedIncident.id]?.reviewSummary ?? String(selectedIncident.postIncidentReview?.summary ?? "")}
+                            onChange={(event) =>
+                              setReviews((current) => ({
+                                ...current,
+                                [selectedIncident.id]: {
+                                  rootCause: current[selectedIncident.id]?.rootCause ?? selectedIncident.rootCause ?? "",
+                                  reviewSummary: event.target.value,
+                                  affectedDecisionTraceIds: current[selectedIncident.id]?.affectedDecisionTraceIds ?? (selectedIncident.affectedDecisionTraceIds ?? []).join(", "),
+                                  regulatoryNotifications: current[selectedIncident.id]?.regulatoryNotifications ?? (selectedIncident.regulatoryNotifications ?? []).map((item) => item.authority).join("\n"),
+                                },
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Affected decision trace IDs (comma separated)">
+                          <input
+                            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                            value={reviews[selectedIncident.id]?.affectedDecisionTraceIds ?? (selectedIncident.affectedDecisionTraceIds ?? []).join(", ")}
+                            onChange={(event) =>
+                              setReviews((current) => ({
+                                ...current,
+                                [selectedIncident.id]: {
+                                  rootCause: current[selectedIncident.id]?.rootCause ?? selectedIncident.rootCause ?? "",
+                                  reviewSummary: current[selectedIncident.id]?.reviewSummary ?? String(selectedIncident.postIncidentReview?.summary ?? ""),
+                                  affectedDecisionTraceIds: event.target.value,
+                                  regulatoryNotifications: current[selectedIncident.id]?.regulatoryNotifications ?? (selectedIncident.regulatoryNotifications ?? []).map((item) => item.authority).join("\n"),
+                                },
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Regulatory notifications (one authority per line)">
+                          <textarea
+                            className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                            value={reviews[selectedIncident.id]?.regulatoryNotifications ?? (selectedIncident.regulatoryNotifications ?? []).map((item) => item.authority).join("\n")}
+                            onChange={(event) =>
+                              setReviews((current) => ({
+                                ...current,
+                                [selectedIncident.id]: {
+                                  rootCause: current[selectedIncident.id]?.rootCause ?? selectedIncident.rootCause ?? "",
+                                  reviewSummary: current[selectedIncident.id]?.reviewSummary ?? String(selectedIncident.postIncidentReview?.summary ?? ""),
+                                  affectedDecisionTraceIds: current[selectedIncident.id]?.affectedDecisionTraceIds ?? (selectedIncident.affectedDecisionTraceIds ?? []).join(", "),
+                                  regulatoryNotifications: event.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        </Field>
+                      </div>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Button
+                          variant="secondary"
+                          onClick={() =>
+                            updateIncidentMutation.mutate({
+                              id: selectedIncident.id,
+                              payload: {
+                                status: "postmortem",
+                                rootCause: reviews[selectedIncident.id]?.rootCause ?? selectedIncident.rootCause ?? null,
+                                postIncidentReview: {
+                                  summary: reviews[selectedIncident.id]?.reviewSummary ?? String(selectedIncident.postIncidentReview?.summary ?? ""),
+                                  completedAt: new Date().toISOString(),
+                                },
+                                affectedDecisionTraceIds: parseCsv(reviews[selectedIncident.id]?.affectedDecisionTraceIds ?? (selectedIncident.affectedDecisionTraceIds ?? []).join(", ")),
+                                regulatoryNotifications: parseNotificationLines(reviews[selectedIncident.id]?.regulatoryNotifications ?? (selectedIncident.regulatoryNotifications ?? []).map((item) => item.authority).join("\n")),
                               },
-                            }))
+                            })
                           }
-                        />
-                      </Field>
-                      <Field label="Post-incident review summary">
-                        <textarea
-                          className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm"
-                          value={reviews[incident.id]?.reviewSummary ?? String(incident.postIncidentReview?.summary ?? "")}
-                          onChange={(event) =>
-                            setReviews((current) => ({
-                              ...current,
-                              [incident.id]: {
-                                rootCause: current[incident.id]?.rootCause ?? incident.rootCause ?? "",
-                                reviewSummary: event.target.value,
-                                affectedDecisionTraceIds: current[incident.id]?.affectedDecisionTraceIds ?? (incident.affectedDecisionTraceIds ?? []).join(", "),
-                                regulatoryNotifications: current[incident.id]?.regulatoryNotifications ?? (incident.regulatoryNotifications ?? []).map((item) => item.authority).join("\n"),
-                              },
-                            }))
-                          }
-                        />
-                      </Field>
-                      <Field label="Affected decision trace IDs (comma separated)">
-                        <input
-                          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                          value={reviews[incident.id]?.affectedDecisionTraceIds ?? (incident.affectedDecisionTraceIds ?? []).join(", ")}
-                          onChange={(event) =>
-                            setReviews((current) => ({
-                              ...current,
-                              [incident.id]: {
-                                rootCause: current[incident.id]?.rootCause ?? incident.rootCause ?? "",
-                                reviewSummary: current[incident.id]?.reviewSummary ?? String(incident.postIncidentReview?.summary ?? ""),
-                                affectedDecisionTraceIds: event.target.value,
-                                regulatoryNotifications: current[incident.id]?.regulatoryNotifications ?? (incident.regulatoryNotifications ?? []).map((item) => item.authority).join("\n"),
-                              },
-                            }))
-                          }
-                        />
-                      </Field>
-                      <Field label="Regulatory notifications (one authority per line)">
-                        <textarea
-                          className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm"
-                          value={reviews[incident.id]?.regulatoryNotifications ?? (incident.regulatoryNotifications ?? []).map((item) => item.authority).join("\n")}
-                          onChange={(event) =>
-                            setReviews((current) => ({
-                              ...current,
-                              [incident.id]: {
-                                rootCause: current[incident.id]?.rootCause ?? incident.rootCause ?? "",
-                                reviewSummary: current[incident.id]?.reviewSummary ?? String(incident.postIncidentReview?.summary ?? ""),
-                                affectedDecisionTraceIds: current[incident.id]?.affectedDecisionTraceIds ?? (incident.affectedDecisionTraceIds ?? []).join(", "),
-                                regulatoryNotifications: event.target.value,
-                              },
-                            }))
-                          }
-                        />
-                      </Field>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button
-                        variant="secondary"
-                        onClick={() =>
-                          updateIncidentMutation.mutate({
-                            id: incident.id,
-                            payload: {
-                              status: "postmortem",
-                              rootCause: reviews[incident.id]?.rootCause ?? incident.rootCause ?? null,
-                              postIncidentReview: {
-                                summary: reviews[incident.id]?.reviewSummary ?? String(incident.postIncidentReview?.summary ?? ""),
-                                completedAt: new Date().toISOString(),
-                              },
-                              affectedDecisionTraceIds: parseCsv(reviews[incident.id]?.affectedDecisionTraceIds ?? (incident.affectedDecisionTraceIds ?? []).join(", ")),
-                              regulatoryNotifications: parseNotificationLines(reviews[incident.id]?.regulatoryNotifications ?? (incident.regulatoryNotifications ?? []).map((item) => item.authority).join("\n")),
-                            },
-                          })
-                        }
-                        disabled={updateIncidentMutation.isPending}
-                      >
-                        Complete Postmortem
-                      </Button>
-                    </div>
+                          disabled={updateIncidentMutation.isPending}
+                        >
+                          Complete Postmortem
+                        </Button>
+                      </div>
+                    </details>
                   </div>
-                ))}
+                ) : (
+                  <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+                    Select an incident from the queue to open the workspace.
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
@@ -359,6 +489,24 @@ function Metric({ title, value, icon: Icon }: { title: string; value: number; ic
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function MetaBlock({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3">
+      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">{label}</div>
+      <div className={`mt-1 ${mono ? "font-mono text-xs break-all leading-5" : "text-sm break-words whitespace-pre-wrap leading-6"}`}>{value}</div>
+    </div>
+  );
+}
+
+function SectionBlock({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-4">
+      <div className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{title}</div>
+      <div className="mt-3">{children}</div>
+    </div>
   );
 }
 

@@ -666,7 +666,7 @@ export default function SettingsPage() {
   }?org=${currentOrg?.slug || "your-org-slug"}&next=/`;
 
   return (
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="page-settings">
+    <div className="page-shell" data-testid="page-settings">
       <div>
         <h1 className="text-xl font-bold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground mt-0.5">

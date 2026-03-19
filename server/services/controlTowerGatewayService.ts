@@ -84,6 +84,36 @@ function getObjectRecord(value: unknown) {
     : {};
 }
 
+function getGuardVerdict(event: AiTelemetryEvent) {
+  const metadata = getObjectRecord(event.metadata);
+  const guard = getObjectRecord(metadata.guard);
+  const classifier = getObjectRecord(guard.classifier);
+  const verdict = getString(classifier.verdict);
+  return verdict;
+}
+
+function resolveSafeModelName(
+  event: AiTelemetryEvent,
+  currentModel: string | null,
+  upstreamConfig: ResolvedProviderConfig,
+) {
+  const safeModelName = process.env.AICT_SAFE_MODEL_NAME?.trim();
+  if (!safeModelName) {
+    return null;
+  }
+  const verdict = getGuardVerdict(event);
+  if (verdict !== "suspicious") {
+    return null;
+  }
+  if (currentModel && currentModel === safeModelName) {
+    return null;
+  }
+  if (upstreamConfig.modelAllowlist.length > 0 && !upstreamConfig.modelAllowlist.includes(safeModelName)) {
+    return null;
+  }
+  return safeModelName;
+}
+
 function createCorrelationId() {
   if (typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
@@ -1192,6 +1222,23 @@ export class ControlTowerGatewayService {
       };
     }
 
+    let effectiveModelName = modelName;
+    let postflightControl = control;
+    const safeModelName = resolveSafeModelName(preflight, modelName, upstreamConfig);
+    if (safeModelName) {
+      effectiveModelName = safeModelName;
+      forwardBody.model = safeModelName;
+      postflightControl = {
+        ...control,
+        metadata: {
+          ...(control.metadata ?? {}),
+          guardSafeModelUsed: true,
+          guardSafeModelName: safeModelName,
+          guardSafeModelReason: "prompt_injection_suspected",
+        },
+      };
+    }
+
     const streamMode = forwardBody.stream === true;
     const upstream = streamMode
       ? await postProviderBufferedStream(
@@ -1205,8 +1252,8 @@ export class ControlTowerGatewayService {
     const returnedToolNames = streamMode ? upstream.returnedToolNames : extractReturnedToolNamesFromChat(upstream.json);
     const returnedToolCalls = streamMode ? upstream.returnedToolCalls : extractReturnedToolCallsFromChat(upstream.json);
     const toolArgumentValidation = validateToolArguments(adapter, returnedToolCalls);
-    const postflight = await this.recordPostflight(adapter, control, {
-      modelName,
+    const postflight = await this.recordPostflight(adapter, postflightControl, {
+      modelName: effectiveModelName,
       gateway,
       promptText,
       modelOutput,
@@ -1291,8 +1338,8 @@ export class ControlTowerGatewayService {
     const returnedToolNames = streamMode ? upstream.returnedToolNames : extractReturnedToolNamesFromResponses(upstream.json);
     const returnedToolCalls = streamMode ? upstream.returnedToolCalls : extractReturnedToolCallsFromResponses(upstream.json);
     const toolArgumentValidation = validateToolArguments(adapter, returnedToolCalls);
-    const postflight = await this.recordPostflight(adapter, control, {
-      modelName,
+    const postflight = await this.recordPostflight(adapter, postflightControl, {
+      modelName: effectiveModelName,
       gateway,
       promptText,
       modelOutput,

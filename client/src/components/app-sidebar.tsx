@@ -47,29 +47,29 @@ import {
 
 const mainNav = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "My Activity", url: "/activity", icon: UserCircle },
   { title: "AI Registry", url: "/registry", icon: Server },
-  { title: "Risk Assessment", url: "/risk", icon: ShieldCheck },
+  { title: "Risk", url: "/risk", icon: ShieldCheck },
   { title: "Compliance", url: "/compliance", icon: ClipboardCheck },
-  { title: "Calendar", url: "/calendar", icon: CalendarDays },
-  { title: "Approvals", url: "/approvals", icon: FileText },
-  { title: "Decision Trace", url: "/decision-trace", icon: Fingerprint },
-  { title: "Runtime Monitoring", url: "/runtime-monitoring", icon: Radio },
-  { title: "Exit Readiness", url: "/exit-readiness", icon: Gauge },
-  { title: "Portfolio Control", url: "/portfolio-control", icon: Building2 },
+  { title: "Runtime", url: "/runtime-monitoring", icon: Radio },
   { title: "Incidents", url: "/incidents", icon: AlertTriangle },
-  { title: "Bulk Controls", url: "/bulk-controls", icon: Layers },
+  { title: "Approvals", url: "/approvals", icon: FileText },
+  { title: "Decision Traces", url: "/decision-trace", icon: Fingerprint },
   { title: "Audit Log", url: "/audit", icon: Activity },
+  { title: "My Activity", url: "/activity", icon: UserCircle },
+  { title: "Evidence", url: "/exit-readiness", icon: Gauge },
+  { title: "Portfolio", url: "/portfolio-control", icon: Building2 },
+  { title: "Calendar", url: "/calendar", icon: CalendarDays },
+  { title: "Bulk Controls", url: "/bulk-controls", icon: Layers },
 ];
 
 const settingsNav = [
-  { title: "Settings", url: "/settings", icon: Settings },
-  { title: "Integrations", url: "/integrations", icon: PlugZap },
-  { title: "Telemetry Policy", url: "/telemetry-policy", icon: SlidersHorizontal },
   { title: "Telemetry Adapter", url: "/telemetry-adapter", icon: Cable },
+  { title: "Telemetry Policy", url: "/telemetry-policy", icon: SlidersHorizontal },
+  { title: "Integrations", url: "/integrations", icon: PlugZap },
+  { title: "Settings", url: "/settings", icon: Settings },
   { title: "Retention Control", url: "/retention-control", icon: Archive },
   { title: "Billing", url: "/billing", icon: CreditCard },
-  { title: "Docs", url: "/api-docs", icon: FileText },
+  { title: "API Docs", url: "/api-docs", icon: FileText },
 ];
 
 export function AppSidebar() {

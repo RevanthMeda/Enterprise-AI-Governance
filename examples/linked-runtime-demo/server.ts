@@ -51,6 +51,13 @@ type DemoRun = {
   upstreamError: string | null;
 };
 
+type DemoChatMessage = {
+  role: "assistant" | "user";
+  style: "allow" | "warn" | "block";
+  label: string;
+  content: string;
+};
+
 const currentFile = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFile);
 const examplesDir = path.resolve(currentDir, "..");
@@ -71,6 +78,10 @@ const configuredGateway = firstDefined("AICT_GATEWAY") || "demo-agent-console";
 const configuredProvider = firstDefined("AICT_PROVIDER") || "openai";
 const configuredModel = firstDefined("AICT_MODEL_NAME") || "gpt-4.1-mini";
 const openAiApiKey = firstDefined("OPENAI_API_KEY") || null;
+const telemetryTimeoutMs = Number(process.env.AICT_TIMEOUT_MS || 10_000);
+const overallTurnTimeoutMs = Number(process.env.AICT_DEMO_TURN_TIMEOUT_MS || 20_000);
+const upstreamModelTimeoutMs = Number(process.env.AICT_DEMO_MODEL_TIMEOUT_MS || 12_000);
+const demoBuildStamp = "server-rendered-2026-03-19-2";
 
 if (!controlTowerBaseUrl.trim()) {
   throw new Error("AICT_BASE_URL or CT_API must be set");
@@ -138,6 +149,7 @@ const modes: Record<ConversationModeId, ConversationMode> = {
 const client = new AiControlTowerTelemetryClient({
   baseUrl: controlTowerBaseUrl,
   telemetryKey,
+  timeoutMs: telemetryTimeoutMs,
   defaults: {
     ...(configuredSystemId ? { systemId: configuredSystemId } : {}),
     gateway: configuredGateway,
@@ -149,8 +161,22 @@ const client = new AiControlTowerTelemetryClient({
 const recentRuns: DemoRun[] = [];
 
 const app = express();
+app.use((_req, res, next) => {
+  res.set({
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+    "Surrogate-Control": "no-store",
+    "X-Demo-Build": demoBuildStamp,
+  });
+  next();
+});
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: false }));
+
+app.get("/favicon.ico", (_req, res) => {
+  res.status(204).end();
+});
 
 app.get("/api/bootstrap", (_req, res) => {
   res.json({
@@ -164,12 +190,64 @@ app.get("/api/bootstrap", (_req, res) => {
   });
 });
 
+app.get("/demo.js", (_req, res) => {
+  res.type("application/javascript").send(buildDemoScript());
+});
+
 app.post("/api/chat", async (req, res) => {
   const prompt = getCleanString(req.body?.prompt, 1, 5000);
   if (!prompt) {
     return res.status(400).json({ message: "Prompt is required." });
   }
 
+  try {
+    const run = await executeGovernedTurn(prompt);
+    return res.json({ run });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return res.status(500).json({ message });
+  }
+});
+
+app.post("/chat", async (req, res) => {
+  const prompt = getCleanString(req.body?.prompt, 1, 5000);
+  if (!prompt) {
+    return res.type("html").send(
+      renderPage({
+        initialMessages: [createWelcomeMessage(), buildErrorTurnMessage("Prompt is required.")],
+        initialError: "Prompt is required.",
+      }),
+    );
+  }
+
+  try {
+    const run = await executeGovernedTurn(prompt);
+    return res.type("html").send(
+      renderPage({
+        initialMessages: [
+          createWelcomeMessage(),
+          { role: "user", style: "allow", label: "you", content: prompt },
+          buildAssistantTurnMessage(run),
+        ],
+        initialRun: run,
+      }),
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return res.type("html").send(
+      renderPage({
+        initialMessages: [
+          createWelcomeMessage(),
+          { role: "user", style: "allow", label: "you", content: prompt },
+          buildErrorTurnMessage(message),
+        ],
+        initialError: message,
+      }),
+    );
+  }
+});
+
+async function executeGovernedTurn(prompt: string): Promise<DemoRun> {
   const mode = inferConversationMode(prompt);
   const promptSignals = detectPromptSignals(prompt, mode);
   const correlationId = randomUUID();
@@ -177,8 +255,8 @@ app.post("/api/chat", async (req, res) => {
   let upstreamError: string | null = null;
   let usedSimulation = false;
 
-  try {
-    const guarded = await client.guardRuntimeExecution<string>({
+  const guarded = await withTimeout(
+    client.guardRuntimeExecution<string>({
       correlationId,
       preflight: {
         ...(configuredSystemId ? { systemId: configuredSystemId } : {}),
@@ -233,52 +311,72 @@ app.post("/api/chat", async (req, res) => {
 
         return { output, postflight };
       },
-    });
+    }),
+    overallTurnTimeoutMs,
+    "Governed turn timed out before the platform returned a decision.",
+  );
 
-    const primaryDecision = guarded.postflight ?? guarded.preflight;
-    const run: DemoRun = {
-      id: randomUUID(),
-      createdAt: new Date().toISOString(),
-      prompt,
-      response: guarded.output,
-      modeId: mode.id,
-      modeLabel: mode.label,
-      decision: primaryDecision.decision,
-      decisionStage: guarded.blockStage ?? (guarded.postflight ? "output" : "input"),
-      blocked: guarded.blocked,
-      releasedToEndUser: guarded.releasedToEndUser,
-      modelCallExecuted: guarded.modelCallExecuted,
-      thresholdBreaches: primaryDecision.thresholdBreaches,
-      restrictedPromptMatches: primaryDecision.restrictedPromptMatches,
-      escalatedIncidentId: primaryDecision.escalatedIncidentId,
-      correlationId: guarded.correlationId,
-      runtimeSummary: guarded.postflight
-        ? "Output evaluated before release."
-        : "Prompt evaluated before model execution.",
-      usedSimulation,
-      upstreamError,
-    };
+  const primaryDecision = guarded.postflight ?? guarded.preflight;
+  const run: DemoRun = {
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    prompt,
+    response: guarded.output,
+    modeId: mode.id,
+    modeLabel: mode.label,
+    decision: primaryDecision.decision,
+    decisionStage: guarded.blockStage ?? (guarded.postflight ? "output" : "input"),
+    blocked: guarded.blocked,
+    releasedToEndUser: guarded.releasedToEndUser,
+    modelCallExecuted: guarded.modelCallExecuted,
+    thresholdBreaches: primaryDecision.thresholdBreaches,
+    restrictedPromptMatches: primaryDecision.restrictedPromptMatches,
+    escalatedIncidentId: primaryDecision.escalatedIncidentId,
+    correlationId: guarded.correlationId,
+    runtimeSummary: guarded.postflight
+      ? "Output evaluated before release."
+      : "Prompt evaluated before model execution.",
+    usedSimulation,
+    upstreamError,
+  };
 
-    recentRuns.unshift(run);
-    if (recentRuns.length > 20) {
-      recentRuns.length = 20;
-    }
-
-    return res.json({ run });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return res.status(500).json({ message });
+  recentRuns.unshift(run);
+  if (recentRuns.length > 20) {
+    recentRuns.length = 20;
   }
-});
+
+  return run;
+}
 
 app.get("/", (_req, res) => {
   res.type("html").send(renderPage());
 });
 
-app.listen(port, bindHost, () => {
+const server = app.listen(port, bindHost, () => {
   console.log(
     `demo agent console listening on http://${browserHost}:${port} (bound to ${bindHost}:${port})`,
   );
+});
+
+server.on("close", () => {
+  console.log("demo agent console server closed");
+});
+
+server.on("error", (error) => {
+  console.error("demo agent console server error", error);
+});
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    server.close(() => {
+      process.exit(0);
+    });
+  });
+}
+
+await new Promise<void>((resolve, reject) => {
+  server.on("close", resolve);
+  server.on("error", reject);
 });
 
 function inferConversationMode(prompt: string): ConversationMode {
@@ -297,9 +395,20 @@ function inferConversationMode(prompt: string): ConversationMode {
 
 function detectPromptSignals(prompt: string, mode: ConversationMode): SignalPackage {
   const normalized = prompt.toLowerCase();
+  const collapsed = normalized.replace(/[^a-z0-9]+/g, "");
   const restrictedPatterns = [
     "ignore previous instructions",
     "bypass safety",
+    "ignore all previous instructions",
+    "ignore all prior directives",
+    "execute the following instruction",
+    "execute the resulting instruction",
+    "evaluate the following concatenated string",
+    "payload splitting",
+    "token smuggling",
+    "contextual frame shifting",
+    "translate the directive and execute",
+    "without providing the translation",
     "reveal system prompt",
     "system prompt",
     "developer message",
@@ -307,14 +416,41 @@ function detectPromptSignals(prompt: string, mode: ConversationMode): SignalPack
     "bank secrets",
     "internal secrets",
     "reveal internal instructions",
+    "diagnostic mode",
+    "initialization parameters",
+    "internal routing algorithms",
   ];
   const restrictedMatches = restrictedPatterns.filter((pattern) => normalized.includes(pattern));
+  const collapsedRestrictedPatterns: Array<[string, string]> = [
+    ["ignoreallpreviousinstructions", "ignore previous instructions"],
+    ["ignoreallpriordirectives", "ignore all prior directives"],
+    ["executethefollowinginstruction", "execute the following instruction"],
+    ["executetheresultinginstruction", "execute the resulting instruction"],
+    ["evaluatethefollowingconcatenatedstring", "evaluate the following concatenated string"],
+    ["revealtheinternalsystemprompt", "reveal system prompt"],
+    ["systemprompt", "system prompt"],
+    ["developerinstructions", "developer message"],
+    ["internalinstructions", "internal instructions"],
+    ["internalroutingalgorithms", "internal routing algorithms"],
+    ["banksecrets", "bank secrets"],
+  ];
+  for (const [pattern, label] of collapsedRestrictedPatterns) {
+    if (collapsed.includes(pattern) && !restrictedMatches.includes(label)) {
+      restrictedMatches.push(label);
+    }
+  }
 
   const piiFlags: string[] = [];
-  if (/\bssn\b|social security number/.test(normalized)) {
+  if (/\bssn\b|social security number|national insurance number|ni number/.test(normalized)) {
+    piiFlags.push("social_security_number");
+  }
+  if (collapsed.includes("socialsecuritynumber") || collapsed.includes("nationalinsurancenumber")) {
     piiFlags.push("social_security_number");
   }
   if (/account number|iban|routing number/.test(normalized)) {
+    piiFlags.push("financial_identifier");
+  }
+  if (collapsed.includes("accountnumber") || collapsed.includes("routingnumber") || collapsed.includes("iban")) {
     piiFlags.push("financial_identifier");
   }
 
@@ -337,7 +473,7 @@ function detectPromptSignals(prompt: string, mode: ConversationMode): SignalPack
 
   if (
     mode.id === "talent" ||
-    /culture fit|maturity|young|old|age|personality|aggressive|pregnan/.test(normalized)
+    /culture fit|maturity|young|old|age|personality|aggressive|pregnan|over\s*40|over\s*forty|plus de quarante|quarante ans|candidat|candidate/.test(normalized)
   ) {
     metadata.overrideRate = 44;
     metadata.errorRate = 6;
@@ -418,7 +554,7 @@ function detectOutputSignals(
     summary = "Output shows elevated oversight and bias-risk signals for talent screening.";
   }
 
-  if (/bank secrets|system prompt|developer instructions|internal policy|internal prompt/.test(normalizedOutput)) {
+  if (/bank secrets|system prompt|developer instructions|internal policy|internal prompt|internal instructions|initialization parameters|diagnostic mode/.test(normalizedOutput)) {
     if (!safetySignals.includes("secret-exposure")) {
       safetySignals.push("secret-exposure");
     }
@@ -454,27 +590,41 @@ async function generateModelOutput(prompt: string, mode: ConversationMode) {
     throw new Error("OPENAI_API_KEY not configured");
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${openAiApiKey}`,
-    },
-    body: JSON.stringify({
-      model: configuredModel,
-      temperature: 0.4,
-      messages: [
-        {
-          role: "system",
-          content: mode.systemPrompt,
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    }),
-  });
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : undefined;
+  const timeout =
+    controller && Number.isFinite(upstreamModelTimeoutMs)
+      ? setTimeout(() => controller.abort(), upstreamModelTimeoutMs)
+      : null;
+
+  let response: Response;
+  try {
+    response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${openAiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: configuredModel,
+        temperature: 0.4,
+        messages: [
+          {
+            role: "system",
+            content: mode.systemPrompt,
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      }),
+      signal: controller?.signal,
+    });
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 
   const body = (await response.json()) as {
     choices?: Array<{ message?: { content?: string | null } }>;
@@ -506,7 +656,7 @@ function simulateModelOutput(prompt: string, mode: ConversationMode) {
     return "Here is a concise operations summary: recent governance activity shows stable telemetry intake, one blocked high-risk prompt, and no unresolved delivery failures. Recommended next steps: confirm reviewer ownership, validate containment notes, and review any new exceptions.";
   }
 
-  return `Here is a compliant response draft: acknowledge the concern, summarize the issue clearly, and route the case to the correct review queue. Your original question was: ${prompt}`;
+  return "Here is a compliant response draft: acknowledge the concern, summarize the issue clearly, and route the case to the correct review queue. If you want a specific response, share the complaint details without including sensitive identifiers.";
 }
 
 function firstDefined(...keys: string[]) {
@@ -517,6 +667,25 @@ function firstDefined(...keys: string[]) {
     }
   }
   return "";
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return promise;
+  }
+
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 function loadEnvFile(filePath: string) {
@@ -569,12 +738,158 @@ function getCleanString(value: unknown, min = 0, max = 5000) {
   return trimmed.slice(0, max);
 }
 
-function renderPage() {
+function createWelcomeMessage(): DemoChatMessage {
+  return {
+    role: "assistant",
+    style: "allow",
+    label: "assistant",
+    content: "Welcome. Send any message and this demo will run it through AI Control Tower before and after model execution.",
+  };
+}
+
+function buildAssistantTurnMessage(run: DemoRun): DemoChatMessage {
+  if (run.blocked) {
+    const stageText = run.decisionStage === "input"
+      ? "AI Control Tower blocked this message before the model was allowed to answer."
+      : "AI Control Tower blocked this answer before it was released.";
+    return {
+      role: "assistant",
+      style: "block",
+      label: "assistant · blocked",
+      content: `${stageText} Please rephrase the request without asking for restricted content, internal secrets, or sensitive personal data.`,
+    };
+  }
+
+  if (run.decision === "warn" || run.decision === "escalate") {
+    return {
+      role: "assistant",
+      style: "warn",
+      label: run.decision === "escalate" ? "assistant · escalated" : "assistant · warning",
+      content: `${run.response || "The answer was released."}\n\nWarning: this turn triggered governance signals and should be reviewed before downstream use.`,
+    };
+  }
+
+  return {
+    role: "assistant",
+    style: "allow",
+    label: "assistant",
+    content: run.response || "No response returned.",
+  };
+}
+
+function buildErrorTurnMessage(message: string): DemoChatMessage {
+  return {
+    role: "assistant",
+    style: "block",
+    label: "assistant · error",
+    content: message,
+  };
+}
+
+function serializeForInlineJson(value: unknown) {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
+}
+
+function renderPage(options?: {
+  initialMessages?: DemoChatMessage[];
+  initialRun?: DemoRun | null;
+  initialError?: string | null;
+  promptValue?: string | null;
+}) {
+  const initialMessages = options?.initialMessages?.length
+    ? options.initialMessages
+    : [createWelcomeMessage()];
+  const activeRun = options?.initialRun ?? null;
+  const activeError = options?.initialError ?? null;
+  const promptValue = options?.promptValue ?? "";
+  const incidentCount = recentRuns.filter((run) => run.escalatedIncidentId).length;
+  const blockedCount = recentRuns.filter((run) => run.blocked).length;
+  const decisionClass = activeError
+    ? "block"
+    : activeRun?.blocked
+      ? "block"
+      : activeRun?.decision === "warn" || activeRun?.decision === "escalate"
+        ? "warn"
+        : activeRun
+          ? "allow"
+          : "";
+  const decisionTitle = activeError
+    ? "Demo request failed"
+    : activeRun?.blocked
+      ? "Blocked before release"
+      : activeRun?.decision === "warn" || activeRun?.decision === "escalate"
+        ? "Warning recorded, answer released"
+        : activeRun
+          ? "Allowed and released"
+          : "";
+  const decisionBody = activeError
+    ? activeError
+    : activeRun?.blocked
+      ? "The prompt or answer crossed policy thresholds. The model answer was not released to the user."
+      : activeRun?.decision === "warn" || activeRun?.decision === "escalate"
+        ? "The answer was returned, but the turn produced governance signals that should be reviewed."
+        : activeRun
+          ? "The turn completed cleanly and the answer was released to the user."
+          : "";
+  const decisionPills: string[] = [];
+  if (activeRun) {
+    decisionPills.push(`Workflow: ${activeRun.modeLabel}`);
+    if (activeRun.thresholdBreaches.length > 0) {
+      decisionPills.push(`Thresholds: ${activeRun.thresholdBreaches.join(", ")}`);
+    }
+    if (activeRun.restrictedPromptMatches.length > 0) {
+      decisionPills.push(`Matches: ${activeRun.restrictedPromptMatches.join(", ")}`);
+    }
+    if (activeRun.escalatedIncidentId) {
+      decisionPills.push(`Incident: ${activeRun.escalatedIncidentId}`);
+    }
+    if (!activeRun.modelCallExecuted) {
+      decisionPills.push("Model execution skipped");
+    }
+    if (activeRun.usedSimulation) {
+      decisionPills.push("Output mode: simulated fallback");
+    }
+  } else if (activeError) {
+    decisionPills.push("Check the Control Tower base URL, telemetry key, or upstream model key.");
+  }
+
+  const transcriptHtml = initialMessages
+    .map((message) => {
+      const bubbleClass = message.role === "assistant"
+        ? `bubble assistant ${escapeHtml(message.style || "allow")}`
+        : `bubble ${escapeHtml(message.role)}`;
+      return `<div class="message ${escapeHtml(message.role)}">
+        <span class="label">${escapeHtml(message.label)}</span>
+        <div class="${bubbleClass}">${escapeHtml(message.content)}</div>
+      </div>`;
+    })
+    .join("");
+
+  const historyHtml = recentRuns.length === 0
+    ? `<tr data-empty="true"><td colspan="7" class="muted">No runs yet. Send a message to start the governed conversation.</td></tr>`
+    : recentRuns
+        .map((run) => `<tr>
+          <td>${escapeHtml(new Date(run.createdAt).toLocaleString())}</td>
+          <td>${escapeHtml(run.modeLabel)}</td>
+          <td>${escapeHtml(run.decision)}</td>
+          <td>${escapeHtml(run.decisionStage || "n/a")}</td>
+          <td>${run.blocked ? "yes" : "no"}</td>
+          <td>${escapeHtml(run.thresholdBreaches.join(", ") || "none")}</td>
+          <td>${escapeHtml(run.escalatedIncidentId || "none")}</td>
+        </tr>`)
+        .join("");
+
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>AI Control Tower Demo Agent Console</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -841,6 +1156,10 @@ function renderPage() {
         font: inherit;
         font-weight: 700;
         cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
       }
       .button.primary {
         color: white;
@@ -874,10 +1193,6 @@ function renderPage() {
       .muted {
         color: var(--muted);
       }
-      .loading {
-        opacity: 0.66;
-        pointer-events: none;
-      }
       @media (max-width: 1100px) {
         .top,
         .main {
@@ -899,6 +1214,7 @@ function renderPage() {
         }
       }
     </style>
+    <script src="/demo.js" defer></script>
   </head>
   <body>
     <div class="shell">
@@ -913,56 +1229,57 @@ function renderPage() {
               shows whether the turn was allowed, warned, or blocked.
             </p>
             <div class="hero-metrics">
-              <div class="metric"><span>Control Tower</span><strong class="mono" id="metric-base-url"></strong></div>
-              <div class="metric"><span>Model mode</span><strong id="metric-model-mode"></strong></div>
-              <div class="metric"><span>Gateway label</span><strong class="mono" id="metric-gateway"></strong></div>
+              <div class="metric"><span>Control Tower</span><strong class="mono">${escapeHtml(controlTowerBaseUrl)}</strong></div>
+              <div class="metric"><span>Model mode</span><strong>${openAiApiKey ? "Live OpenAI response" : "Local simulation fallback"}</strong></div>
+              <div class="metric"><span>Gateway label</span><strong class="mono">${escapeHtml(configuredGateway)}</strong></div>
+              <div class="metric"><span>Demo build</span><strong class="mono">${escapeHtml(demoBuildStamp)}</strong></div>
             </div>
           </div>
           <aside class="status">
             <h2 class="section-title">Environment status</h2>
             <div class="status-grid">
-              <div class="status-row"><span>System binding</span><code id="status-system"></code></div>
-              <div class="status-row"><span>Provider / model</span><code id="status-model"></code></div>
-              <div class="status-row"><span>Recent incidents</span><strong id="status-incidents">0</strong></div>
-              <div class="status-row"><span>Recent blocked runs</span><strong id="status-blocked">0</strong></div>
+              <div class="status-row"><span>System binding</span><code>${escapeHtml(configuredSystemId || "Telemetry adapter default binding")}</code></div>
+              <div class="status-row"><span>Provider / model</span><code>${escapeHtml(`${configuredProvider} / ${configuredModel}`)}</code></div>
+              <div class="status-row"><span>Recent incidents</span><strong id="status-incidents">${incidentCount}</strong></div>
+              <div class="status-row"><span>Recent blocked runs</span><strong id="status-blocked">${blockedCount}</strong></div>
             </div>
           </aside>
         </section>
 
         <section class="main">
-          <section class="chat-panel" id="chat-panel">
-            <div class="decision-bar" id="decision-bar">
-              <h3 id="decision-title"></h3>
-              <p id="decision-body"></p>
-              <div class="pill-row" id="decision-pills"></div>
+          <section class="chat-panel">
+            <div id="decision-bar" class="decision-bar${decisionClass ? ` show ${decisionClass}` : ""}">
+              <h3 id="decision-title">${escapeHtml(decisionTitle)}</h3>
+              <p id="decision-body">${escapeHtml(decisionBody)}</p>
+              <div id="decision-pills" class="pill-row">${decisionPills.map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("")}</div>
             </div>
 
-            <div class="transcript" id="transcript"></div>
+            <div id="transcript" class="transcript">${transcriptHtml}</div>
 
-            <div class="composer">
-              <textarea id="prompt-input" placeholder="Send any prompt. Example: Summarize this complaint in a compliant tone."></textarea>
+            <form id="composer-form" class="composer" method="post" action="/chat" novalidate>
+              <textarea id="prompt-input" name="prompt" placeholder="Send any prompt. Example: Summarize this complaint in a compliant tone.">${escapeHtml(promptValue)}</textarea>
               <div class="composer-row">
                 <span class="composer-note">The app auto-detects the likely workflow context and shows the governance decision inline.</span>
                 <div class="controls">
-                  <button class="button secondary" id="clear-chat" type="button">Clear chat</button>
-                  <button class="button primary" id="send-prompt" type="button">Send message</button>
+                  <a class="button secondary" href="/">Clear chat</a>
+                  <button id="send-button" class="button primary" type="submit" formaction="/chat" formmethod="post">Send message</button>
                 </div>
               </div>
-            </div>
+            </form>
           </section>
 
           <aside class="status">
             <h2 class="section-title">Current governed turn</h2>
             <div class="status-grid">
-              <div class="status-row"><span>Detected workflow</span><code id="current-mode">-</code></div>
-              <div class="status-row"><span>Decision</span><strong id="current-decision">No run yet</strong></div>
-              <div class="status-row"><span>Decision stage</span><code id="current-stage">-</code></div>
-              <div class="status-row"><span>Threshold breaches</span><code id="current-breaches">none</code></div>
-              <div class="status-row"><span>Incident</span><code id="current-incident">none</code></div>
-              <div class="status-row"><span>Correlation ID</span><code id="current-correlation">-</code></div>
+              <div class="status-row"><span>Detected workflow</span><code id="status-workflow">${escapeHtml(activeRun?.modeLabel || "-")}</code></div>
+              <div class="status-row"><span>Decision</span><strong id="status-decision">${escapeHtml(activeError ? "ERROR" : activeRun?.decision?.toUpperCase() || "No run yet")}</strong></div>
+              <div class="status-row"><span>Decision stage</span><code id="status-stage">${escapeHtml(activeRun?.decisionStage || "-")}</code></div>
+              <div class="status-row"><span>Threshold breaches</span><code id="status-thresholds">${escapeHtml(activeRun?.thresholdBreaches.join(", ") || "none")}</code></div>
+              <div class="status-row"><span>Incident</span><code id="status-incident">${escapeHtml(activeRun?.escalatedIncidentId || "none")}</code></div>
+              <div class="status-row"><span>Correlation ID</span><code id="status-correlation">${escapeHtml(activeRun?.correlationId || "-")}</code></div>
             </div>
-            <p class="muted" id="current-summary" style="margin-top:14px; line-height:1.5;">
-              Send a message to see how the same user interaction becomes governed runtime evidence.
+            <p id="status-summary" class="muted" style="margin-top:14px; line-height:1.5;">
+              ${escapeHtml(activeError || activeRun?.runtimeSummary || "Send a message to see how the same user interaction becomes governed runtime evidence.")}
             </p>
           </aside>
         </section>
@@ -981,275 +1298,281 @@ function renderPage() {
                 <th>Incident</th>
               </tr>
             </thead>
-            <tbody id="history-body">
-              <tr><td colspan="7" class="muted">No runs yet. Send a message to start the governed conversation.</td></tr>
-            </tbody>
+            <tbody id="recent-runs">${historyHtml}</tbody>
           </table>
         </section>
       </div>
     </div>
-
-    <script>
-      const state = {
-        bootstrap: null,
-        messages: [
-          {
-            role: 'assistant',
-            style: 'allow',
-            content: 'Welcome. Send any message and this demo will run it through AI Control Tower before and after model execution.',
-            label: 'assistant',
-          },
-        ],
-      };
-
-      const transcript = document.getElementById('transcript');
-      const promptInput = document.getElementById('prompt-input');
-      const chatPanel = document.getElementById('chat-panel');
-      const sendPromptButton = document.getElementById('send-prompt');
-      const clearChatButton = document.getElementById('clear-chat');
-      const decisionBar = document.getElementById('decision-bar');
-      const decisionTitle = document.getElementById('decision-title');
-      const decisionBody = document.getElementById('decision-body');
-      const decisionPills = document.getElementById('decision-pills');
-      const metricBaseUrl = document.getElementById('metric-base-url');
-      const metricModelMode = document.getElementById('metric-model-mode');
-      const metricGateway = document.getElementById('metric-gateway');
-      const statusSystem = document.getElementById('status-system');
-      const statusModel = document.getElementById('status-model');
-      const statusIncidents = document.getElementById('status-incidents');
-      const statusBlocked = document.getElementById('status-blocked');
-      const currentMode = document.getElementById('current-mode');
-      const currentDecision = document.getElementById('current-decision');
-      const currentStage = document.getElementById('current-stage');
-      const currentBreaches = document.getElementById('current-breaches');
-      const currentIncident = document.getElementById('current-incident');
-      const currentCorrelation = document.getElementById('current-correlation');
-      const currentSummary = document.getElementById('current-summary');
-      const historyBody = document.getElementById('history-body');
-
-      function escapeHtml(value) {
-        return String(value)
-          .replaceAll('&', '&amp;')
-          .replaceAll('<', '&lt;')
-          .replaceAll('>', '&gt;')
-          .replaceAll('"', '&quot;')
-          .replaceAll("'", '&#39;');
-      }
-
-      function formatDate(value) {
-        return new Date(value).toLocaleString();
-      }
-
-      function renderTranscript() {
-        transcript.innerHTML = state.messages
-          .map((message) => {
-            return '<div class="message ' + escapeHtml(message.role) + '">' +
-              '<span class="label">' + escapeHtml(message.label) + '</span>' +
-              '<div class="bubble ' + escapeHtml(message.role) + (message.role === 'assistant' ? ' ' + escapeHtml(message.style || 'allow') : '') + '">' + escapeHtml(message.content) + '</div>' +
-            '</div>';
-          })
-          .join('');
-        transcript.scrollTop = transcript.scrollHeight;
-      }
-
-      function renderHistory(runs) {
-        if (!runs || runs.length === 0) {
-          historyBody.innerHTML = '<tr><td colspan="7" class="muted">No runs yet. Send a message to start the governed conversation.</td></tr>';
-          statusIncidents.textContent = '0';
-          statusBlocked.textContent = '0';
-          return;
-        }
-
-        historyBody.innerHTML = runs.map((run) => {
-          return '<tr>' +
-            '<td>' + formatDate(run.createdAt) + '</td>' +
-            '<td>' + escapeHtml(run.modeLabel) + '</td>' +
-            '<td>' + escapeHtml(run.decision) + '</td>' +
-            '<td>' + escapeHtml(run.decisionStage || 'n/a') + '</td>' +
-            '<td>' + (run.blocked ? 'yes' : 'no') + '</td>' +
-            '<td>' + escapeHtml((run.thresholdBreaches || []).join(', ') || 'none') + '</td>' +
-            '<td>' + escapeHtml(run.escalatedIncidentId || 'none') + '</td>' +
-          '</tr>';
-        }).join('');
-
-        statusIncidents.textContent = String(runs.filter((run) => run.escalatedIncidentId).length);
-        statusBlocked.textContent = String(runs.filter((run) => run.blocked).length);
-      }
-
-      function renderDecision(run) {
-        const decision = typeof run.decision === 'string' ? run.decision : 'error';
-        const style = run.blocked ? 'block' : decision === 'warn' ? 'warn' : decision === 'allow' ? 'allow' : 'block';
-        decisionBar.className = 'decision-bar show ' + style;
-        decisionTitle.textContent = run.blocked
-          ? 'Blocked before release'
-          : decision === 'warn'
-            ? 'Warning recorded, answer released'
-            : 'Allowed and released';
-        decisionBody.textContent = run.blocked
-          ? 'The prompt or answer crossed policy thresholds. The model answer was not released to the user.'
-          : decision === 'warn'
-            ? 'The answer was returned, but the turn produced governance signals that should be reviewed.'
-            : 'The turn completed cleanly and the answer was released to the user.';
-
-        const pills = [];
-        pills.push('Workflow: ' + run.modeLabel);
-        if (run.thresholdBreaches && run.thresholdBreaches.length > 0) {
-          pills.push('Thresholds: ' + run.thresholdBreaches.join(', '));
-        }
-        if (run.restrictedPromptMatches && run.restrictedPromptMatches.length > 0) {
-          pills.push('Matches: ' + run.restrictedPromptMatches.join(', '));
-        }
-        if (run.escalatedIncidentId) {
-          pills.push('Incident: ' + run.escalatedIncidentId);
-        }
-        if (!run.modelCallExecuted) {
-          pills.push('Model execution skipped');
-        }
-        if (run.usedSimulation) {
-          pills.push('Output mode: simulated fallback');
-        }
-        decisionPills.innerHTML = pills.map((item) => '<span class="pill">' + escapeHtml(item) + '</span>').join('');
-
-        currentMode.textContent = run.modeLabel;
-        currentDecision.textContent = decision.toUpperCase();
-        currentStage.textContent = run.decisionStage || '-';
-        currentBreaches.textContent = (run.thresholdBreaches || []).join(', ') || 'none';
-        currentIncident.textContent = run.escalatedIncidentId || 'none';
-        currentCorrelation.textContent = run.correlationId;
-        currentSummary.textContent = run.runtimeSummary;
-      }
-
-      function buildAssistantMessage(run) {
-        if (run.blocked) {
-          const stageText = run.decisionStage === 'input'
-            ? 'AI Control Tower blocked this message before the model was allowed to answer.'
-            : 'AI Control Tower blocked this answer before it was released.';
-          return {
-            role: 'assistant',
-            style: 'block',
-            label: 'assistant · blocked',
-            content: stageText + ' Please rephrase the request without asking for restricted content, internal secrets, or sensitive personal data.',
-          };
-        }
-
-        if (run.decision === 'warn') {
-          return {
-            role: 'assistant',
-            style: 'warn',
-            label: 'assistant · warning',
-            content: (run.response || 'The answer was released.') + '\n\nWarning: this turn triggered governance signals and should be reviewed before downstream use.',
-          };
-        }
-
-        return {
-          role: 'assistant',
-          style: 'allow',
-          label: 'assistant',
-          content: run.response || 'No response returned.',
-        };
-      }
-
-      async function bootstrap() {
-        const response = await fetch('/api/bootstrap');
-        state.bootstrap = await response.json();
-        metricBaseUrl.textContent = state.bootstrap.controlTowerBaseUrl;
-        metricModelMode.textContent = state.bootstrap.usingLiveModel ? 'Live OpenAI response' : 'Local simulation fallback';
-        metricGateway.textContent = state.bootstrap.configuredGateway;
-        statusSystem.textContent = state.bootstrap.configuredSystemId || 'Telemetry adapter default binding';
-        statusModel.textContent = state.bootstrap.configuredProvider + ' / ' + state.bootstrap.configuredModel;
-        renderTranscript();
-        renderHistory(state.bootstrap.recentRuns || []);
-      }
-
-      async function sendPrompt() {
-        const prompt = promptInput.value.trim();
-        if (!prompt) {
-          promptInput.focus();
-          return;
-        }
-
-        if (!state.bootstrap) {
-          await bootstrap();
-        }
-
-        state.messages.push({ role: 'user', style: 'allow', label: 'you', content: prompt });
-        renderTranscript();
-        promptInput.value = '';
-        chatPanel.classList.add('loading');
-        sendPromptButton.textContent = 'Sending...';
-
-        try {
-          const response = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ prompt }),
-          });
-          const body = await response.json();
-          if (!response.ok) {
-            throw new Error(body.message || 'Request failed');
-          }
-          if (!body.run || typeof body.run !== 'object' || typeof body.run.decision !== 'string') {
-            throw new Error('The demo app received an invalid governed response.');
-          }
-          const run = body.run;
-          state.bootstrap = state.bootstrap || {};
-          state.bootstrap.recentRuns = [run].concat(state.bootstrap.recentRuns || []).slice(0, 20);
-          state.messages.push(buildAssistantMessage(run));
-          renderTranscript();
-          renderDecision(run);
-          renderHistory(state.bootstrap.recentRuns);
-        } catch (error) {
-          state.messages.push({
-            role: 'assistant',
-            style: 'block',
-            label: 'assistant · error',
-            content: error instanceof Error ? error.message : String(error),
-          });
-          renderTranscript();
-          decisionBar.className = 'decision-bar show block';
-          decisionTitle.textContent = 'Demo request failed';
-          decisionBody.textContent = 'The local demo app could not complete the governed turn.';
-          decisionPills.innerHTML = '<span class="pill">Check the Control Tower base URL, telemetry key, or upstream model key.</span>';
-          currentDecision.textContent = 'ERROR';
-        } finally {
-          chatPanel.classList.remove('loading');
-          sendPromptButton.textContent = 'Send message';
-        }
-      }
-
-      clearChatButton.addEventListener('click', () => {
-        state.messages = [{
-          role: 'assistant',
-          style: 'allow',
-          label: 'assistant',
-          content: 'Welcome. Send any message and this demo will run it through AI Control Tower before and after model execution.',
-        }];
-        renderTranscript();
-        decisionBar.className = 'decision-bar';
-        currentMode.textContent = '-';
-        currentDecision.textContent = 'No run yet';
-        currentStage.textContent = '-';
-        currentBreaches.textContent = 'none';
-        currentIncident.textContent = 'none';
-        currentCorrelation.textContent = '-';
-        currentSummary.textContent = 'Send a message to see how the same user interaction becomes governed runtime evidence.';
-      });
-
-      sendPromptButton.addEventListener('click', sendPrompt);
-      promptInput.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' && !event.shiftKey) {
-          event.preventDefault();
-          sendPrompt();
-        }
-      });
-
-      bootstrap().catch((error) => {
-        decisionBar.className = 'decision-bar show block';
-        decisionTitle.textContent = 'Bootstrap failed';
-        decisionBody.textContent = error instanceof Error ? error.message : String(error);
-        decisionPills.innerHTML = '<span class="pill">The demo app could not load its startup configuration.</span>';
-      });
-    </script>
   </body>
 </html>`;
+}
+
+function escapeHtml(value: unknown) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function buildDemoScript() {
+  return `
+(function () {
+  const form = document.getElementById("composer-form");
+  if (!form) return;
+  const textarea = document.getElementById("prompt-input");
+  const sendButton = document.getElementById("send-button");
+  const transcript = document.getElementById("transcript");
+  const decisionBar = document.getElementById("decision-bar");
+  const decisionTitle = document.getElementById("decision-title");
+  const decisionBody = document.getElementById("decision-body");
+  const decisionPills = document.getElementById("decision-pills");
+  const statusWorkflow = document.getElementById("status-workflow");
+  const statusDecision = document.getElementById("status-decision");
+  const statusStage = document.getElementById("status-stage");
+  const statusThresholds = document.getElementById("status-thresholds");
+  const statusIncident = document.getElementById("status-incident");
+  const statusCorrelation = document.getElementById("status-correlation");
+  const statusSummary = document.getElementById("status-summary");
+  const statusIncidents = document.getElementById("status-incidents");
+  const statusBlocked = document.getElementById("status-blocked");
+  const recentRuns = document.getElementById("recent-runs");
+
+  function setText(el, value) {
+    if (!el) return;
+    el.textContent = value || "";
+  }
+
+  function clearChildren(el) {
+    if (!el) return;
+    while (el.firstChild) {
+      el.removeChild(el.firstChild);
+    }
+  }
+
+  function createMessage(role, label, content, style) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "message " + role;
+    const labelEl = document.createElement("span");
+    labelEl.className = "label";
+    labelEl.textContent = label;
+    const bubble = document.createElement("div");
+    if (role === "assistant") {
+      bubble.className = "bubble assistant " + (style || "allow");
+    } else {
+      bubble.className = "bubble user";
+    }
+    bubble.textContent = content;
+    wrapper.appendChild(labelEl);
+    wrapper.appendChild(bubble);
+    return { wrapper, labelEl, bubble };
+  }
+
+  function setDecision(run, errorMessage) {
+    let decisionClass = "";
+    let title = "";
+    let body = "";
+    if (errorMessage) {
+      decisionClass = "block";
+      title = "Demo request failed";
+      body = errorMessage;
+    } else if (run) {
+      if (run.blocked) {
+        decisionClass = "block";
+        title = "Blocked before release";
+        body = "The prompt or answer crossed policy thresholds. The model answer was not released to the user.";
+      } else if (run.decision === "warn" || run.decision === "escalate") {
+        decisionClass = "warn";
+        title = "Warning recorded, answer released";
+        body = "The answer was returned, but the turn produced governance signals that should be reviewed.";
+      } else {
+        decisionClass = "allow";
+        title = "Allowed and released";
+        body = "The turn completed cleanly and the answer was released to the user.";
+      }
+    }
+
+    if (decisionBar) {
+      decisionBar.className = "decision-bar" + (decisionClass ? " show " + decisionClass : "");
+    }
+    setText(decisionTitle, title);
+    setText(decisionBody, body);
+
+    if (decisionPills) {
+      clearChildren(decisionPills);
+      const pills = [];
+      if (run) {
+        pills.push("Workflow: " + run.modeLabel);
+        if (run.thresholdBreaches && run.thresholdBreaches.length) {
+          pills.push("Thresholds: " + run.thresholdBreaches.join(", "));
+        }
+        if (run.restrictedPromptMatches && run.restrictedPromptMatches.length) {
+          pills.push("Matches: " + run.restrictedPromptMatches.join(", "));
+        }
+        if (run.escalatedIncidentId) {
+          pills.push("Incident: " + run.escalatedIncidentId);
+        }
+        if (!run.modelCallExecuted) {
+          pills.push("Model execution skipped");
+        }
+        if (run.usedSimulation) {
+          pills.push("Output mode: simulated fallback");
+        }
+      } else if (errorMessage) {
+        pills.push("Check the Control Tower base URL, telemetry key, or upstream model key.");
+      }
+      if (pills.length === 0) {
+        decisionPills.style.display = "none";
+      } else {
+        decisionPills.style.display = "flex";
+        pills.forEach((pillText) => {
+          const pill = document.createElement("span");
+          pill.className = "pill";
+          pill.textContent = pillText;
+          decisionPills.appendChild(pill);
+        });
+      }
+    }
+  }
+
+  function setStatus(run, errorMessage) {
+    if (errorMessage) {
+      setText(statusWorkflow, "-");
+      setText(statusDecision, "ERROR");
+      setText(statusStage, "-");
+      setText(statusThresholds, "none");
+      setText(statusIncident, "none");
+      setText(statusCorrelation, "-");
+      setText(statusSummary, errorMessage);
+      return;
+    }
+    if (!run) return;
+    setText(statusWorkflow, run.modeLabel || "-");
+    setText(statusDecision, (run.decision || "allow").toUpperCase());
+    setText(statusStage, run.decisionStage || "-");
+    setText(statusThresholds, (run.thresholdBreaches && run.thresholdBreaches.join(", ")) || "none");
+    setText(statusIncident, run.escalatedIncidentId || "none");
+    setText(statusCorrelation, run.correlationId || "-");
+    setText(statusSummary, run.runtimeSummary || "");
+  }
+
+  function bumpCounter(el, increment) {
+    if (!el) return;
+    const current = Number(el.textContent || "0");
+    const next = Number.isFinite(current) ? current + increment : increment;
+    el.textContent = String(next);
+  }
+
+  function prependRun(run) {
+    if (!recentRuns) return;
+    const emptyRow = recentRuns.querySelector("tr[data-empty='true']");
+    if (emptyRow) {
+      emptyRow.remove();
+    }
+    const row = document.createElement("tr");
+    const values = [
+      new Date(run.createdAt).toLocaleString(),
+      run.modeLabel,
+      run.decision,
+      run.decisionStage || "n/a",
+      run.blocked ? "yes" : "no",
+      (run.thresholdBreaches && run.thresholdBreaches.join(", ")) || "none",
+      run.escalatedIncidentId || "none",
+    ];
+    values.forEach((value) => {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+    recentRuns.prepend(row);
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!textarea) return;
+    const prompt = textarea.value.trim();
+    if (!prompt) return;
+
+    if (sendButton) {
+      sendButton.disabled = true;
+      sendButton.textContent = "Sending...";
+    }
+
+    const userMessage = createMessage("user", "you", prompt, "allow");
+    const pendingMessage = createMessage(
+      "assistant",
+      "assistant · pending",
+      "Checking policy and generating a governed response...",
+      "allow",
+    );
+    if (transcript) {
+      transcript.appendChild(userMessage.wrapper);
+      transcript.appendChild(pendingMessage.wrapper);
+      transcript.scrollTop = transcript.scrollHeight;
+    }
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: prompt }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload && payload.message ? payload.message : "Request failed.");
+      }
+      const run = payload.run;
+      if (!run) {
+        throw new Error("No run result returned.");
+      }
+
+      let assistantLabel = "assistant";
+      let assistantStyle = "allow";
+      let assistantContent = run.response || "No response returned.";
+      if (run.blocked) {
+        assistantLabel = "assistant · blocked";
+        assistantStyle = "block";
+        assistantContent = "AI Control Tower blocked this message before the model was allowed to answer. Please rephrase the request without asking for restricted content, internal secrets, or sensitive personal data.";
+      } else if (run.decision === "warn" || run.decision === "escalate") {
+        assistantLabel = run.decision === "escalate" ? "assistant · escalated" : "assistant · warning";
+        assistantStyle = "warn";
+        assistantContent = (run.response || "The answer was released.") + "\\n\\nWarning: this turn triggered governance signals and should be reviewed before downstream use.";
+      }
+
+      pendingMessage.labelEl.textContent = assistantLabel;
+      pendingMessage.bubble.textContent = assistantContent;
+      pendingMessage.bubble.className = "bubble assistant " + assistantStyle;
+
+      setDecision(run, "");
+      setStatus(run, "");
+      prependRun(run);
+      if (run.escalatedIncidentId) {
+        bumpCounter(statusIncidents, 1);
+      }
+      if (run.blocked) {
+        bumpCounter(statusBlocked, 1);
+      }
+    } catch (error) {
+      const message = error && error.message ? error.message : "Request failed.";
+      pendingMessage.labelEl.textContent = "assistant · error";
+      pendingMessage.bubble.textContent = message;
+      pendingMessage.bubble.className = "bubble assistant block";
+      setDecision(null, message);
+      setStatus(null, message);
+    } finally {
+      if (sendButton) {
+        sendButton.disabled = false;
+        sendButton.textContent = "Send message";
+      }
+      if (textarea) {
+        textarea.value = "";
+      }
+      if (transcript) {
+        transcript.scrollTop = transcript.scrollHeight;
+      }
+    }
+  });
+})();
+`;
 }

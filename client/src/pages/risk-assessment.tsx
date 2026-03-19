@@ -299,7 +299,7 @@ export default function RiskAssessment() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+      <div className="page-shell">
         <Skeleton className="h-8 w-48" />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[...Array(4)].map((_, i) => (
@@ -317,12 +317,12 @@ export default function RiskAssessment() {
     const suggestedControls = (result.suggestedControls as string[]) || [];
 
     return (
-      <div className="p-6 space-y-6 max-w-[900px] mx-auto" data-testid="page-risk-result">
+      <div className="page-shell-narrow" data-testid="page-risk-result">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
-            <h1 className="text-xl font-bold tracking-tight">Assessment Result</h1>
+            <h1 className="text-xl font-bold tracking-tight">Risk classification result</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Governance assessment for "{result.systemName}"
+              Final governance classification for "{result.systemName}"
             </p>
           </div>
           <Button onClick={handleStartNew} data-testid="button-new-assessment">
@@ -428,7 +428,7 @@ export default function RiskAssessment() {
 
   if (showWizard) {
     return (
-      <div className="p-6 space-y-6 max-w-[900px] mx-auto" data-testid="page-risk-wizard">
+      <div className="page-shell-narrow" data-testid="page-risk-wizard">
         <div>
           <h1 className="text-xl font-bold tracking-tight">Risk Assessment Wizard</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -919,20 +919,30 @@ export default function RiskAssessment() {
     moderate: systems.filter((s) => s.riskLevel === "medium" || s.riskLevel === "limited").length,
     baseline: systems.filter((s) => s.riskLevel === "low" || s.riskLevel === "minimal").length,
   };
+  const totalClassifiedSystems = Object.values(riskCounts).reduce((sum, count) => sum + count, 0);
 
   return (
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="page-risk-assessment">
+    <div className="page-shell" data-testid="page-risk-assessment">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h1 className="text-xl font-bold tracking-tight">Risk Assessment</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Governance classification and assessment history across EU AI Act and operational telemetry models
+            Assess inherent system risk, compare answers against registry posture, and keep a clean history of classification decisions.
           </p>
         </div>
         <Button onClick={handleStartNew} data-testid="button-start-wizard">
           <Plus className="h-4 w-4 mr-1" />
           New Assessment
         </Button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <Badge variant="outline">
+          Current system posture: {totalClassifiedSystems} {totalClassifiedSystems === 1 ? "system" : "systems"}
+        </Badge>
+        <Badge variant="outline">
+          Assessment records: {pastAssessments.length}
+        </Badge>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -953,7 +963,7 @@ export default function RiskAssessment() {
                 </div>
                 <div className="text-2xl font-bold mb-1">{count}</div>
                 <span className="text-[11px] text-muted-foreground">
-                  {count === 1 ? "system" : "systems"} classified
+                  {count === 1 ? "system" : "systems"} currently classified
                 </span>
               </CardContent>
             </Card>
@@ -964,8 +974,11 @@ export default function RiskAssessment() {
       <Card data-testid="card-past-assessments">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold">
-            Past Assessments ({pastAssessments.length})
+            Assessment history ({pastAssessments.length})
           </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Historical assessment records can exceed the current system count because the same system may be assessed more than once over time.
+          </p>
         </CardHeader>
         <CardContent>
           {pastAssessments.length === 0 ? (

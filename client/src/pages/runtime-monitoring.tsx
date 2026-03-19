@@ -132,6 +132,34 @@ function decisionBadgeVariant(decision?: RuntimeDecision) {
   }
 }
 
+function formatThresholdLabel(value: string) {
+  return value.replace(/_/g, " ");
+}
+
+function extractThresholdLabels(response: RuntimeResponse | null) {
+  if (!response?.thresholdBreaches || !Array.isArray(response.thresholdBreaches)) {
+    return [];
+  }
+
+  return response.thresholdBreaches
+    .map((breach) => {
+      if (typeof breach === "string") {
+        return breach;
+      }
+
+      if (breach?.type) {
+        return breach.type;
+      }
+
+      if (breach?.message) {
+        return breach.message;
+      }
+
+      return null;
+    })
+    .filter((value): value is string => Boolean(value));
+}
+
 export default function RuntimeMonitoringPage() {
   const initialSystemId = useMemo(() => {
     if (typeof window === "undefined") {
@@ -233,6 +261,14 @@ export default function RuntimeMonitoringPage() {
   const telemetrySummary = telemetrySummaryQuery.data ?? {};
   const incidentSummary = incidentSummaryQuery.data ?? {};
   const adapter = adapterQuery.data ?? {};
+  const adapterEnabled = Boolean(adapter.enabled);
+  const adapterGateways = Array.isArray(adapter.allowedGateways) && adapter.allowedGateways.length
+    ? adapter.allowedGateways.join(", ")
+    : "Any gateway";
+  const responseBreaches = extractThresholdLabels(runtimeResponse);
+  const responseRestrictedMatches = Array.isArray(runtimeResponse?.restrictedPromptMatches)
+    ? runtimeResponse.restrictedPromptMatches
+    : [];
 
   const totalEvents = telemetrySummary.total ?? telemetrySummary.events ?? 0;
   const thresholdBreaches = telemetrySummary.thresholdBreaches ?? telemetrySummary.breaches ?? 0;
@@ -296,50 +332,154 @@ export default function RuntimeMonitoringPage() {
   const loading = telemetrySummaryQuery.isLoading || incidentSummaryQuery.isLoading || adapterQuery.isLoading;
 
   return (
-    <div className="space-y-6" data-testid="page-runtime-monitoring">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-            <Radio className="h-3.5 w-3.5" />
-            Continuous runtime telemetry
-          </div>
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Runtime Monitoring</h1>
-            <p className="text-sm text-muted-foreground">
-              Evaluate live prompts and outputs against inherited guardrail policy, review blocked-event posture, and move directly into incident response when runtime behavior degrades.
-            </p>
-          </div>
-          {selectedSystem ? (
-            <Badge variant="outline" className="w-fit">
-              Active system: {selectedSystem.name}
-            </Badge>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button asChild variant="outline">
-            <Link href={selectedSystemId ? `/telemetry-policy?systemId=${encodeURIComponent(selectedSystemId)}` : "/telemetry-policy"}>
-              <SlidersHorizontal className="mr-2 h-4 w-4" />
-              Telemetry policy
-            </Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link href="/telemetry-adapter">
-              <Cable className="mr-2 h-4 w-4" />
-              Telemetry adapter
-            </Link>
-          </Button>
-          <Button asChild>
-            <Link href="/incidents">
-              <AlertTriangle className="mr-2 h-4 w-4" />
-              Incidents
-            </Link>
-          </Button>
-        </div>
+    <div className="page-shell" data-testid="page-runtime-monitoring">
+      <div className="grid gap-4 xl:grid-cols-[1.45fr_0.55fr]">
+        <Card className="border-border/70">
+          <CardContent className="p-6">
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div className="max-w-2xl">
+                  <div className="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                    <Radio className="h-3.5 w-3.5" />
+                    Runtime control surface
+                  </div>
+                  <h1 className="mt-3 text-3xl font-semibold tracking-tight">Runtime Monitoring</h1>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Review live runtime decisions and validate what the platform will allow, warn, escalate, or block before traffic reaches users.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Badge variant={adapterEnabled ? "default" : "secondary"}>
+                      {adapterEnabled ? "Adapter enabled" : "Adapter disabled"}
+                    </Badge>
+                    <Badge variant={selectedSystem ? "outline" : "secondary"}>
+                      {selectedSystem ? `System: ${selectedSystem.name}` : "No system override"}
+                    </Badge>
+                    <Badge variant="outline">Blocked events {blockedEvents}</Badge>
+                  </div>
+                </div>
+
+                <div className="w-full max-w-[340px] rounded-xl border border-border/70 bg-muted/20 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Live counters</p>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Events</p>
+                      <p className="text-2xl font-semibold tracking-tight">{totalEvents}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Breaches</p>
+                      <p className="text-2xl font-semibold tracking-tight">{thresholdBreaches}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Blocks</p>
+                      <p className="text-2xl font-semibold tracking-tight">{blockedEvents}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Incidents</p>
+                      <p className="text-2xl font-semibold tracking-tight">{escalatedIncidents}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-[0.8fr_1.2fr]">
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Operator actions</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button asChild variant="outline">
+                      <Link href={selectedSystemId ? `/telemetry-policy?systemId=${encodeURIComponent(selectedSystemId)}` : "/telemetry-policy"}>
+                        <SlidersHorizontal className="mr-2 h-4 w-4" />
+                        Policy
+                      </Link>
+                    </Button>
+                    <Button asChild variant="outline">
+                      <Link href="/telemetry-adapter">
+                        <Cable className="mr-2 h-4 w-4" />
+                        Adapter
+                      </Link>
+                    </Button>
+                    <Button asChild>
+                      <Link href="/incidents">
+                        <AlertTriangle className="mr-2 h-4 w-4" />
+                        Incidents
+                      </Link>
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Use this page to</p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <div>
+                      <p className="text-sm font-medium">Validate</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Run real payloads through the evaluation path before downstream delivery.</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">Inspect</p>
+                      <p className="mt-1 text-xs text-muted-foreground">See exactly which thresholds fired and whether the result blocked or escalated.</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">Respond</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Jump straight into policy, adapter, or incident workflows from the same surface.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Enforcement posture</CardTitle>
+            <CardDescription>Current adapter state and execution scope.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="rounded-xl border bg-muted/20 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Telemetry adapter</p>
+                  <p className="text-xs text-muted-foreground">
+                    {adapterEnabled ? "Live ingestion is enabled for runtime evidence." : "Enable the adapter before using live evaluation."}
+                  </p>
+                </div>
+                <Badge variant={adapterEnabled ? "default" : "outline"}>
+                  {adapterEnabled ? "Enabled" : "Disabled"}
+                </Badge>
+              </div>
+              <div className="mt-3 grid gap-2 text-xs text-muted-foreground">
+                <div>Key prefix: <span className="font-medium text-foreground">{adapter.keyPrefix ?? "Not rotated"}</span></div>
+                <div>Allowed gateways: <span className="font-medium text-foreground">{adapterGateways}</span></div>
+                <div>System scope: <span className="font-medium text-foreground">{selectedSystem ? selectedSystem.name : "Organization defaults"}</span></div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-start gap-3 rounded-xl border bg-muted/20 p-4">
+                <ShieldCheck className="mt-0.5 h-4 w-4 text-emerald-600" />
+                <div>
+                  <p className="text-sm font-medium">System-specific enforcement is supported</p>
+                  <p className="text-xs text-muted-foreground">
+                    High-risk systems can run stricter blocking and escalation thresholds than the broader organization.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 rounded-xl border bg-muted/20 p-4">
+                <Ban className="mt-0.5 h-4 w-4 text-destructive" />
+                <div>
+                  <p className="text-sm font-medium">Blocked decisions remain part of the evidence trail</p>
+                  <p className="text-xs text-muted-foreground">
+                    Blocks are still logged as runtime evidence and can immediately open or update an incident.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {loading ? (
-          Array.from({ length: 4 }).map((_, index) => (
+      {loading ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
             <Card key={index}>
               <CardHeader className="pb-3">
                 <Skeleton className="h-4 w-28" />
@@ -349,55 +489,16 @@ export default function RuntimeMonitoringPage() {
                 <Skeleton className="mt-2 h-4 w-40" />
               </CardContent>
             </Card>
-          ))
-        ) : (
-          <>
-            <Card>
-              <CardHeader className="pb-3">
-                <CardDescription>Telemetry events</CardDescription>
-                <CardTitle className="text-3xl">{totalEvents}</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">
-                Org-scoped runtime evidence captured through the telemetry adapter.
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-3">
-                <CardDescription>Threshold breaches</CardDescription>
-                <CardTitle className="text-3xl">{thresholdBreaches}</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">
-                Events that crossed warning or critical policy thresholds.
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-3">
-                <CardDescription>Blocked decisions</CardDescription>
-                <CardTitle className="text-3xl">{blockedEvents}</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">
-                Runtime evaluations stopped by enforcement policy before user delivery.
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-3">
-                <CardDescription>Escalated incidents</CardDescription>
-                <CardTitle className="text-3xl">{escalatedIncidents}</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">
-                Incidents tied to runtime monitoring for containment and postmortem review.
-              </CardContent>
-            </Card>
-          </>
-        )}
-      </div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
         <Card>
           <CardHeader>
-            <CardTitle>Runtime evaluation tester</CardTitle>
+            <CardTitle>Runtime evaluation console</CardTitle>
             <CardDescription>
-              Send a live runtime payload through the evaluate endpoint and inspect the returned policy decision before a downstream application would release the output.
+              Send a live runtime payload through the evaluation endpoint and inspect the policy decision before a downstream application releases the output.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -413,7 +514,7 @@ export default function RuntimeMonitoringPage() {
                   data-testid="input-runtime-monitoring-key"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Rotate a key in Telemetry Adapter and paste it here for live evaluation.
+                  Use a rotated telemetry adapter key for live runtime evaluation.
                 </p>
               </div>
               <div className="space-y-2">
@@ -446,12 +547,14 @@ export default function RuntimeMonitoringPage() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Selecting a system applies the system-specific telemetry policy before org, portfolio, and platform defaults.
+                  System-specific policy is applied before org, portfolio, and platform defaults.
                 </p>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="space-y-2">
+              <Label>Quick payloads</Label>
+              <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => applySample(buildAllowSample(selectedSystemId || undefined))}>
                 Load allow sample
               </Button>
@@ -461,6 +564,7 @@ export default function RuntimeMonitoringPage() {
               <Button type="button" variant="outline" size="sm" onClick={() => applySample(buildBlockSample(selectedSystemId || undefined))}>
                 Load block sample
               </Button>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -499,7 +603,7 @@ export default function RuntimeMonitoringPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <Activity className="h-4 w-4 text-primary" />
-                    Runtime decision response
+                    Evaluation result
                   </div>
                   {runtimeResponse.escalatedIncidentId ? (
                     <Button asChild variant="ghost" size="sm">
@@ -510,9 +614,43 @@ export default function RuntimeMonitoringPage() {
                     </Button>
                   ) : null}
                 </div>
-                <pre className="overflow-x-auto rounded-lg bg-background p-3 text-xs text-foreground">
-                  {JSON.stringify(runtimeResponse, null, 2)}
-                </pre>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-lg border bg-background p-3">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Decision</p>
+                    <div className="mt-2">
+                      <Badge variant={decisionBadgeVariant(runtimeResponse.decision)} className="uppercase">
+                        {runtimeResponse.decision ?? "unknown"}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border bg-background p-3">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Blocked</p>
+                    <p className="mt-2 text-lg font-semibold">{runtimeResponse.blocked ? "Yes" : "No"}</p>
+                  </div>
+                  <div className="rounded-lg border bg-background p-3">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Incident</p>
+                    <p className="mt-2 text-sm font-medium break-all">{runtimeResponse.escalatedIncidentId ?? "None"}</p>
+                  </div>
+                </div>
+                {responseBreaches.length || responseRestrictedMatches.length ? (
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Detected triggers</p>
+                    <div className="flex flex-wrap gap-2">
+                      {responseBreaches.map((breach) => (
+                        <Badge key={breach} variant="outline">{formatThresholdLabel(breach)}</Badge>
+                      ))}
+                      {responseRestrictedMatches.map((match) => (
+                        <Badge key={match} variant="destructive">{match}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                <details className="rounded-lg border bg-background p-3">
+                  <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Raw response</summary>
+                  <pre className="mt-3 overflow-x-auto text-xs text-foreground">
+                    {JSON.stringify(runtimeResponse, null, 2)}
+                  </pre>
+                </details>
               </div>
             ) : null}
           </CardContent>
@@ -521,55 +659,37 @@ export default function RuntimeMonitoringPage() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Guardrail posture</CardTitle>
+              <CardTitle>Runbook notes</CardTitle>
               <CardDescription>
-                Current adapter and incident posture for the active organization.
+                Short reminders for using runtime monitoring as an operations surface.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-xl border bg-muted/20 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium">Telemetry adapter</p>
-                    <p className="text-xs text-muted-foreground">
-                      {adapter.enabled ? "Enabled for external runtime ingestion" : "Disabled. Rotate a key and enable adapter before live evaluation."}
-                    </p>
-                  </div>
-                  <Badge variant={adapter.enabled ? "default" : "outline"}>
-                    {adapter.enabled ? "Enabled" : "Disabled"}
-                  </Badge>
-                </div>
-                <div className="mt-3 grid gap-3 text-xs text-muted-foreground">
-                  <div>Key prefix: <span className="font-medium text-foreground">{adapter.keyPrefix ?? "Not rotated"}</span></div>
-                  <div>Allowed gateways: <span className="font-medium text-foreground">{Array.isArray(adapter.allowedGateways) && adapter.allowedGateways.length ? adapter.allowedGateways.join(", ") : "Any gateway"}</span></div>
-                </div>
-              </div>
-
               <div className="space-y-3">
                 <div className="flex items-start gap-3 rounded-xl border bg-muted/20 p-4">
                   <ShieldCheck className="mt-0.5 h-4 w-4 text-emerald-600" />
                   <div>
-                    <p className="text-sm font-medium">Use system-specific guardrails for high-risk systems</p>
+                    <p className="text-sm font-medium">Use real adapter credentials</p>
                     <p className="text-xs text-muted-foreground">
-                      Credit, healthcare, and employment systems can run stricter blocking thresholds than the rest of the organization.
+                      Demo keys are useful for presentation, but operator review should use the same adapter path and system binding as production traffic.
                     </p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3 rounded-xl border bg-muted/20 p-4">
                   <Ban className="mt-0.5 h-4 w-4 text-destructive" />
                   <div>
-                    <p className="text-sm font-medium">Blocked-event visibility</p>
+                    <p className="text-sm font-medium">Treat blocked results as operational events</p>
                     <p className="text-xs text-muted-foreground">
-                      Blocked outputs count toward runtime evidence and can be escalated into incidents with a four-hour containment target.
+                      A runtime block is not just a message to read. It is evidence that should lead into policy review, incident triage, or containment.
                     </p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3 rounded-xl border bg-muted/20 p-4">
                   <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600" />
                   <div>
-                    <p className="text-sm font-medium">Incident response linkage</p>
+                    <p className="text-sm font-medium">Keep escalation ownership visible</p>
                     <p className="text-xs text-muted-foreground">
-                      Use the incidents workspace for playbooks, containment tracking, regulatory notifications, and postmortem review.
+                      Runtime monitoring only feels credible if breach reasons, incident linkage, and next actions are visible without page-hopping.
                     </p>
                   </div>
                 </div>
@@ -579,9 +699,9 @@ export default function RuntimeMonitoringPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Operator path</CardTitle>
+              <CardTitle>Operator sequence</CardTitle>
               <CardDescription>
-                Recommended sequence for presenting continuous monitoring to a client.
+                Straight-line flow for reviewing runtime decisions.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">

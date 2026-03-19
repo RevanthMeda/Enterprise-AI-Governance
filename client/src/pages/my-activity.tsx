@@ -138,7 +138,7 @@ export default function MyActivity() {
 
   if (isLoading || !data) {
     return (
-      <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+      <div className="page-shell">
         <Skeleton className="h-8 w-64" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-md" />)}
@@ -157,7 +157,7 @@ export default function MyActivity() {
   const isReviewer = userRole === "reviewer";
 
   return (
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="page-my-activity">
+    <div className="page-shell" data-testid="page-my-activity">
       <div>
         <h1 className="text-xl font-bold tracking-tight" data-testid="heading-my-activity">
           My Activity

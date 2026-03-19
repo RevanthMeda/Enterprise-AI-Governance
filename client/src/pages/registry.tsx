@@ -160,13 +160,17 @@ export default function Registry() {
     setSensitivityFilter("all");
   };
 
+  const activeSystems = systems.filter((system) => system.status === "active").length;
+  const highRiskSystems = systems.filter((system) => system.riskLevel === "high" || system.riskLevel === "unacceptable").length;
+  const draftSystems = systems.filter((system) => system.status === "draft").length;
+
   return (
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="page-registry">
+    <div className="page-shell" data-testid="page-registry">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight">AI System Registry</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Inventory of all AI systems across the organization
+            Record the systems in scope, who owns them, what they do, and how they are governed.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -315,6 +319,33 @@ export default function Registry() {
             </DialogContent>
           </Dialog>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Systems in registry</p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight">{systems.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Active</p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight">{activeSystems}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">High-scrutiny</p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight">{highRiskSystems}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Drafts</p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight">{draftSystems}</p>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="space-y-3">

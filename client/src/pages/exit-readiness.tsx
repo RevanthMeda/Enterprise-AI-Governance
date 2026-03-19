@@ -49,9 +49,9 @@ export default function ExitReadinessPage() {
     <div className="space-y-6 p-6">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Exit Readiness</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">Governance Evidence</h1>
           <p className="text-sm text-muted-foreground">
-            Buyer-facing evidence for documented AI decisions, human supervision, drift detection, and containment discipline.
+            Evidence coverage for documented AI decisions, human supervision, drift detection, and containment discipline.
           </p>
         </div>
         <Badge variant="outline" className="w-fit">PilotWave diligence mode</Badge>

@@ -104,6 +104,7 @@ const emptyForm = {
 export default function DecisionTracePage() {
   const [form, setForm] = useState(emptyForm);
   const [editingTraceId, setEditingTraceId] = useState<string | null>(null);
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const summaryQuery = useQuery<DecisionSummary>({
@@ -126,18 +127,20 @@ export default function DecisionTracePage() {
     refetchInterval: 15_000,
     staleTime: 5_000,
   });
+  const recentTraces = useMemo(() => listQuery.data ?? [], [listQuery.data]);
+  const activeTraceId = editingTraceId ?? selectedTraceId ?? recentTraces[0]?.id ?? null;
   const systemsQuery = useQuery<AiSystem[]>({
     queryKey: ["/api/ai-systems"],
     refetchInterval: 30_000,
     staleTime: 10_000,
   });
   const versionsQuery = useQuery<DecisionAuditVersion[]>({
-    queryKey: ["/api/decision-audits", editingTraceId, "versions"],
-    enabled: Boolean(editingTraceId),
-    refetchInterval: editingTraceId ? 15_000 : false,
+    queryKey: ["/api/decision-audits", activeTraceId, "versions"],
+    enabled: Boolean(activeTraceId),
+    refetchInterval: activeTraceId ? 15_000 : false,
     staleTime: 5_000,
     queryFn: async () => {
-      const response = await apiRequest("GET", `/api/decision-audits/${editingTraceId}/versions`);
+      const response = await apiRequest("GET", `/api/decision-audits/${activeTraceId}/versions`);
       return response.json();
     },
   });
@@ -166,23 +169,31 @@ export default function DecisionTracePage() {
     },
   });
 
-  const recentTraces = useMemo(() => listQuery.data ?? [], [listQuery.data]);
   const editingTrace = useMemo(
     () => recentTraces.find((trace) => trace.id === editingTraceId) ?? null,
     [editingTraceId, recentTraces],
   );
+  const selectedTrace =
+    recentTraces.find((trace) => trace.id === selectedTraceId) ??
+    recentTraces[0] ??
+    null;
   const hasNoTraces = (summaryQuery.data?.total ?? 0) === 0;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="page-shell">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Decision Trace Center</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">Decision Trace</h1>
           <p className="text-sm text-muted-foreground">
-            Record context, model evidence, explainability, human override rationale, sealed audit state, and long-window outcomes.
+            Capture decision context, model evidence, override rationale, audit state, and outcome tracking in one trace record.
           </p>
         </div>
-        <Badge variant="outline" className="w-fit">AI Roll-Up diligence ready</Badge>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline" className="w-fit">Traces {summaryQuery.data?.total ?? 0}</Badge>
+          <Badge variant={hasNoTraces ? "outline" : chainQuery.data?.verified ? "default" : "destructive"} className="w-fit">
+            {hasNoTraces ? "Chain pending" : chainQuery.data?.verified ? "Chain verified" : "Chain attention"}
+          </Badge>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
@@ -214,229 +225,154 @@ export default function DecisionTracePage() {
         </Card>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-semibold">
-              {editingTrace ? `Edit traced decision v${editingTrace.currentVersionNumber}` : "Record a traced decision"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-2">
-              <Field label="Title">
-                <input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </Field>
-              <Field label="System ID">
-                <Select value={form.systemId} onValueChange={(value) => setForm((current) => ({ ...current, systemId: value }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a registered system" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(systemsQuery.data ?? []).map((system) => (
-                      <SelectItem key={system.id} value={system.id}>
-                        {system.name}
-                      </SelectItem>
-                    ))}
-                    {form.systemId && !(systemsQuery.data ?? []).some((system) => system.id === form.systemId) ? (
-                      <SelectItem value={form.systemId}>{form.systemId}</SelectItem>
-                    ) : null}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Workflow ID">
-                <input value={form.workflowId} onChange={(event) => setForm((current) => ({ ...current, workflowId: event.target.value }))} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </Field>
-              <Field label="Business objective">
-                <input value={form.businessObjective} onChange={(event) => setForm((current) => ({ ...current, businessObjective: event.target.value }))} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </Field>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-              <Field label="Model name">
-                <input value={form.modelName} onChange={(event) => setForm((current) => ({ ...current, modelName: event.target.value }))} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </Field>
-              <Field label="Model version">
-                <input value={form.modelVersion} onChange={(event) => setForm((current) => ({ ...current, modelVersion: event.target.value }))} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </Field>
-              <Field label="Confidence score">
-                <input value={form.confidenceScore} onChange={(event) => setForm((current) => ({ ...current, confidenceScore: event.target.value }))} type="number" min="0" max="100" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </Field>
-              <Field label="Uncertainty score">
-                <input value={form.uncertaintyScore} onChange={(event) => setForm((current) => ({ ...current, uncertaintyScore: event.target.value }))} type="number" min="0" max="100" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </Field>
-            </div>
-
-            <div className="grid gap-3 lg:grid-cols-2">
-              <Field label="Prompt or query">
-                <textarea value={form.promptText} onChange={(event) => setForm((current) => ({ ...current, promptText: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </Field>
-              <Field label="Decision context">
-                <textarea value={form.decisionContext} onChange={(event) => setForm((current) => ({ ...current, decisionContext: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </Field>
-            </div>
-
-            <div className="grid gap-3 lg:grid-cols-2">
-              <Field label="Input sources (comma separated)">
-                <textarea value={form.inputSources} onChange={(event) => setForm((current) => ({ ...current, inputSources: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="CRM export, pricing sheet v4, customer support transcript" />
-              </Field>
-              <Field label="Decision constraints (comma separated)">
-                <textarea value={form.decisionConstraints} onChange={(event) => setForm((current) => ({ ...current, decisionConstraints: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="No pricing below floor, EU-only processing, no medical claims" />
-              </Field>
-            </div>
-
-            <div className="grid gap-3 lg:grid-cols-2">
-              <Field label="Explainability factors (comma separated)">
-                <textarea value={form.explainabilityFactors} onChange={(event) => setForm((current) => ({ ...current, explainabilityFactors: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="Margin, churn risk, recent escalation history" />
-              </Field>
-              <Field label="Input snapshot (JSON)">
-                <textarea value={form.inputSnapshot} onChange={(event) => setForm((current) => ({ ...current, inputSnapshot: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 font-mono text-xs" />
-              </Field>
-            </div>
-
-            <div className="grid gap-3 lg:grid-cols-2">
-              <Field label="AI output">
-                <textarea value={form.aiOutput} onChange={(event) => setForm((current) => ({ ...current, aiOutput: event.target.value }))} className="min-h-32 w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </Field>
-              <Field label="Human-reviewed output">
-                <textarea value={form.humanOutput} onChange={(event) => setForm((current) => ({ ...current, humanOutput: event.target.value }))} className="min-h-32 w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </Field>
-            </div>
-
-            <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
-              <Field label="Override rationale">
-                <textarea value={form.overrideRationale} onChange={(event) => setForm((current) => ({ ...current, overrideRationale: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </Field>
-              <Field label="Documentation status">
-                <Select value={form.documentationStatus} onValueChange={(value) => setForm((current) => ({ ...current, documentationStatus: value }))}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="draft">Draft</SelectItem>
-                    <SelectItem value="reviewed">Reviewed</SelectItem>
-                    <SelectItem value="sealed">Sealed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
-
-            <Field label="Outcome summary">
-              <textarea value={form.outcomeSummary} onChange={(event) => setForm((current) => ({ ...current, outcomeSummary: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" />
-            </Field>
-
-            {editingTrace ? (
-              <Field label="Version reason">
-                <textarea
-                  value={form.versionReason}
-                  onChange={(event) => setForm((current) => ({ ...current, versionReason: event.target.value }))}
-                  className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm"
-                  placeholder="Why is this sealed trace being revised?"
-                />
-              </Field>
-            ) : null}
-
-            <div className="flex justify-end gap-3">
-              {editingTrace ? (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setEditingTraceId(null);
-                    setForm(emptyForm);
-                  }}
-                >
-                  Cancel edit
-                </Button>
-              ) : null}
-              <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !form.title || !form.systemId || !form.decisionContext || !form.aiOutput}>
-                {saveMutation.isPending ? "Saving..." : editingTrace ? "Save versioned edit" : "Record decision trace"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-semibold">Continuous monitoring summary</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              <MiniMetric label="Telemetry events (30d)" value={telemetryQuery.data?.total ?? 0} />
-              <MiniMetric label="Critical alerts" value={telemetryQuery.data?.critical ?? 0} />
-              <MiniMetric label="Drift alerts" value={telemetryQuery.data?.driftAlerts ?? 0} />
-              <MiniMetric label="Bias flags" value={telemetryQuery.data?.biasAlerts ?? 0} />
-              <MiniMetric label="Threshold breaches" value={telemetryQuery.data?.thresholdBreaches ?? 0} />
-              <MiniMetric label="Escalated runtime events" value={telemetryQuery.data?.escalatedIncidents ?? 0} />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-semibold">Immutable audit chain</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              {chainQuery.isLoading ? (
-                <Skeleton className="h-20 w-full" />
-              ) : (
-                <>
-                  <div className="rounded-md border bg-muted/30 p-3">
-                    <div className="font-medium">Status</div>
-                    <div className="text-muted-foreground">
-                      {hasNoTraces
-                        ? "Hash chain verification begins after your first traced decision is recorded."
-                        : chainQuery.data?.verified
-                          ? "Hash chain verified across current organization audit records."
-                          : "Hash chain verification requires attention."}
-                    </div>
-                  </div>
-                  <div className="rounded-md border bg-muted/30 p-3">
-                    <div className="font-medium">Latest hash</div>
-                    <div className="break-all font-mono text-xs text-muted-foreground">{chainQuery.data?.latestHash ?? "No chain yet"}</div>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-semibold">Version history</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              {!editingTrace ? (
-                <div className="rounded-md border border-dashed p-4 text-muted-foreground">
-                  Select a decision trace to inspect its sealed versions.
-                </div>
-              ) : versionsQuery.isLoading ? (
-                <Skeleton className="h-24 w-full" />
-              ) : (versionsQuery.data?.length ?? 0) === 0 ? (
-                <div className="rounded-md border border-dashed p-4 text-muted-foreground">
-                  No prior versions captured for this trace.
-                </div>
-              ) : (
-                versionsQuery.data!.map((version) => (
-                  <div key={version.id} className="rounded-md border bg-muted/20 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-medium">v{version.versionNumber}</div>
-                      <div className="text-xs text-muted-foreground">{new Date(version.createdAt).toLocaleString()}</div>
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      Captured by {version.createdBy}
-                      {version.reason ? ` • ${version.reason}` : ""}
-                    </div>
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      Status {(version.snapshot.documentationStatus as string | undefined) ?? "unknown"} • Hash {version.sealedRecordHash ? version.sealedRecordHash.slice(0, 12) : "n/a"}
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">Recent decision traces</CardTitle>
+          <CardTitle className="text-sm font-semibold">
+            {editingTrace ? `Edit trace v${editingTrace.currentVersionNumber}` : "Record new trace"}
+          </CardTitle>
         </CardHeader>
         <CardContent>
+          <details className="rounded-lg border bg-muted/20 p-3" open={Boolean(editingTrace) || hasNoTraces}>
+            <summary className="cursor-pointer list-none text-sm font-medium">
+              {editingTrace ? "Trace workspace" : "Open trace workspace"}
+            </summary>
+            <div className="mt-4 space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <Field label="Title">
+                  <input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="System ID">
+                  <Select value={form.systemId} onValueChange={(value) => setForm((current) => ({ ...current, systemId: value }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a registered system" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(systemsQuery.data ?? []).map((system) => (
+                        <SelectItem key={system.id} value={system.id}>
+                          {system.name}
+                        </SelectItem>
+                      ))}
+                      {form.systemId && !(systemsQuery.data ?? []).some((system) => system.id === form.systemId) ? (
+                        <SelectItem value={form.systemId}>{form.systemId}</SelectItem>
+                      ) : null}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Workflow ID">
+                  <input value={form.workflowId} onChange={(event) => setForm((current) => ({ ...current, workflowId: event.target.value }))} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="Business objective">
+                  <input value={form.businessObjective} onChange={(event) => setForm((current) => ({ ...current, businessObjective: event.target.value }))} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                </Field>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                <Field label="Model name">
+                  <input value={form.modelName} onChange={(event) => setForm((current) => ({ ...current, modelName: event.target.value }))} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="Model version">
+                  <input value={form.modelVersion} onChange={(event) => setForm((current) => ({ ...current, modelVersion: event.target.value }))} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="Confidence score">
+                  <input value={form.confidenceScore} onChange={(event) => setForm((current) => ({ ...current, confidenceScore: event.target.value }))} type="number" min="0" max="100" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="Uncertainty score">
+                  <input value={form.uncertaintyScore} onChange={(event) => setForm((current) => ({ ...current, uncertaintyScore: event.target.value }))} type="number" min="0" max="100" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                </Field>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                <Field label="Prompt or query">
+                  <textarea value={form.promptText} onChange={(event) => setForm((current) => ({ ...current, promptText: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="Decision context">
+                  <textarea value={form.decisionContext} onChange={(event) => setForm((current) => ({ ...current, decisionContext: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                </Field>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                <Field label="Input sources (comma separated)">
+                  <textarea value={form.inputSources} onChange={(event) => setForm((current) => ({ ...current, inputSources: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="CRM export, pricing sheet v4, customer support transcript" />
+                </Field>
+                <Field label="Decision constraints (comma separated)">
+                  <textarea value={form.decisionConstraints} onChange={(event) => setForm((current) => ({ ...current, decisionConstraints: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="No pricing below floor, EU-only processing, no medical claims" />
+                </Field>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                <Field label="Explainability factors (comma separated)">
+                  <textarea value={form.explainabilityFactors} onChange={(event) => setForm((current) => ({ ...current, explainabilityFactors: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="Margin, churn risk, recent escalation history" />
+                </Field>
+                <Field label="Input snapshot (JSON)">
+                  <textarea value={form.inputSnapshot} onChange={(event) => setForm((current) => ({ ...current, inputSnapshot: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 font-mono text-xs" />
+                </Field>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                <Field label="AI output">
+                  <textarea value={form.aiOutput} onChange={(event) => setForm((current) => ({ ...current, aiOutput: event.target.value }))} className="min-h-32 w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="Human-reviewed output">
+                  <textarea value={form.humanOutput} onChange={(event) => setForm((current) => ({ ...current, humanOutput: event.target.value }))} className="min-h-32 w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                </Field>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
+                <Field label="Override rationale">
+                  <textarea value={form.overrideRationale} onChange={(event) => setForm((current) => ({ ...current, overrideRationale: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                </Field>
+                <Field label="Documentation status">
+                  <Select value={form.documentationStatus} onValueChange={(value) => setForm((current) => ({ ...current, documentationStatus: value }))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="draft">Draft</SelectItem>
+                      <SelectItem value="reviewed">Reviewed</SelectItem>
+                      <SelectItem value="sealed">Sealed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+
+              <Field label="Outcome summary">
+                <textarea value={form.outcomeSummary} onChange={(event) => setForm((current) => ({ ...current, outcomeSummary: event.target.value }))} className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" />
+              </Field>
+
+              {editingTrace ? (
+                <Field label="Version reason">
+                  <textarea
+                    value={form.versionReason}
+                    onChange={(event) => setForm((current) => ({ ...current, versionReason: event.target.value }))}
+                    className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    placeholder="Why is this sealed trace being revised?"
+                  />
+                </Field>
+              ) : null}
+
+              <div className="flex justify-end gap-3">
+                {editingTrace ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setEditingTraceId(null);
+                      setForm(emptyForm);
+                    }}
+                  >
+                    Cancel edit
+                  </Button>
+                ) : null}
+                <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !form.title || !form.systemId || !form.decisionContext || !form.aiOutput}>
+                  {saveMutation.isPending ? "Saving..." : editingTrace ? "Save versioned edit" : "Record decision trace"}
+                </Button>
+              </div>
+            </div>
+          </details>
+        </CardContent>
+      </Card>
+
+      <div className="grid items-start gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="space-y-2">
           {listQuery.isLoading ? (
             <div className="space-y-2">
               <Skeleton className="h-16 w-full" />
@@ -445,64 +381,177 @@ export default function DecisionTracePage() {
           ) : recentTraces.length === 0 ? (
             <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">No traced decisions recorded yet.</div>
           ) : (
-            <div className="space-y-3">
-              {recentTraces.slice(0, 10).map((trace) => (
-                <div key={trace.id} className="rounded-lg border p-4">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <div className="text-sm font-semibold">{trace.title}</div>
-                      <div className="text-xs text-muted-foreground">
-                        System {trace.systemId} • Recorded by {trace.createdBy} • {new Date(trace.createdAt).toLocaleString()}
+            <div className="rounded-lg border bg-muted/10 p-2 xl:max-h-[calc(100vh-24rem)] xl:overflow-y-auto">
+              <div className="space-y-2">
+                {recentTraces.slice(0, 20).map((trace) => (
+                  <button
+                    key={trace.id}
+                    type="button"
+                    onClick={() => setSelectedTraceId(trace.id)}
+                    className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                      selectedTrace?.id === trace.id ? "border-primary bg-primary/5" : "hover:bg-muted/30"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold">{trace.title}</div>
+                        <div className="mt-1 text-[11px] text-muted-foreground">
+                          {new Date(trace.createdAt).toLocaleString()} • {trace.createdBy}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap gap-1">
+                        <Badge variant="outline">v{trace.currentVersionNumber}</Badge>
+                        <Badge variant="outline">{trace.documentationStatus}</Badge>
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge variant="outline">v{trace.currentVersionNumber}</Badge>
-                      <Badge variant={trace.overrideDiff ? "default" : "secondary"}>{trace.overrideDiff ? "Human override logged" : "No override"}</Badge>
-                      <Badge variant="outline">{trace.documentationStatus}</Badge>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {trace.overrideDiff ? <Badge variant="secondary">Human override</Badge> : null}
                       {trace.outcomeSummary ? <Badge variant="outline">Outcome tracked</Badge> : null}
                       {trace.sealedRecordHash ? <Badge variant="outline">Sealed</Badge> : null}
-                      {trace.lastVersionedAt ? <Badge variant="outline">Versioned edit</Badge> : null}
-                      {trace.archivedAt ? <Badge variant="outline">Archived</Badge> : null}
                     </div>
-                  </div>
-                  <div className="mt-3 flex justify-end">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={Boolean(trace.archivedAt)}
-                      onClick={() => {
-                        setEditingTraceId(trace.id);
-                        setForm(formFromTrace(trace));
-                      }}
-                    >
-                      {trace.archivedAt ? "Archived" : "Edit trace"}
-                    </Button>
-                  </div>
-                  <div className="mt-3 grid gap-3 lg:grid-cols-4 text-sm">
-                    <InfoBlock label="Context" value={trace.decisionContext} />
-                    <InfoBlock label="AI output" value={trace.aiOutput} />
-                    <InfoBlock label="Human diff / rationale" value={trace.overrideDiff || trace.overrideRationale || "No human override captured."} />
-                    <InfoBlock
-                      label="Model evidence"
-                      value={[
-                        trace.modelName ? `Model: ${trace.modelName}` : null,
-                        trace.modelVersion ? `Version: ${trace.modelVersion}` : null,
-                        trace.confidenceScore !== null ? `Confidence: ${trace.confidenceScore}%` : null,
-                        trace.uncertaintyScore !== null ? `Uncertainty: ${trace.uncertaintyScore}%` : null,
-                        trace.inputSources?.length ? `Sources: ${formatTraceList(trace.inputSources)}` : null,
-                        trace.decisionConstraints?.length ? `Constraints: ${formatTraceList(trace.decisionConstraints)}` : null,
-                        trace.explainabilityFactors?.length ? `Factors: ${formatTraceList(trace.explainabilityFactors)}` : null,
-                      ]
-                        .filter(Boolean)
-                        .join("\n") || "No model evidence captured."}
-                    />
-                  </div>
-                </div>
-              ))}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+
+        {selectedTrace ? (
+          <div className="space-y-6 xl:max-h-[calc(100vh-24rem)] xl:overflow-y-auto xl:pr-1">
+            <div className="rounded-lg border p-4">
+              <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="text-lg font-semibold">{selectedTrace.title}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    System {selectedTrace.systemId} • Recorded by {selectedTrace.createdBy} • {new Date(selectedTrace.createdAt).toLocaleString()}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline">v{selectedTrace.currentVersionNumber}</Badge>
+                  <Badge variant={selectedTrace.overrideDiff ? "default" : "secondary"}>{selectedTrace.overrideDiff ? "Human override logged" : "No override"}</Badge>
+                  <Badge variant="outline">{selectedTrace.documentationStatus}</Badge>
+                  {selectedTrace.outcomeSummary ? <Badge variant="outline">Outcome tracked</Badge> : null}
+                  {selectedTrace.sealedRecordHash ? <Badge variant="outline">Sealed</Badge> : null}
+                </div>
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={Boolean(selectedTrace.archivedAt)}
+                  onClick={() => {
+                    setSelectedTraceId(selectedTrace.id);
+                    setEditingTraceId(selectedTrace.id);
+                    setForm(formFromTrace(selectedTrace));
+                  }}
+                >
+                  {selectedTrace.archivedAt ? "Archived" : "Edit trace"}
+                </Button>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+                <TraceMeta label="Model" value={selectedTrace.modelName || "Not recorded"} />
+                <TraceMeta label="Model version" value={selectedTrace.modelVersion || "Not recorded"} />
+                <TraceMeta label="Confidence" value={selectedTrace.confidenceScore !== null ? `${selectedTrace.confidenceScore}%` : "Not recorded"} />
+                <TraceMeta label="Uncertainty" value={selectedTrace.uncertaintyScore !== null ? `${selectedTrace.uncertaintyScore}%` : "Not recorded"} />
+              </div>
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-4 text-sm">
+                <InfoBlock label="Context" value={selectedTrace.decisionContext} />
+                <InfoBlock label="AI output" value={selectedTrace.aiOutput} />
+                <InfoBlock label="Human diff / rationale" value={selectedTrace.overrideDiff || selectedTrace.overrideRationale || "No human override captured."} />
+                <InfoBlock
+                  label="Model evidence"
+                  value={[
+                    selectedTrace.inputSources?.length ? `Sources: ${formatTraceList(selectedTrace.inputSources)}` : null,
+                    selectedTrace.decisionConstraints?.length ? `Constraints: ${formatTraceList(selectedTrace.decisionConstraints)}` : null,
+                    selectedTrace.explainabilityFactors?.length ? `Factors: ${formatTraceList(selectedTrace.explainabilityFactors)}` : null,
+                    selectedTrace.businessObjective ? `Objective: ${selectedTrace.businessObjective}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join("\n") || "No model evidence captured."}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-semibold">Runtime context summary</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <MiniMetric label="Telemetry events (30d)" value={telemetryQuery.data?.total ?? 0} />
+                  <MiniMetric label="Critical alerts" value={telemetryQuery.data?.critical ?? 0} />
+                  <MiniMetric label="Drift alerts" value={telemetryQuery.data?.driftAlerts ?? 0} />
+                  <MiniMetric label="Bias flags" value={telemetryQuery.data?.biasAlerts ?? 0} />
+                  <MiniMetric label="Threshold breaches" value={telemetryQuery.data?.thresholdBreaches ?? 0} />
+                  <MiniMetric label="Escalated runtime events" value={telemetryQuery.data?.escalatedIncidents ?? 0} />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-semibold">Audit chain status</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  {chainQuery.isLoading ? (
+                    <Skeleton className="h-20 w-full" />
+                  ) : (
+                    <>
+                      <div className="rounded-md border bg-muted/30 p-3">
+                        <div className="font-medium">Status</div>
+                        <div className="text-muted-foreground">
+                          {hasNoTraces
+                            ? "Hash chain verification begins after your first traced decision is recorded."
+                            : chainQuery.data?.verified
+                              ? "Hash chain verified across current organization audit records."
+                              : "Hash chain verification requires attention."}
+                        </div>
+                      </div>
+                      <div className="rounded-md border bg-muted/30 p-3">
+                        <div className="font-medium">Latest hash</div>
+                        <div className="break-all font-mono text-xs text-muted-foreground">{chainQuery.data?.latestHash ?? "No chain yet"}</div>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-semibold">Version history</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                {versionsQuery.isLoading ? (
+                  <Skeleton className="h-24 w-full" />
+                ) : (versionsQuery.data?.length ?? 0) === 0 ? (
+                  <div className="rounded-md border border-dashed p-4 text-muted-foreground">
+                    No prior versions captured for this trace.
+                  </div>
+                ) : (
+                  versionsQuery.data!.map((version) => (
+                    <div key={version.id} className="rounded-md border bg-muted/20 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-medium">v{version.versionNumber}</div>
+                        <div className="text-xs text-muted-foreground">{new Date(version.createdAt).toLocaleString()}</div>
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Captured by {version.createdBy}
+                        {version.reason ? ` • ${version.reason}` : ""}
+                      </div>
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        Status {(version.snapshot.documentationStatus as string | undefined) ?? "unknown"} • Hash {version.sealedRecordHash ? version.sealedRecordHash.slice(0, 12) : "n/a"}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -582,6 +631,15 @@ function MiniMetric({ label, value }: { label: string; value: string | number })
     <div className="rounded-md border bg-muted/20 p-3">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 text-lg font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function TraceMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3">
+      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">{label}</div>
+      <div className="mt-1 text-sm">{value}</div>
     </div>
   );
 }

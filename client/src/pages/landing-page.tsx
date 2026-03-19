@@ -20,156 +20,156 @@ import { buildTrackedPath, trackMarketingEvent } from "@/lib/marketing";
 import { BrandMark } from "@/components/brand-mark";
 
 const navItems = [
-  { label: "Product", href: "#product" },
-  { label: "Solutions", href: "#solutions" },
-  { label: "Frameworks", href: "#frameworks" },
+  { label: "Control Layer", href: "#product" },
+  { label: "Use Cases", href: "#solutions" },
+  { label: "Governance", href: "#frameworks" },
   { label: "How it Works", href: "#how-it-works" },
-  { label: "Pricing", href: "#pricing" },
+  { label: "Deployment", href: "#pricing" },
   { label: "FAQ", href: "#faq" },
   { label: "Trust Center", href: "/trust-center" },
   { label: "Docs", href: "/api-docs" },
 ];
 
 const proofItems = [
-  "Multi-tenant foundation complete",
-  "SAML + OIDC enterprise SSO",
-  "DNS-verified domain claims",
-  "Invite + JIT onboarding",
-  "Decision traceability lifecycle",
-  "SHA-256 audit hash chain",
-  "AI incident playbooks",
-  "Jira escalation sync",
-  "Pilot-to-paid subscription controls",
-  "Role-based approvals",
-  "Audit-ready exports",
+  "Inline prompt preflight controls",
+  "Output and tool-call postflight enforcement",
+  "OpenAI, Anthropic, Gemini, Azure, Vertex, and Bedrock coverage",
+  "Generic OpenAI-compatible provider gateway",
+  "Tool allowlists and typed argument enforcement",
+  "Runtime incidents and containment workflow",
+  "Decision traces and SHA-256 audit chain",
+  "Tenant-scoped reviewer exceptions",
+  "Encrypted upstream provider credential vault",
+  "Telemetry privacy profiles",
+  "SAML, OIDC, verified domains, and JIT onboarding",
   "Tenant-safe architecture",
 ];
 
 const painPoints = [
-  "AI systems tracked in spreadsheets and ad hoc docs",
-  "Approval workflows buried in email and chat",
-  "Evidence scattered across folders and tools",
-  "Incomplete audit trails during reviews",
-  "Inconsistent risk classification between teams",
-  "Siloed compliance, security, and product operations",
+  "Prompts go straight to models with no central interception point",
+  "Teams can see incidents after the fact but cannot stop unsafe output before release",
+  "Tool calls are approved implicitly instead of through explicit action policy",
+  "Runtime evidence is too thin to defend a decision during audit or investigation",
+  "False positives and reviewer overrides are handled manually with no tenant memory",
+  "Compliance, security, product, and platform teams operate on different facts",
 ];
 
 const useCases = [
   {
-    title: "Compliance & Risk",
-    body: "Track controls, evidence, approvals, and framework alignment from one operational record.",
+    title: "Governance & Compliance",
+    body: "Run one operating surface for registry, policy, evidence, incidents, approvals, and audit posture.",
     icon: ClipboardCheck,
   },
   {
-    title: "Security & Governance",
-    body: "Enforce review workflows, enterprise SSO, and governance posture controls across high-scrutiny systems.",
+    title: "Security & Runtime Control",
+    body: "Intercept prompts, outputs, and tool calls before unsafe model behavior reaches downstream users or systems.",
     icon: Lock,
   },
   {
-    title: "Product & AI Teams",
-    body: "Register systems, complete assessments, and move through review paths with less friction.",
+    title: "Platform & AI Teams",
+    body: "Connect models through SDK or gateway mode and keep shipping without losing central control.",
     icon: Workflow,
   },
   {
-    title: "Auditors",
-    body: "Review evidence, activity history, control mapping, and approvals from a single workspace.",
+    title: "Audit & Investigation",
+    body: "Trace why a turn was allowed, warned, escalated, or blocked with linked evidence and incident history.",
     icon: FileCheck2,
   },
   {
     title: "Regulated Enterprises",
-    body: "Prepare for customer due diligence and regulatory scrutiny with auditable governance operations and tenant-safe identity controls.",
+    body: "Apply stricter runtime policy in finance, healthcare, employment, and other high-scrutiny environments.",
     icon: Building2,
   },
   {
-    title: "Portfolio Operators and PE Teams",
-    body: "Roll out governance baselines across portfolio companies with buyer-grade audit evidence, incident handling, and commercial controls.",
+    title: "Portfolio Operators",
+    body: "Roll out baseline policy, review workflows, and evidence standards across multiple operating companies.",
     icon: ChartNoAxesCombined,
   },
   {
-    title: "IT & Identity Teams",
-    body: "Roll out SAML or OIDC, verified domains, JIT provisioning, and invite-based onboarding without custom glue.",
+    title: "Identity & Admin Teams",
+    body: "Use enterprise sign-in, domain verification, invites, and tenant isolation without custom governance glue code.",
     icon: Users,
   },
 ];
 
 const differentiators = [
   {
-    title: "System-first governance",
-    body: "Each AI system has profile, controls, workflows, evidence, and audit history in one context.",
+    title: "Inline control, not just monitoring",
+    body: "AI Control Tower can evaluate prompts before the model call, evaluate outputs before release, and stop risky traffic in the middle of execution.",
   },
   {
-    title: "Operational, not theoretical",
-    body: "Approvals, notifications, calendars, and exports turn governance requirements into daily execution.",
+    title: "System-bound governance",
+    body: "Every runtime decision is attached to a registered AI system with known ownership, purpose, domain, and sensitivity.",
   },
   {
-    title: "Framework-aware",
-    body: "Built for EU AI Act risk thinking with mapped controls across NIST AI RMF and ISO 42001.",
+    title: "Action-level enforcement",
+    body: "Tool calls can be allowed, denied, or schema-validated so the model cannot execute arbitrary actions just because it asks.",
   },
   {
-    title: "Enterprise identity built in",
-    body: "Support SAML, OIDC, verified domains, invite workflows, and JIT provisioning from the same admin surface.",
+    title: "Human review with memory",
+    body: "Reviewer-approved exceptions can be scoped to one tenant or system so a false positive becomes manageable without weakening global policy.",
   },
   {
-    title: "AI roll-up diligence ready",
-    body: "Decision traceability, human override capture, immutable audit chaining, and incident playbooks help answer buyer diligence questions directly.",
+    title: "Multi-provider control plane",
+    body: "The same governance path can sit in front of OpenAI, Anthropic, Gemini, Azure OpenAI, Vertex AI, Bedrock, and compatible providers.",
   },
   {
-    title: "Tenant-safe foundation",
-    body: "Organization isolation, route-level protections, and tenant-safe files/exports are built into the platform.",
+    title: "Operational evidence by default",
+    body: "Runtime events, incidents, approvals, evidence, and decision traces stay linked so audits and investigations are answerable.",
   },
 ];
 
 const howItWorks = [
-  "Register every AI system",
-  "Assess risk and classify impact",
-  "Map controls and route approvals",
-  "Collect evidence and maintain audit history",
-  "Federate identity and onboard users safely",
-  "Monitor readiness over time",
+  "Register the AI system and baseline its risk",
+  "Bind a telemetry key, SDK, or inline gateway",
+  "Run prompt preflight before model execution",
+  "Evaluate output and tool calls before release",
+  "Open incidents, update audit, and reassess posture",
+  "Review exceptions and refine policy without losing control",
 ];
 
 const features = [
-  { title: "AI System Registry", body: "Central inventory with complete system metadata and governance context." },
-  { title: "Risk Assessment Wizard", body: "Guided risk classification with rationale and control suggestions." },
-  { title: "Control Mapping", body: "Framework-aware mapping linked directly to each system and status." },
-  { title: "Approval Workflows", body: "Role-based review flows with ownership, status, and timeline visibility." },
-  { title: "Evidence Management", body: "Attach and manage evidence in context with access control and auditability." },
-  { title: "Audit Log", body: "Unified event history across systems, controls, workflows, and evidence." },
-  { title: "Calendar & Activity Views", body: "Deadline visibility and personal work surfaces for follow-through." },
-  { title: "Export & Reporting", body: "Generate organization-scoped outputs for review and audit readiness." },
-  { title: "Enterprise Identity", body: "SAML and OIDC sign-in, verified domains, invite workflows, and JIT provisioning." },
-  { title: "Admin Control Center", body: "Manage domains, identity mode, invites, members, and admin activity from one settings surface." },
-  { title: "Decision Trace Center", body: "Track context, AI output, human override, rationale, and 30/60/90-day outcomes with chain verification." },
-  { title: "Incident Response Playbooks", body: "Open AI incidents for bias, security, privacy, reliability, and safety with explicit containment workflows." },
-  { title: "Jira Escalation Sync", body: "Open Jira tickets automatically for qualifying high-risk approval workflows and sync buyer-facing remediation work." },
-  { title: "Billing Controls", body: "Manage pilot, growth, and enterprise tiers with seat limits and live usage to support pilot-to-paid conversion." },
-  { title: "Multi-tenant SaaS Foundation", body: "Hardened tenant isolation with org-aware auth/session boundaries." },
+  { title: "AI System Registry", body: "Track owner, purpose, domain, sensitivity, geography, and oversight for every governed system." },
+  { title: "Risk Classification", body: "Baseline each AI system before runtime enforcement begins so policy decisions have business context." },
+  { title: "Telemetry Adapter", body: "Rotate keys, bind default systems, set privacy profiles, and manage upstream provider configuration." },
+  { title: "Telemetry Policy", body: "Configure allow, warn, escalate, and block rules for prompts, outputs, tools, and runtime thresholds." },
+  { title: "Inline Gateway", body: "Intercept prompt and response traffic for supported providers through a central OpenAI-compatible control surface." },
+  { title: "SDK Guard Mode", body: "Wrap application-side model calls when a full proxy is not the right deployment model." },
+  { title: "Tool and Action Control", body: "Use default-deny allowlists and typed argument policy to constrain what models may trigger." },
+  { title: "Runtime Monitoring", body: "Review live telemetry counts, threshold breaches, blocked decisions, and escalated incidents." },
+  { title: "Incident Response", body: "Create or update AI incidents automatically when runtime behavior crosses security, privacy, or safety lines." },
+  { title: "Decision Traces", body: "Maintain context, rationale, human override state, and linked outcomes with audit-chain verification." },
+  { title: "Evidence and Compliance", body: "Keep controls, evidence, reviewer notes, and framework posture linked to the same systems." },
+  { title: "Reviewer Exceptions", body: "Allow tenant-scoped false-positive suppression without weakening policy for every other customer." },
+  { title: "Enterprise Identity", body: "Use SAML, OIDC, verified domains, invite workflows, and JIT onboarding in a tenant-safe model." },
+  { title: "Provider Vault", body: "Store upstream provider credentials centrally and bind them to tenant policy and model allowlists." },
+  { title: "Multi-tenant Control Plane", body: "Run all of this with tenant-aware auth, isolation, scoped exports, and organization-safe operations." },
 ];
 
 const operationsHighlights = [
   {
-    title: "Readiness and deployment discipline",
-    body: "Health and readiness probes, deploy smoke checks, and promotion workflows keep releases predictable instead of hope-driven.",
+    title: "Security floors that override weak policy",
+    body: "Critical prompt-injection, PII, secret-exposure, and repeat-attack signals can hard-block even if a weaker tenant policy was configured.",
     icon: CalendarClock,
   },
   {
-    title: "Monitoring with traceable failures",
-    body: "Structured request logging, request IDs, stable error codes, and queued monitoring webhooks give teams cleaner incident diagnosis.",
+    title: "Runtime decisions with traceable failures",
+    body: "Correlation IDs, stable decision envelopes, request logging, and incident linkage make enforcement behavior inspectable instead of opaque.",
     icon: ChartNoAxesCombined,
   },
   {
-    title: "Async delivery with retry paths",
-    body: "Invite delivery and monitoring webhooks run through a persistent retryable job queue with admin-visible failure handling.",
+    title: "Adaptive hardening under attack",
+    body: "Repeat adversarial attempts can trigger throttling, escalation, safe-model fallback, quarantine, or forced review.",
     icon: Workflow,
   },
   {
     title: "Immutable trace and incident posture",
-    body: "Decision lifecycle records, SHA-256 audit chains, and AI-specific incident playbooks give operators a clearer diligence and response story.",
+    body: "Decision lifecycle records, SHA-256 audit chains, and AI-specific incident playbooks give operators a defendable response story.",
     icon: CheckCircle2,
   },
   {
     title: "Tenant-safe operational controls",
-    body: "Org-scoped files, exports, sessions, domains, and admin surfaces keep platform operations aligned with real enterprise boundaries.",
+    body: "Org-scoped files, exports, sessions, domains, keys, exceptions, and admin surfaces stay inside real enterprise boundaries.",
     icon: FolderLock,
   },
 ];
@@ -177,66 +177,66 @@ const operationsHighlights = [
 const roleValue = [
   {
     title: "For Compliance Leaders",
-    body: "Track control coverage, evidence gaps, and deadlines with clear, centralized accountability.",
+    body: "Track control coverage, evidence gaps, incident trends, and reviewer decisions from one operating layer.",
   },
   {
     title: "For Security & Risk Teams",
-    body: "Monitor high-risk systems, workflow bottlenecks, and governance posture across portfolios.",
+    body: "Control prompt, output, and tool behavior centrally instead of relying on application teams to get enforcement right every time.",
   },
   {
     title: "For Product Teams",
-    body: "Move AI use cases through a clear review path instead of fragmented governance requests.",
+    body: "Connect AI systems once, then use the gateway or SDK path without rebuilding governance logic inside every app.",
   },
   {
     title: "For Auditors",
-    body: "Access structured history, control mapping, evidence, and exports without chasing sources.",
+    body: "Access structured history, control mapping, runtime evidence, incidents, and exports without chasing sources.",
   },
   {
     title: "For IT and Identity Owners",
-    body: "Deploy enterprise sign-in with verified domains and controlled onboarding instead of stitching governance into the IdP by hand.",
+    body: "Deploy enterprise sign-in, verified domains, and controlled onboarding without stitching governance into the IdP by hand.",
   },
   {
     title: "For Operating Partners",
-    body: "Assess portfolio readiness, buyer diligence posture, and escalation discipline from a single multi-tenant control plane.",
+    body: "Assess portfolio readiness, enforcement maturity, and escalation discipline from a single multi-tenant control plane.",
   },
 ];
 
 const faqItems = [
   {
     q: "What is AI Control Tower?",
-    a: "AI Control Tower is an enterprise AI governance platform for system registry, risk assessment, controls, approvals, evidence, and audit-ready operations.",
+    a: "AI Control Tower is a runtime governance and control platform for AI systems. It combines registry, policy, inline enforcement, incidents, evidence, approvals, and audit operations in one control plane.",
   },
   {
     q: "Who is it for?",
-    a: "Compliance teams, risk leaders, security teams, AI governance groups, product/AI teams, and auditors in regulated or high-scrutiny environments.",
+    a: "Compliance teams, security teams, platform teams, AI governance owners, product teams, and auditors in regulated or high-scrutiny environments.",
   },
   {
-    q: "Does it support high-risk AI governance?",
-    a: "Yes. The platform is designed for structured assessments, approval workflows, evidence collection, and audit trails around higher-scrutiny AI systems.",
+    q: "Does it only monitor after the fact?",
+    a: "No. The platform can run inline so prompts are checked before model execution and outputs are checked before release. It can also run in SDK mode when a full gateway is not the right fit.",
   },
   {
-    q: "Which frameworks does it align with?",
-    a: "Current control mapping aligns with EU AI Act concepts and includes NIST AI RMF and ISO 42001 support.",
+    q: "Which providers can it control?",
+    a: "It supports OpenAI, Anthropic, Gemini, Azure OpenAI, Vertex AI, Bedrock, and OpenAI-compatible providers through a central gateway model.",
   },
   {
-    q: "Can multiple organizations use it safely?",
-    a: "Yes. Organization-aware auth/session context, scoped exports/files, route-level protections, and tenant guards are in place.",
+    q: "Can it control tool or action execution?",
+    a: "Yes. Tool calls can be constrained with allowlists and typed argument validation so the model cannot execute arbitrary actions just because it requested them.",
   },
   {
-    q: "Does it support enterprise identity and onboarding?",
-    a: "Yes. The platform now supports SAML and OIDC, verified domain claims, invite workflows, and JIT provisioning with org-scoped audit trails.",
+    q: "How are false positives handled?",
+    a: "Reviewers can create tenant-scoped exceptions so a known acceptable pattern can be allowed for one organization or system without weakening policy for everyone else.",
   },
   {
-    q: "Can we export data for audits?",
-    a: "Yes. Export/reporting flows are organization-scoped and designed for governance reviews and audit readiness.",
+    q: "How much prompt and output data does it collect?",
+    a: "Customers can choose minimal, redacted, or full-evidence telemetry profiles based on privacy, legal, and operational requirements.",
   },
   {
-    q: "Can the platform support buyer diligence and AI roll-up operations?",
-    a: "Yes. Decision traceability, human override capture, incident playbooks, immutable audit chains, trust-center documentation, and Jira escalation support are built into the platform.",
+    q: "Can it support audits and investigations?",
+    a: "Yes. Runtime events, incidents, approvals, evidence, and decision traces are linked so teams can explain what happened and why a decision was taken.",
   },
   {
-    q: "How does the platform fit into the enterprise stack?",
-    a: "AI Control Tower supports identity federation, domain verification, Jira integration, API documentation, and billing controls so customers can move from pilot to production with less glue code.",
+    q: "How does it fit into the enterprise stack?",
+    a: "AI Control Tower supports SDK integration, inline gateway mode, enterprise identity, provider credential vaulting, API documentation, and tenant-safe administration.",
   },
 ];
 
@@ -403,19 +403,19 @@ export default function LandingPage() {
               Enterprise AI Governance Platform
             </p>
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
-              Control enterprise AI before it becomes a compliance, security, or audit problem.
+              Control prompts, outputs, and AI actions before they become production incidents.
             </h1>
             <p className="text-sm text-muted-foreground sm:text-base">
-              AI Control Tower helps organizations register AI systems, classify risk, map controls, manage approvals,
-              store evidence, and stay audit-ready across GenAI and high-risk AI use cases.
+              AI Control Tower is the runtime control plane for enterprise AI. Register systems, bind policy, intercept model traffic,
+              govern tool execution, open incidents automatically, and keep the full evidence trail tied to business context.
             </p>
             <ul className="space-y-2 text-sm text-muted-foreground">
               {[
-                "Centralize all AI systems in one registry",
-                "Apply structured governance across workflows and controls",
-                "Track evidence, deadlines, and audits in one platform",
-                "Built for multi-team, multi-org operational governance",
-                "Run with verified domains, queued delivery, and readiness checks instead of manual glue",
+                "Inline prompt preflight and output postflight enforcement",
+                "Gateway and SDK deployment modes for real application traffic",
+                "Tool allowlists, typed argument policy, and multi-provider control",
+                "Incidents, evidence, decision traces, and audit in one path",
+                "Tenant-safe identity, provider vaulting, and review workflows",
               ].map((line) => (
                 <li key={line} className="flex items-start gap-2">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -446,52 +446,52 @@ export default function LandingPage() {
 
           <Card className="border-border/70 bg-card/75">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Operational Governance Snapshot</CardTitle>
+              <CardTitle className="text-base">Runtime Control Snapshot</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="rounded-md border border-border/70 bg-muted/30 p-3">
-                  <p className="text-muted-foreground">High-Risk Systems</p>
-                  <p className="mt-1 text-lg font-semibold">14</p>
+                  <p className="text-muted-foreground">Telemetry Events</p>
+                  <p className="mt-1 text-lg font-semibold">36</p>
                 </div>
                 <div className="rounded-md border border-border/70 bg-muted/30 p-3">
-                  <p className="text-muted-foreground">Pending Approvals</p>
-                  <p className="mt-1 text-lg font-semibold">9</p>
+                  <p className="text-muted-foreground">Blocked Decisions</p>
+                  <p className="mt-1 text-lg font-semibold">6</p>
                 </div>
                 <div className="rounded-md border border-border/70 bg-muted/30 p-3">
-                  <p className="text-muted-foreground">Evidence Items</p>
-                  <p className="mt-1 text-lg font-semibold">147</p>
+                  <p className="text-muted-foreground">Threshold Breaches</p>
+                  <p className="mt-1 text-lg font-semibold">18</p>
                 </div>
                 <div className="rounded-md border border-border/70 bg-muted/30 p-3">
-                  <p className="text-muted-foreground">Audit Events (30d)</p>
-                  <p className="mt-1 text-lg font-semibold">318</p>
+                  <p className="text-muted-foreground">Escalated Incidents</p>
+                  <p className="mt-1 text-lg font-semibold">12</p>
                 </div>
               </div>
               <div className="rounded-md border border-border/70 bg-muted/25 p-3">
-                <p className="mb-2 text-xs font-medium text-muted-foreground">Approval Queue</p>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">Latest Enforcement Outcomes</p>
                 <div className="space-y-2 text-xs">
                   <div className="flex items-center justify-between rounded bg-background/60 px-2 py-1.5">
-                    <span>Credit Risk Engine v2 Review</span>
-                    <span className="rounded bg-amber-500/15 px-2 py-0.5 text-amber-500">In Review</span>
+                    <span>Claims Support Assistant Prompt</span>
+                    <span className="rounded bg-rose-500/15 px-2 py-0.5 text-rose-500">Blocked</span>
                   </div>
                   <div className="flex items-center justify-between rounded bg-background/60 px-2 py-1.5">
-                    <span>Chatbot Transparency Controls</span>
-                    <span className="rounded bg-sky-500/15 px-2 py-0.5 text-sky-500">Pending</span>
+                    <span>Talent Review Output Evaluation</span>
+                    <span className="rounded bg-amber-500/15 px-2 py-0.5 text-amber-500">Escalated</span>
                   </div>
                 </div>
               </div>
               <div className="grid gap-2 rounded-md border border-border/70 bg-background/40 p-3 text-xs sm:grid-cols-3">
                 <div>
-                  <p className="text-muted-foreground">Readiness</p>
-                  <p className="mt-1 font-semibold text-foreground">Live probes + smoke checks</p>
+                  <p className="text-muted-foreground">Enforcement</p>
+                  <p className="mt-1 font-semibold text-foreground">Prompt, output, and tool control</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Identity</p>
-                  <p className="mt-1 font-semibold text-foreground">SAML, OIDC, verified domains</p>
+                  <p className="text-muted-foreground">Providers</p>
+                  <p className="mt-1 font-semibold text-foreground">Native + compatible gateway coverage</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Operations</p>
-                  <p className="mt-1 font-semibold text-foreground">Queued delivery + audit trail</p>
+                  <p className="text-muted-foreground">Auditability</p>
+                  <p className="mt-1 font-semibold text-foreground">Incident, evidence, and decision trace linkage</p>
                 </div>
               </div>
             </CardContent>
@@ -502,8 +502,8 @@ export default function LandingPage() {
       <Section
         id="product"
         eyebrow="Credibility"
-        title="Built for teams that need more than a spreadsheet"
-        subtitle="Operational governance requires system context, workflow discipline, and tenant-safe architecture."
+        title="Built for teams that need more than passive monitoring"
+        subtitle="Real AI control requires a system registry, inline enforcement, action policy, and tenant-safe operations."
       >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {proofItems.map((item) => (
@@ -518,7 +518,7 @@ export default function LandingPage() {
         id="pain-points"
         eyebrow="Pain Points"
         title="Why AI governance breaks down in most organizations"
-        subtitle="AI adoption accelerates while governance operations stay fragmented across tools and teams."
+        subtitle="AI adoption accelerates while runtime control stays fragmented across apps, gateways, and teams."
       >
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {painPoints.map((item) => (
@@ -528,7 +528,7 @@ export default function LandingPage() {
           ))}
         </div>
         <p className="mt-6 text-sm text-foreground/90">
-          AI Control Tower replaces fragmented governance with one operational system of record for enterprise AI.
+          AI Control Tower replaces fragmented governance with one control plane for AI registration, runtime enforcement, review, and audit.
         </p>
       </Section>
 
@@ -563,8 +563,8 @@ export default function LandingPage() {
 
       <Section
         eyebrow="Operations"
-        title="Built to run in production, not just to demo well"
-        subtitle="The platform now exposes the operational controls enterprise teams expect once governance moves into daily use."
+        title="Built to run in production, not just to observe production"
+        subtitle="The platform exposes the operational controls enterprise teams need once governance moves from policy documents into live traffic."
       >
         <div className="grid gap-4 sm:grid-cols-2">
           {operationsHighlights.map((item) => (
@@ -582,20 +582,20 @@ export default function LandingPage() {
         <div className="mt-6 grid gap-3 rounded-2xl border border-border/70 bg-muted/20 p-4 text-sm sm:grid-cols-3">
           <div className="rounded-xl border border-border/70 bg-background/70 p-4">
             <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">For platform teams</p>
-            <p className="mt-2 font-medium">Use readiness, monitoring, and queue health to validate the system before users feel a problem.</p>
+            <p className="mt-2 font-medium">Use gateway mode, SDK mode, provider vaulting, and enforcement telemetry to control runtime behavior centrally.</p>
           </div>
           <div className="rounded-xl border border-border/70 bg-background/70 p-4">
             <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">For enterprise buyers</p>
-            <p className="mt-2 font-medium">Show identity federation, auditability, and tenant-safe operations without promising hand-wavy future work.</p>
+            <p className="mt-2 font-medium">Show identity federation, inline control, incident discipline, and tenant-safe operations without hand-wavy future claims.</p>
           </div>
           <div className="rounded-xl border border-border/70 bg-background/70 p-4">
             <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">For integrators</p>
-            <p className="mt-2 font-medium">Expose API docs, public specs, and controlled onboarding paths from the same product surface.</p>
+            <p className="mt-2 font-medium">Expose API docs, OpenAI-compatible routes, and controlled onboarding paths from the same product surface.</p>
           </div>
         </div>
       </Section>
 
-      <Section id="how-it-works" eyebrow="How it Works" title="A practical governance workflow from intake to audit">
+      <Section id="how-it-works" eyebrow="How it Works" title="A practical control flow from intake to audit">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {howItWorks.map((step, index) => (
             <Card key={step} className="border-border/70 bg-card/70">
@@ -610,7 +610,7 @@ export default function LandingPage() {
         </div>
       </Section>
 
-      <Section title="What the platform gives your team" subtitle="Capabilities designed for day-to-day governance execution.">
+      <Section title="What the platform gives your team" subtitle="Capabilities designed for day-to-day runtime governance execution.">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((feature) => (
             <Card key={feature.title} className="border-border/70 bg-card/70">
@@ -636,53 +636,53 @@ export default function LandingPage() {
         </div>
       </Section>
 
-      <Section id="pricing" eyebrow="Pricing" title="Pricing built for governance maturity">
+      <Section id="pricing" eyebrow="Deployment" title="Deployment models built for governance maturity">
         <div className="grid gap-4 lg:grid-cols-3">
           <Card className="border-border/70 bg-card/70">
             <CardHeader>
-              <CardTitle className="text-xl">Pilot</CardTitle>
+              <CardTitle className="text-xl">SDK Guard</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">For first deployments and governance setup.</p>
+              <p className="text-sm text-muted-foreground">For teams that need application-side guardrails without changing upstream routing first.</p>
               <ul className="space-y-1 text-sm text-muted-foreground">
-                <li>AI registry and risk assessments</li>
-                <li>Controls, approvals, audit logs</li>
-                <li>Evidence and exports</li>
+                <li>Preflight and postflight checks in app code</li>
+                <li>Linked telemetry, incidents, and audit</li>
+                <li>Fastest path to first runtime control</li>
               </ul>
               <Button className="w-full" asChild>
-                <a href={trackedPath("/start-pilot", "pricing_pilot_start")} onClick={handleCtaClick("pricing_pilot", "start_pilot")}>Start a Pilot</a>
+                <a href={trackedPath("/start-pilot", "deployment_sdk_start")} onClick={handleCtaClick("deployment_sdk", "start_pilot")}>Start a Pilot</a>
               </Button>
             </CardContent>
           </Card>
           <Card className="border-primary/40 bg-card/70">
             <CardHeader>
-              <CardTitle className="text-xl">Growth</CardTitle>
+              <CardTitle className="text-xl">Inline Gateway</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">For multi-team operational governance programs.</p>
+              <p className="text-sm text-muted-foreground">For organizations that want all model traffic to pass through a central control point.</p>
               <ul className="space-y-1 text-sm text-muted-foreground">
-                <li>Everything in Pilot</li>
-                <li>Dashboards, calendar, notifications</li>
-                <li>Activity views and admin controls</li>
+                <li>Prompt, output, and tool interception</li>
+                <li>Provider vaulting and model allowlists</li>
+                <li>Best fit for real control-tower operations</li>
               </ul>
               <Button className="w-full" variant="outline" asChild>
-                <a href={trackedPath("/book-demo", "pricing_growth_talk_sales")} onClick={handleCtaClick("pricing_growth", "talk_to_sales")}>Talk to Sales</a>
+                <a href={trackedPath("/book-demo", "deployment_gateway_book_demo")} onClick={handleCtaClick("deployment_gateway", "book_demo")}>Book a Demo</a>
               </Button>
             </CardContent>
           </Card>
           <Card className="border-border/70 bg-card/70">
             <CardHeader>
-              <CardTitle className="text-xl">Enterprise</CardTitle>
+              <CardTitle className="text-xl">Tenant Enterprise</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">For large or regulated deployments and enterprise onboarding.</p>
+              <p className="text-sm text-muted-foreground">For regulated deployments that need strict policy, review memory, and portfolio-wide governance controls.</p>
               <ul className="space-y-1 text-sm text-muted-foreground">
-                <li>Everything in Growth</li>
-                <li>Advanced integrations and workflows</li>
-                <li>Enterprise deployment options</li>
+                <li>Repeat-attack controls and forced review options</li>
+                <li>Tenant-scoped exceptions and evidence workflows</li>
+                <li>Enterprise identity and multi-org control plane</li>
               </ul>
               <Button className="w-full" variant="outline" asChild>
-                <a href={trackedPath("/book-demo", "pricing_enterprise_book_demo")} onClick={handleCtaClick("pricing_enterprise", "book_demo")}>Book Enterprise Demo</a>
+                <a href={trackedPath("/book-demo", "deployment_enterprise_book_demo")} onClick={handleCtaClick("deployment_enterprise", "book_demo")}>Book Enterprise Demo</a>
               </Button>
             </CardContent>
           </Card>
@@ -693,17 +693,17 @@ export default function LandingPage() {
         <div className="grid gap-4 md:grid-cols-3">
           <Card className="border-border/70 bg-card/70">
             <CardContent className="pt-6 text-sm text-muted-foreground">
-              “Bring systems, approvals, evidence, and audits into one operating layer.”
+              “Intercept the turn before the model, not just the incident after the model.”
             </CardContent>
           </Card>
           <Card className="border-border/70 bg-card/70">
             <CardContent className="pt-6 text-sm text-muted-foreground">
-              “Turn governance expectations into repeatable daily workflows.”
+              “Bind every runtime decision to a real system, real owner, and real policy.”
             </CardContent>
           </Card>
           <Card className="border-border/70 bg-card/70">
             <CardContent className="pt-6 text-sm text-muted-foreground">
-              “Use dashboards, calendar, and exports to maintain continuous readiness.”
+              “Use incidents, evidence, and decision traces to keep governance explainable under pressure.”
             </CardContent>
           </Card>
         </div>
@@ -712,10 +712,10 @@ export default function LandingPage() {
       <section className="border-y border-border/70 bg-muted/20 py-16 sm:py-20">
         <div className="mx-auto w-full max-w-4xl px-4 text-center sm:px-6 lg:px-8">
           <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            Bring your AI systems, controls, approvals, and evidence into one control tower.
+            Bring your AI systems, runtime policy, incidents, and evidence into one control tower.
           </h2>
           <p className="mt-3 text-sm text-muted-foreground sm:text-base">
-            See how your organization can move from scattered governance to operational oversight.
+            See how your organization can move from scattered governance to central runtime control.
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <Button size="lg" asChild>
@@ -750,7 +750,7 @@ export default function LandingPage() {
               AI Control Tower
             </p>
             <p className="text-xs text-muted-foreground">
-              Enterprise AI governance with operational workflow, evidence, and audit-ready control.
+              Enterprise AI runtime governance with policy enforcement, evidence, and audit-ready control.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
@@ -762,10 +762,10 @@ export default function LandingPage() {
             <a href={trackedPath("/book-demo", "footer_book_demo")} onClick={handleCtaClick("footer", "book_demo")} className="hover:text-foreground">Book Demo</a>
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1"><Users className="h-3.5 w-3.5 text-primary" /> Role-based access</span>
-            <span className="inline-flex items-center gap-1"><ChartNoAxesCombined className="h-3.5 w-3.5 text-primary" /> Audit logs</span>
+            <span className="inline-flex items-center gap-1"><Users className="h-3.5 w-3.5 text-primary" /> Reviewer workflows</span>
+            <span className="inline-flex items-center gap-1"><ChartNoAxesCombined className="h-3.5 w-3.5 text-primary" /> Runtime telemetry</span>
             <span className="inline-flex items-center gap-1"><FolderLock className="h-3.5 w-3.5 text-primary" /> Tenant isolation</span>
-            <span className="inline-flex items-center gap-1"><CalendarClock className="h-3.5 w-3.5 text-primary" /> Export controls</span>
+            <span className="inline-flex items-center gap-1"><CalendarClock className="h-3.5 w-3.5 text-primary" /> Incident discipline</span>
           </div>
         </div>
       </footer>

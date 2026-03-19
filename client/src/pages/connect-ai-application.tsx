@@ -492,7 +492,7 @@ export default function ConnectAiApplicationPage() {
   };
 
   return (
-    <div className="space-y-6 p-6 max-w-6xl mx-auto" data-testid="page-connect-ai-application">
+    <div className="page-shell-wide" data-testid="page-connect-ai-application">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-2">
           <Button asChild variant="ghost" className="-ml-3 w-fit px-3">

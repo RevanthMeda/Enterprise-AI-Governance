@@ -356,7 +356,7 @@ export default function SystemDetail() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6 max-w-[1200px] mx-auto">
+      <div className="page-shell">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-32 w-full" />
         <Skeleton className="h-64 w-full" />
@@ -366,7 +366,7 @@ export default function SystemDetail() {
 
   if (!system) {
     return (
-      <div className="p-6 max-w-[1200px] mx-auto">
+      <div className="mx-auto w-full max-w-[1360px] p-5 md:p-6">
         <Link href="/registry">
           <Button variant="ghost" size="sm" data-testid="button-back-registry">
             <ArrowLeft className="h-4 w-4 mr-1" /> Back to Registry
@@ -383,7 +383,7 @@ export default function SystemDetail() {
   }
 
   return (
-    <div className="p-6 space-y-5 max-w-[1200px] mx-auto" data-testid="page-system-detail">
+    <div className="mx-auto w-full max-w-[1360px] space-y-5 p-5 md:p-6" data-testid="page-system-detail">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Link href="/registry">

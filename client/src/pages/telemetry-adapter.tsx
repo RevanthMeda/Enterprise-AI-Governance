@@ -323,7 +323,7 @@ export default function TelemetryAdapterPage() {
 
   if (adapterQuery.isLoading || !adapter) {
     return (
-      <div className="space-y-6 p-6">
+      <div className="page-shell">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-56 w-full" />
       </div>
@@ -543,21 +543,25 @@ if (result.blocked) {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="page-shell">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Telemetry Adapter</h1>
           <p className="text-sm text-muted-foreground">
-            Issue ingest credentials for external gateways and SDKs that need to post model telemetry without an interactive session.
+            Control runtime ingestion keys, guardrails, and provider credentials for governed AI traffic.
           </p>
         </div>
-        <Badge variant="outline">{adapter.enabled ? "Adapter enabled" : "Adapter disabled"}</Badge>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant={adapter.enabled ? "default" : "outline"}>{adapter.enabled ? "Adapter enabled" : "Adapter disabled"}</Badge>
+          <Badge variant="outline">Profile {adapter.collectionProfile.replaceAll("_", " ")}</Badge>
+          <Badge variant="outline">{adapter.hasActiveKey ? "Key active" : "No active key"}</Badge>
+        </div>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-semibold">SDK ingest configuration</CardTitle>
+            <CardTitle className="text-sm font-semibold">Adapter control plane</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
@@ -623,7 +627,7 @@ if (result.blocked) {
             </label>
 
             <label className="space-y-1 text-sm">
-              <span className="font-medium">Default linked AI system</span>
+              <span className="font-medium">Default AI system binding</span>
               <select
                 value={draftDefaultSystemId}
                 onChange={(event) => setDraftDefaultSystemId(event.target.value)}
@@ -689,7 +693,7 @@ if (result.blocked) {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-semibold">Adapter status</CardTitle>
+            <CardTitle className="text-sm font-semibold">Current posture</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <p>Last rotated: {adapter.lastRotatedAt ? new Date(adapter.lastRotatedAt).toLocaleString() : "Never"}</p>
@@ -708,11 +712,11 @@ if (result.blocked) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">Manifest-assisted onboarding</CardTitle>
+          <CardTitle className="text-sm font-semibold">Registry and manifest linkage</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm text-muted-foreground">
           <p>
-            API keys and runtime payloads are not enough to defensibly infer business purpose or regulatory impact. Use the connected-application manifest flow to create the registry record and baseline risk assessment, then let runtime telemetry drive reassessment over time.
+            Use the application manifest to create the registry record and baseline risk posture, then let runtime telemetry update it over time.
           </p>
           <div className="flex flex-wrap gap-3">
             <Button asChild>
@@ -727,25 +731,31 @@ if (result.blocked) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">Gateway example</CardTitle>
+          <CardTitle className="text-sm font-semibold">Machine-to-machine request example</CardTitle>
         </CardHeader>
         <CardContent>
-          <pre className="overflow-x-auto rounded-lg bg-muted/40 p-4 text-xs leading-6">{curlExample}</pre>
+          <details className="rounded-lg border bg-muted/20 p-4">
+            <summary className="cursor-pointer text-sm font-medium">Show request example</summary>
+            <pre className="mt-3 overflow-x-auto rounded-lg bg-muted/40 p-4 text-xs leading-6">{curlExample}</pre>
+          </details>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">Example runtime decision</CardTitle>
+          <CardTitle className="text-sm font-semibold">Decision envelope example</CardTitle>
         </CardHeader>
         <CardContent>
-          <pre className="overflow-x-auto rounded-lg bg-muted/40 p-4 text-xs leading-6">{responseExample}</pre>
+          <details className="rounded-lg border bg-muted/20 p-4">
+            <summary className="cursor-pointer text-sm font-medium">Show decision envelope</summary>
+            <pre className="mt-3 overflow-x-auto rounded-lg bg-muted/40 p-4 text-xs leading-6">{responseExample}</pre>
+          </details>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">Runtime evaluation tester</CardTitle>
+          <CardTitle className="text-sm font-semibold">Live evaluation console</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-[1fr_auto]">

@@ -256,7 +256,7 @@ export default function TelemetryPolicyPage() {
 
   if (policyQuery.isLoading || systemsQuery.isLoading || exceptionsQuery.isLoading || !draft) {
     return (
-      <div className="space-y-6 p-6">
+      <div className="page-shell">
         <Skeleton className="h-8 w-56" />
         <Skeleton className="h-20 w-full" />
         <Skeleton className="h-64 w-full" />
@@ -267,12 +267,12 @@ export default function TelemetryPolicyPage() {
   const pageTitle = selectedSystem ? `${selectedSystem.name} telemetry policy` : "Telemetry Policy";
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="page-shell">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Telemetry Policy</h1>
           <p className="text-sm text-muted-foreground">
-            Configure runtime telemetry thresholds, active blocking rules, and incident escalation for your organization or a specific AI system.
+            Configure runtime thresholds, blocking rules, escalation behavior, and tenant-scoped exceptions.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -292,7 +292,7 @@ export default function TelemetryPolicyPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">Policy scope</CardTitle>
+          <CardTitle className="text-sm font-semibold">Scope and inheritance</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-[minmax(0,320px)_1fr]">
           <div className="space-y-2">
@@ -330,7 +330,7 @@ export default function TelemetryPolicyPage() {
       <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-semibold">Threshold configuration</CardTitle>
+            <CardTitle className="text-sm font-semibold">Thresholds and blocking rules</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             <ThresholdField label="Drift warning threshold (%)" value={draft.driftAlertThreshold} onChange={(value) => setDraft((current) => current ? { ...current, driftAlertThreshold: value } : current)} />
@@ -365,7 +365,7 @@ export default function TelemetryPolicyPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-semibold">Policy notes</CardTitle>
+            <CardTitle className="text-sm font-semibold">Enforcement summary</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <p>
@@ -376,6 +376,9 @@ export default function TelemetryPolicyPage() {
             </p>
             <p>
               Scope precedence is `system -&gt; organization -&gt; portfolio -&gt; platform default`.
+            </p>
+            <p>
+              Current blocking posture: {draft.enforceBlocking ? "runtime blocking enabled" : "monitor-only"} • PII {draft.blockOnPii ? "blocked" : "not blocked"} • Safety critical {draft.blockOnSafetyCritical ? "blocked" : "not blocked"} • Restricted prompts {draft.blockOnRestrictedPrompt ? "blocked" : "not blocked"}.
             </p>
             <p>
               {selectedSystem
@@ -399,7 +402,7 @@ export default function TelemetryPolicyPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">Reviewer exceptions and company-specific allow rules</CardTitle>
+          <CardTitle className="text-sm font-semibold">Tenant-scoped exceptions</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">

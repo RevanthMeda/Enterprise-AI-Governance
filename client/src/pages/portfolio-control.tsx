@@ -163,20 +163,23 @@ export default function PortfolioControlPage() {
   });
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="page-shell">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Portfolio Control</h1>
           <p className="text-sm text-muted-foreground">
-            Portfolio-level governance snapshot across acquired companies with tenant isolation preserved at the operating-company layer.
+            View portfolio-wide governance posture across operating companies while preserving tenant-level isolation.
           </p>
         </div>
-        <Badge variant="outline" className="w-fit">PE master control</Badge>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline" className="w-fit">Portfolio governance</Badge>
+          <Badge variant="outline" className="w-fit">Organizations {data?.summary?.organizations ?? 0}</Badge>
+        </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">Active portfolio</CardTitle>
+          <CardTitle className="text-sm font-semibold">Portfolio scope</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-[minmax(0,260px)_1fr]">
           <div className="space-y-2">
@@ -289,7 +292,7 @@ export default function PortfolioControlPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">Telemetry policy inheritance</CardTitle>
+          <CardTitle className="text-sm font-semibold">Portfolio telemetry defaults</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-6 xl:grid-cols-[1fr_360px]">
           <div className="grid gap-4 md:grid-cols-2">
@@ -404,7 +407,7 @@ export default function PortfolioControlPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-semibold">Operating company snapshot</CardTitle>
+          <CardTitle className="text-sm font-semibold">Operating company register</CardTitle>
         </CardHeader>
         <CardContent>
           {controlPlaneQuery.isLoading ? (

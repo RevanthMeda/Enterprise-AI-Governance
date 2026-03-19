@@ -70,7 +70,7 @@ export default function AuditLogPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+      <div className="page-shell">
         <Skeleton className="h-8 w-48" />
         <div className="space-y-2">
           {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-16 rounded-md" />)}
@@ -80,7 +80,7 @@ export default function AuditLogPage() {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="page-audit-log">
+    <div className="page-shell" data-testid="page-audit-log">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight">Audit Log</h1>

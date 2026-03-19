@@ -113,6 +113,7 @@ const committeeLabels: Record<string, string> = {
 export default function Approvals() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -176,6 +177,12 @@ export default function Approvals() {
     () => (activeTab === "all" ? workflows : workflows.filter((workflow) => workflow.status === activeTab)),
     [activeTab, workflows],
   );
+  const selectedWorkflow =
+    filtered.find((workflow) => workflow.id === selectedWorkflowId) ??
+    workflows.find((workflow) => workflow.id === selectedWorkflowId) ??
+    filtered[0] ??
+    workflows[0] ??
+    null;
 
   const getSystemName = (id: string) => systems.find((system) => system.id === id)?.name || "Unknown System";
 
@@ -202,7 +209,7 @@ export default function Approvals() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-[1400px] space-y-6 p-6">
+      <div className="page-shell">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-10 w-full" />
         <div className="space-y-3">
@@ -215,19 +222,19 @@ export default function Approvals() {
   }
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-6 p-6" data-testid="page-approvals">
+    <div className="page-shell" data-testid="page-approvals">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-tight">Approval Workflows</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Route AI decisions by financial, privacy, safety, and strategic impact.
+            Route AI decisions through reviewer-owned workflows based on financial, privacy, safety, and strategic impact.
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button data-testid="button-new-approval">
               <Plus className="mr-1.5 h-4 w-4" />
-              New Request
+              New approval request
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl">
@@ -378,6 +385,33 @@ export default function Approvals() {
         </Dialog>
       </div>
 
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Pending</p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight">{counts.pending}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">In review</p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight">{counts.in_review}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Escalated</p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight">{counts.escalated}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Closed</p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight">{counts.approved + counts.rejected}</p>
+          </CardContent>
+        </Card>
+      </div>
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList data-testid="tabs-approval-status">
           <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
@@ -400,67 +434,117 @@ export default function Approvals() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {filtered.map((workflow) => {
+        <div className="grid items-start gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+          <div className="space-y-2 rounded-lg border bg-muted/10 p-2 xl:max-h-[calc(100vh-19rem)] xl:overflow-y-auto">
+            {filtered.map((workflow) => {
+              const config = statusConfig[workflow.status] || statusConfig.pending;
+              const tierColor = tierColors[workflow.decisionTier || "tier_1"] || tierColors.tier_1;
+              return (
+                <button
+                  key={workflow.id}
+                  type="button"
+                  onClick={() => setSelectedWorkflowId(workflow.id)}
+                  className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                    selectedWorkflow?.id === workflow.id ? "border-primary bg-primary/5" : "hover:bg-muted/30"
+                  }`}
+                  data-testid={`card-workflow-${workflow.id}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold">{workflow.title}</div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        {getSystemName(workflow.systemId)} • {workflow.requestedBy}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-1.5">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${config.bgColor}`}>
+                        {workflow.status.replace("_", " ")}
+                      </span>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${tierColor}`}>
+                        {(workflow.decisionTier || "tier_1").replace("_", " ").toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+                  {workflow.description ? <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{workflow.description}</p> : null}
+                </button>
+              );
+            })}
+          </div>
+
+          {selectedWorkflow ? (() => {
+            const workflow = selectedWorkflow;
             const config = statusConfig[workflow.status] || statusConfig.pending;
             const StatusIcon = config.icon;
             const tierColor = tierColors[workflow.decisionTier || "tier_1"] || tierColors.tier_1;
             const isTierThree = workflow.decisionTier === "tier_3";
-
             return (
-              <Card key={workflow.id} className="hover-elevate" data-testid={`card-workflow-${workflow.id}`}>
-                <CardContent className="p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted/50">
+              <div className="rounded-lg border p-4 xl:max-h-[calc(100vh-19rem)] xl:overflow-y-auto">
+                <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted/50">
                       <StatusIcon className={`h-4 w-4 ${config.color}`} />
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h3 className="text-sm font-semibold">{workflow.title}</h3>
-                          <p className="mt-0.5 text-[11px] text-muted-foreground">
-                            {getSystemName(workflow.systemId)} - Requested by {workflow.requestedBy}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${config.bgColor}`}>
-                            {workflow.status.replace("_", " ")}
-                          </span>
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${priorityColors[workflow.priority || "medium"]}`}>
-                            {workflow.priority}
-                          </span>
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${tierColor}`}>
-                            {(workflow.decisionTier || "tier_1").replace("_", " ").toUpperCase()}
-                          </span>
-                        </div>
+                    <div>
+                      <div className="text-lg font-semibold">{workflow.title}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {getSystemName(workflow.systemId)} • Requested by {workflow.requestedBy}
                       </div>
-                      {workflow.description ? (
-                        <p className="mt-1.5 line-clamp-2 text-xs text-muted-foreground">{workflow.description}</p>
-                      ) : null}
-                      <div className="mt-3 grid gap-2 text-[11px] text-muted-foreground md:grid-cols-2 xl:grid-cols-4">
-                        <span>Committee: {committeeLabels[workflow.committeeType || "technical_team"] || workflow.committeeType}</span>
-                        <span>Impact: ${Number(workflow.estimatedFinancialImpact || 0).toLocaleString()}</span>
-                        <span>
-                          Required approvers: {Array.isArray(workflow.requiredApprovers) ? workflow.requiredApprovers.join(", ") : "Auto-log"}
-                        </span>
-                        <span>{workflow.createdAt ? new Date(workflow.createdAt).toLocaleDateString() : ""}</span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-2">
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${config.bgColor}`}>
+                      {workflow.status.replace("_", " ")}
+                    </span>
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${priorityColors[workflow.priority || "medium"]}`}>
+                      {workflow.priority}
+                    </span>
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${tierColor}`}>
+                      {(workflow.decisionTier || "tier_1").replace("_", " ").toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+                  <ApprovalMeta label="Committee" value={committeeLabels[workflow.committeeType || "technical_team"] || workflow.committeeType || "Technical Team"} />
+                  <ApprovalMeta label="Reviewer" value={workflow.reviewer || "Unassigned"} />
+                  <ApprovalMeta label="Estimated impact" value={`$${Number(workflow.estimatedFinancialImpact || 0).toLocaleString()}`} />
+                  <ApprovalMeta label="Created" value={workflow.createdAt ? new Date(workflow.createdAt).toLocaleDateString() : "Not recorded"} />
+                </div>
+
+                <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_280px]">
+                  <div className="space-y-4">
+                    <ApprovalSection title="Request summary">
+                      <p className="text-sm text-muted-foreground">{workflow.description || "No request summary recorded."}</p>
+                    </ApprovalSection>
+
+                    <ApprovalSection title="Decision factors">
+                      <div className="flex flex-wrap gap-2">
                         {workflow.reviewer ? <Badge variant="outline">Reviewer: {workflow.reviewer}</Badge> : null}
                         {workflow.usesPii ? <Badge variant="secondary">PII</Badge> : null}
                         {workflow.customerFacing ? <Badge variant="secondary">Customer-facing</Badge> : null}
                         {workflow.reversible === false ? <Badge variant="secondary">Irreversible</Badge> : null}
                         {workflow.strategicImpact ? <Badge variant="secondary">Strategic</Badge> : null}
                         {workflow.safetyCritical ? <Badge variant="secondary">Safety-critical</Badge> : null}
+                        <Badge variant="outline">
+                          Required approvers: {Array.isArray(workflow.requiredApprovers) ? workflow.requiredApprovers.join(", ") : "Auto-log"}
+                        </Badge>
                       </div>
-                      {workflow.blockedReason ? (
-                        <div className="mt-3 flex items-start gap-2 rounded-md border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300">
+                    </ApprovalSection>
+
+                    {workflow.blockedReason ? (
+                      <ApprovalSection title="Blocked reason">
+                        <div className="flex items-start gap-2 rounded-md border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300">
                           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
                           <span>{workflow.blockedReason}</span>
                         </div>
-                      ) : null}
+                      </ApprovalSection>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-4">
+                    <ApprovalSection title="Workflow actions">
                       {(workflow.status === "pending" || workflow.status === "in_review" || workflow.status === "escalated") ? (
-                        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                        <div className="flex flex-col gap-2">
                           {workflow.status === "pending" ? (
                             <Button
                               size="sm"
@@ -483,9 +567,9 @@ export default function Approvals() {
                               Approve
                             </Button>
                           ) : (
-                            <span className="text-xs text-muted-foreground">
+                            <p className="text-xs text-muted-foreground">
                               Tier 3 remains blocked until Governance Committee plus CEO approval is completed outside the standard action flow.
-                            </span>
+                            </p>
                           )}
                           <Button
                             size="sm"
@@ -498,20 +582,40 @@ export default function Approvals() {
                             Reject
                           </Button>
                           {!canCurrentUserReview(workflow) ? (
-                            <span className="text-xs text-muted-foreground">
+                            <p className="text-xs text-muted-foreground">
                               Only the assigned reviewer can change this workflow decision.
-                            </span>
+                            </p>
                           ) : null}
                         </div>
-                      ) : null}
-                    </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">This workflow is closed.</p>
+                      )}
+                    </ApprovalSection>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             );
-          })}
+          })() : null}
         </div>
       )}
+    </div>
+  );
+}
+
+function ApprovalMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3">
+      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">{label}</div>
+      <div className="mt-1 text-sm">{value}</div>
+    </div>
+  );
+}
+
+function ApprovalSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-4">
+      <div className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{title}</div>
+      <div className="mt-3">{children}</div>
     </div>
   );
 }

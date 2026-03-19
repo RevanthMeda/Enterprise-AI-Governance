@@ -88,7 +88,7 @@ function RiskDistribution({ systems }: { systems: AiSystem[] }) {
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-          Risk Distribution
+          Risk Mix
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -128,7 +128,7 @@ function ComplianceOverview({ controls }: { controls: SystemControl[] }) {
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-          Compliance Status
+          Control Coverage
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -189,7 +189,7 @@ function RecentWorkflows({ workflows }: { workflows: ApprovalWorkflow[] }) {
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           <Activity className="h-4 w-4 text-muted-foreground" />
-          Recent Approval Workflows
+          Latest Workflow Activity
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -237,7 +237,7 @@ function RecentSystems({ systems }: { systems: AiSystem[] }) {
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          Recently Added Systems
+          Newest Registered Systems
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -425,7 +425,7 @@ function OperationalReadiness({ ready }: { ready?: ReadyStatus }) {
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-          Operational Readiness
+          Platform Health
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -499,7 +499,7 @@ function ActionBoard({
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           <Activity className="h-4 w-4 text-muted-foreground" />
-          Action Board
+          Command Shortcuts
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -638,7 +638,7 @@ function SetupGuide({
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-          Program Launch Wizard
+          Launch Checklist
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -936,7 +936,7 @@ function OperationalWatchlist({
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-          Operational Watchlist
+          Immediate Attention
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -1053,6 +1053,16 @@ export default function Dashboard() {
   const activeSystems = systems.filter((s) => s.status === "active").length;
   const pendingApprovals = workflows.filter((w) => w.status === "pending" || w.status === "in_review").length;
   const highRiskSystems = systems.filter((s) => s.riskLevel === "high" || s.riskLevel === "unacceptable").length;
+  const failedJobs = ready?.queue.failed ?? 0;
+  const pendingJobs = ready?.queue.pending ?? 0;
+  const controlsNotStarted = systemControls.filter((c) => c.status === "not_started").length;
+  const attentionCount = [
+    !ready?.ready,
+    failedJobs > 0,
+    pendingApprovals > 0,
+    highRiskSystems > 0,
+    controlsNotStarted > 0,
+  ].filter(Boolean).length;
   const complianceRate = systemControls.length > 0
     ? Math.round(
         (systemControls.filter((c) => c.status === "verified" || c.status === "implemented").length /
@@ -1062,25 +1072,81 @@ export default function Dashboard() {
     : 0;
 
   return (
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto" data-testid="page-dashboard">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Control Tower</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Enterprise AI governance overview
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={ready?.ready ? "default" : "secondary"}>
-            {ready?.ready ? "Ready" : "Readiness check pending"}
-          </Badge>
-          <Badge variant="outline">
-            Queue failed: {ready?.queue.failed ?? 0}
-          </Badge>
-          <Badge variant="outline">
-            Queue pending: {ready?.queue.pending ?? 0}
-          </Badge>
-        </div>
+    <div className="page-shell" data-testid="page-dashboard">
+      <div className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
+        <Card className="overflow-hidden border-border/70 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.12),transparent_45%),linear-gradient(to_bottom,hsl(var(--background)),hsl(var(--muted)/0.18))]">
+          <CardContent className="p-6">
+            <div className="flex flex-col gap-5">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div className="max-w-2xl">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">AI Control Tower</Badge>
+                    <Badge variant={ready?.ready ? "default" : "secondary"}>
+                      {ready?.ready ? "Platform ready" : "Readiness degraded"}
+                    </Badge>
+                    <Badge variant="outline">Queue pending {pendingJobs}</Badge>
+                  </div>
+                  <h1 className="mt-4 text-3xl font-semibold tracking-tight">Governance operations at a glance</h1>
+                  <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+                    Keep the homepage focused on what actually needs operator attention: system inventory, approval pressure,
+                    control coverage, and platform health.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:w-[320px]">
+                  <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Systems in scope</p>
+                    <p className="mt-2 text-3xl font-semibold tracking-tight">{systems.length}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{activeSystems} active right now</p>
+                  </div>
+                  <div className="rounded-xl border border-border/70 bg-background/80 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Attention items</p>
+                    <p className="mt-2 text-3xl font-semibold tracking-tight">{attentionCount}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Open issues across health, controls, and approvals</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-4">
+                <div className="rounded-xl border border-border/70 bg-background/70 p-4">
+                  <p className="text-xs text-muted-foreground">High-scrutiny systems</p>
+                  <p className="mt-1 text-2xl font-semibold tracking-tight">{highRiskSystems}</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-background/70 p-4">
+                  <p className="text-xs text-muted-foreground">Pending approvals</p>
+                  <p className="mt-1 text-2xl font-semibold tracking-tight">{pendingApprovals}</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-background/70 p-4">
+                  <p className="text-xs text-muted-foreground">Coverage rate</p>
+                  <p className="mt-1 text-2xl font-semibold tracking-tight">{complianceRate}%</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-background/70 p-4">
+                  <p className="text-xs text-muted-foreground">Failed jobs</p>
+                  <p className="mt-1 text-2xl font-semibold tracking-tight">{failedJobs}</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button asChild size="sm">
+                  <a href="/runtime-monitoring">Open runtime monitoring</a>
+                </Button>
+                <Button asChild size="sm" variant="outline">
+                  <a href="/approvals">Review approvals</a>
+                </Button>
+                <Button asChild size="sm" variant="outline">
+                  <a href="/registry">Open registry</a>
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <OperationalWatchlist
+          ready={ready}
+          workflows={workflows}
+          systems={systems}
+          controls={systemControls}
+          onboarding={user?.currentOrganizationOnboarding ?? null}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -1117,18 +1183,13 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <RiskDistribution systems={systems} />
-        <ComplianceOverview controls={systemControls} />
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <OperationalReadiness ready={ready} />
         <ActionBoard workflows={workflows} systems={systems} controls={systemControls} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <SetupGuide systems={systems} workflows={workflows} controls={systemControls} ready={ready} onboarding={user?.currentOrganizationOnboarding ?? null} />
-        <OperationalWatchlist ready={ready} workflows={workflows} systems={systems} controls={systemControls} onboarding={user?.currentOrganizationOnboarding ?? null} />
+        <RiskDistribution systems={systems} />
+        <ComplianceOverview controls={systemControls} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -1136,11 +1197,21 @@ export default function Dashboard() {
         <RecentWorkflows workflows={workflows} />
       </div>
 
+      <div className="grid grid-cols-1 gap-4">
+        <SetupGuide
+          systems={systems}
+          workflows={workflows}
+          controls={systemControls}
+          ready={ready}
+          onboarding={user?.currentOrganizationOnboarding ?? null}
+        />
+      </div>
+
       {trends && (
         <>
           <div>
-            <h2 className="text-base font-semibold tracking-tight mb-1" data-testid="heading-trends">Trend Analytics</h2>
-            <p className="text-xs text-muted-foreground">12-week operational trends across the platform</p>
+            <h2 className="text-base font-semibold tracking-tight mb-1" data-testid="heading-trends">Platform Trendlines</h2>
+            <p className="text-xs text-muted-foreground">12-week movement across risk posture, approvals, audit activity, and evidence volume</p>
           </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <RiskTrendChart data={trends.riskTrends} />
