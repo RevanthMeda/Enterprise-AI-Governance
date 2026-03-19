@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import type { AiSystem } from "@shared/schema";
 
 type DecisionAudit = {
   id: string;
@@ -125,6 +126,11 @@ export default function DecisionTracePage() {
     refetchInterval: 15_000,
     staleTime: 5_000,
   });
+  const systemsQuery = useQuery<AiSystem[]>({
+    queryKey: ["/api/ai-systems"],
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+  });
   const versionsQuery = useQuery<DecisionAuditVersion[]>({
     queryKey: ["/api/decision-audits", editingTraceId, "versions"],
     enabled: Boolean(editingTraceId),
@@ -221,7 +227,21 @@ export default function DecisionTracePage() {
                 <input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
               </Field>
               <Field label="System ID">
-                <input value={form.systemId} onChange={(event) => setForm((current) => ({ ...current, systemId: event.target.value }))} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                <Select value={form.systemId} onValueChange={(value) => setForm((current) => ({ ...current, systemId: value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a registered system" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(systemsQuery.data ?? []).map((system) => (
+                      <SelectItem key={system.id} value={system.id}>
+                        {system.name}
+                      </SelectItem>
+                    ))}
+                    {form.systemId && !(systemsQuery.data ?? []).some((system) => system.id === form.systemId) ? (
+                      <SelectItem value={form.systemId}>{form.systemId}</SelectItem>
+                    ) : null}
+                  </SelectContent>
+                </Select>
               </Field>
               <Field label="Workflow ID">
                 <input value={form.workflowId} onChange={(event) => setForm((current) => ({ ...current, workflowId: event.target.value }))} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />

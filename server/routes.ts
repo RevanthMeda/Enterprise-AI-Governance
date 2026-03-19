@@ -3508,25 +3508,30 @@ export async function registerRoutes(
     requireTenant,
     requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "system_owner", "reviewer"),
     async (req, res) => {
-      const updated = await controlService.updateControlAssignment({
-        organizationId: req.tenant!.organizationId,
-        actor: req.user!,
-        controlId: routeParam(req.params.id),
-        input: req.body,
-      });
-      if (!updated) return res.status(404).json({ message: "Control not found" });
-      await auditService.createLog({
-        organizationId: req.tenant!.organizationId,
-        actor: req.user!,
-        input: {
-          entityType: "system_control",
-          entityId: updated.id,
-          action: "status_changed",
-          performedBy: req.user!.fullName,
-          details: `Control status changed to "${updated.status}"`,
-        },
-      });
-      res.json(updated);
+      try {
+        const parsed = insertSystemControlSchema.partial().parse(req.body ?? {});
+        const updated = await controlService.updateControlAssignment({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          controlId: routeParam(req.params.id),
+          input: parsed,
+        });
+        if (!updated) return res.status(404).json({ message: "Control not found" });
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "system_control",
+            entityId: updated.id,
+            action: "status_changed",
+            performedBy: req.user!.fullName,
+            details: `Control status changed to "${updated.status}"`,
+          },
+        });
+        res.json(updated);
+      } catch (err: any) {
+        res.status(err?.status ?? 400).json({ message: err.message || "Failed to update control" });
+      }
     },
   );
 

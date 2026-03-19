@@ -169,6 +169,7 @@ export default function RiskAssessment() {
   const [answers, setAnswers] = useState<WizardAnswers>(defaultAnswers);
   const [result, setResult] = useState<RiskAssessmentType | null>(null);
   const [showWizard, setShowWizard] = useState(false);
+  const [consistencyConfirmed, setConsistencyConfirmed] = useState(false);
 
   const { data: systems = [], isLoading: systemsLoading } = useQuery<AiSystem[]>({
     queryKey: ["/api/ai-systems"],
@@ -237,8 +238,16 @@ export default function RiskAssessment() {
   });
 
   const updateAnswer = (key: keyof WizardAnswers, value: string) => {
+    if (key !== "purpose") {
+      setConsistencyConfirmed(false);
+    }
     setAnswers((prev) => ({ ...prev, [key]: value }));
   };
+
+  const selectedSystem = systems.find((system) => system.id === answers.systemId);
+  const consistencyWarnings = selectedSystem
+    ? buildConsistencyWarnings(selectedSystem, answers)
+    : [];
 
   const canAdvance = (): boolean => {
     switch (currentStep) {
@@ -283,6 +292,7 @@ export default function RiskAssessment() {
     setCurrentStep(0);
     setResult(null);
     setShowWizard(true);
+    setConsistencyConfirmed(false);
   };
 
   const isLoading = systemsLoading || assessmentsLoading;
@@ -764,10 +774,10 @@ export default function RiskAssessment() {
                     <SelectTrigger data-testid="select-geography">
                       <SelectValue placeholder="Select geography..." />
                     </SelectTrigger>
-                    <SelectContent>
+                      <SelectContent>
                       <SelectItem value="eu">European Union</SelectItem>
                       <SelectItem value="global">Global</SelectItem>
-                      <SelectItem value="non_eu">Non-EU Only</SelectItem>
+                      <SelectItem value="other">Non-EU Only</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -843,6 +853,28 @@ export default function RiskAssessment() {
                   <ReviewRow label="Biometric Use" value={answers.biometricUse === "yes" ? "Yes" : "No"} />
                   <ReviewRow label="Vulnerable Groups" value={answers.vulnerableGroups === "yes" ? "Yes" : "No"} />
                 </div>
+
+                {consistencyWarnings.length > 0 ? (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
+                    <div className="font-medium">Consistency review required</div>
+                    <p className="mt-1 text-xs text-amber-900/80 dark:text-amber-100/80">
+                      These answers conflict with the existing registry profile for the selected system.
+                    </p>
+                    <ul className="mt-3 space-y-1 text-xs">
+                      {consistencyWarnings.map((warning) => (
+                        <li key={warning}>• {warning}</li>
+                      ))}
+                    </ul>
+                    <label className="mt-3 flex items-start gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={consistencyConfirmed}
+                        onChange={(event) => setConsistencyConfirmed(event.target.checked)}
+                      />
+                      <span>I confirm these differences are intentional and should be submitted for reassessment.</span>
+                    </label>
+                  </div>
+                ) : null}
               </div>
             )}
           </CardContent>
@@ -870,7 +902,7 @@ export default function RiskAssessment() {
           ) : (
             <Button
               onClick={handleSubmit}
-              disabled={submitMutation.isPending}
+              disabled={submitMutation.isPending || (consistencyWarnings.length > 0 && !consistencyConfirmed)}
               data-testid="button-wizard-submit"
             >
               {submitMutation.isPending ? "Submitting..." : "Submit Assessment"}
@@ -992,6 +1024,39 @@ export default function RiskAssessment() {
       </Card>
     </div>
   );
+}
+
+function buildConsistencyWarnings(system: AiSystem, answers: WizardAnswers) {
+  const warnings: string[] = [];
+  const normalizedRisk = (system.riskLevel || "").toLowerCase();
+  const normalizedSensitivity = (system.dataSensitivity || "").toLowerCase();
+  const normalizedGeography = (system.geography || "").toLowerCase();
+  const impactedUsers = Number(system.usersImpacted || 0);
+
+  if ((normalizedRisk === "high" || normalizedRisk === "unacceptable") && answers.intendedUse === "analytics") {
+    warnings.push(`Registry risk is ${normalizedRisk}, but the assessment answers classify the system as analytics / insights.`);
+  }
+
+  if (
+    (normalizedSensitivity === "restricted" || normalizedSensitivity === "confidential") &&
+    (answers.personalData === "none" || answers.personalData === "basic")
+  ) {
+    warnings.push(
+      `Registry data sensitivity is ${normalizedSensitivity}, but the assessment answers say the system handles ${answers.personalData || "no"} personal data.`,
+    );
+  }
+
+  if (impactedUsers >= 10000 && answers.usersImpacted === "under_1k") {
+    warnings.push(`Registry indicates ${impactedUsers.toLocaleString()} impacted users, but the assessment answers say under 1,000.`);
+  } else if (impactedUsers >= 1000 && answers.usersImpacted === "under_1k") {
+    warnings.push(`Registry indicates at least ${impactedUsers.toLocaleString()} impacted users, but the assessment answers say under 1,000.`);
+  }
+
+  if ((normalizedGeography.includes("eu") || normalizedGeography.includes("global")) && answers.geography === "other") {
+    warnings.push(`Registry geography is ${system.geography}, but the assessment answers say Non-EU Only.`);
+  }
+
+  return warnings;
 }
 
 function ReviewRow({ label, value }: { label: string; value: string }) {

@@ -42,6 +42,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { ApprovalWorkflow, AiSystem } from "@shared/schema";
 
@@ -113,6 +114,7 @@ export default function Approvals() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const { data: workflows = [], isLoading } = useQuery<ApprovalWorkflow[]>({
     queryKey: ["/api/approval-workflows"],
@@ -184,6 +186,18 @@ export default function Approvals() {
     escalated: workflows.filter((workflow) => workflow.status === "escalated").length,
     approved: workflows.filter((workflow) => workflow.status === "approved").length,
     rejected: workflows.filter((workflow) => workflow.status === "rejected").length,
+  };
+
+  const canCurrentUserReview = (workflow: ApprovalWorkflow) => {
+    if (!workflow.reviewer) {
+      return true;
+    }
+
+    const reviewer = workflow.reviewer.trim().toLowerCase();
+    return (
+      user?.fullName?.trim().toLowerCase() === reviewer ||
+      user?.username?.trim().toLowerCase() === reviewer
+    );
   };
 
   if (isLoading) {
@@ -452,6 +466,7 @@ export default function Approvals() {
                               size="sm"
                               variant="outline"
                               onClick={() => updateStatusMutation.mutate({ id: workflow.id, status: "in_review" })}
+                              disabled={!canCurrentUserReview(workflow)}
                               data-testid={`button-review-${workflow.id}`}
                             >
                               Start Review
@@ -461,6 +476,7 @@ export default function Approvals() {
                             <Button
                               size="sm"
                               onClick={() => updateStatusMutation.mutate({ id: workflow.id, status: "approved" })}
+                              disabled={!canCurrentUserReview(workflow)}
                               data-testid={`button-approve-${workflow.id}`}
                             >
                               <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
@@ -475,11 +491,17 @@ export default function Approvals() {
                             size="sm"
                             variant="outline"
                             onClick={() => updateStatusMutation.mutate({ id: workflow.id, status: "rejected" })}
+                            disabled={!canCurrentUserReview(workflow)}
                             data-testid={`button-reject-${workflow.id}`}
                           >
                             <XCircle className="mr-1 h-3.5 w-3.5" />
                             Reject
                           </Button>
+                          {!canCurrentUserReview(workflow) ? (
+                            <span className="text-xs text-muted-foreground">
+                              Only the assigned reviewer can change this workflow decision.
+                            </span>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>

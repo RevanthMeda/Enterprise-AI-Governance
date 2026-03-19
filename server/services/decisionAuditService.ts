@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
+import { storage } from "../storage";
 import {
   decisionAudits,
   decisionAuditVersions,
@@ -164,11 +165,55 @@ function serializeComparableValue(value: unknown) {
   return JSON.stringify(value ?? null);
 }
 
+function sanitizeStructuredValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeStructuredValue(entry));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).reduce<Record<string, unknown>>((acc, [key, entry]) => {
+      if (key === "__proto__" || key === "prototype" || key === "constructor") {
+        return acc;
+      }
+      acc[key] = sanitizeStructuredValue(entry);
+      return acc;
+    }, {});
+  }
+
+  return value;
+}
+
 function hasMaterialChanges(current: DecisionAudit, next: DecisionAudit) {
   return VERSIONED_FIELDS.some((field) => serializeComparableValue(current[field]) !== serializeComparableValue(next[field]));
 }
 
 export class DecisionAuditService {
+  private async ensureLinkedEntitiesExist(
+    organizationId: string,
+    input: { systemId: string; workflowId?: string | null },
+  ) {
+    const system = await storage.getAiSystemById(organizationId, input.systemId);
+    if (!system) {
+      const error = new Error("Linked system not found in active organization") as Error & { status?: number };
+      error.status = 404;
+      throw error;
+    }
+
+    if (input.workflowId) {
+      const workflow = await storage.getApprovalWorkflowById(organizationId, input.workflowId);
+      if (!workflow) {
+        const error = new Error("Linked workflow not found in active organization") as Error & { status?: number };
+        error.status = 404;
+        throw error;
+      }
+      if (workflow.systemId !== input.systemId) {
+        const error = new Error("Linked workflow does not belong to the selected system") as Error & { status?: number };
+        error.status = 409;
+        throw error;
+      }
+    }
+  }
+
   async listForOrg(organizationId: string, filters?: DecisionAuditFilters) {
     const conditions = [eq(decisionAudits.organizationId, organizationId)];
     if (filters?.systemId) {
@@ -217,6 +262,11 @@ export class DecisionAuditService {
   }
 
   async createForOrg(organizationId: string, input: Omit<InsertDecisionAudit, "organizationId">): Promise<DecisionAudit> {
+    await this.ensureLinkedEntitiesExist(organizationId, {
+      systemId: input.systemId,
+      workflowId: input.workflowId ?? null,
+    });
+
     const payloadBase = {
       organizationId,
       systemId: input.systemId,
@@ -228,7 +278,7 @@ export class DecisionAuditService {
       modelVersion: input.modelVersion ?? null,
       promptText: input.promptText ?? null,
       inputSources: input.inputSources ?? [],
-      inputSnapshot: input.inputSnapshot ?? {},
+      inputSnapshot: sanitizeStructuredValue(input.inputSnapshot ?? {}),
       decisionConstraints: input.decisionConstraints ?? [],
       aiOutput: input.aiOutput,
       humanOutput: input.humanOutput ?? null,
@@ -246,9 +296,9 @@ export class DecisionAuditService {
       lastRetentionCheckAt: null,
       currentVersionNumber: 1,
       lastVersionedAt: null,
-      outcome30d: input.outcome30d ?? {},
-      outcome60d: input.outcome60d ?? {},
-      outcome90d: input.outcome90d ?? {},
+      outcome30d: sanitizeStructuredValue(input.outcome30d ?? {}),
+      outcome60d: sanitizeStructuredValue(input.outcome60d ?? {}),
+      outcome90d: sanitizeStructuredValue(input.outcome90d ?? {}),
       outcomeSummary: input.outcomeSummary ?? null,
       createdBy: input.createdBy,
       reviewedBy: input.reviewedBy ?? null,
@@ -297,6 +347,14 @@ export class DecisionAuditService {
       throw error;
     }
 
+    await this.ensureLinkedEntitiesExist(organizationId, {
+      systemId: changes.systemId ?? current.systemId,
+      workflowId:
+        changes.workflowId !== undefined
+          ? (changes.workflowId ?? null)
+          : (current.workflowId ?? null),
+    });
+
     const merged = {
       ...current,
       ...changes,
@@ -306,7 +364,10 @@ export class DecisionAuditService {
       modelVersion: changes.modelVersion !== undefined ? changes.modelVersion : current.modelVersion,
       promptText: changes.promptText !== undefined ? changes.promptText : current.promptText,
       inputSources: changes.inputSources !== undefined ? changes.inputSources : current.inputSources,
-      inputSnapshot: changes.inputSnapshot !== undefined ? changes.inputSnapshot : current.inputSnapshot,
+      inputSnapshot:
+        changes.inputSnapshot !== undefined
+          ? sanitizeStructuredValue(changes.inputSnapshot)
+          : current.inputSnapshot,
       decisionConstraints: changes.decisionConstraints !== undefined ? changes.decisionConstraints : current.decisionConstraints,
       humanOutput: changes.humanOutput !== undefined ? changes.humanOutput : current.humanOutput,
       overrideRationale: changes.overrideRationale !== undefined ? changes.overrideRationale : current.overrideRationale,
@@ -315,9 +376,12 @@ export class DecisionAuditService {
       explainabilityFactors: changes.explainabilityFactors !== undefined ? changes.explainabilityFactors : current.explainabilityFactors,
       documentationStatus: changes.documentationStatus !== undefined ? changes.documentationStatus : current.documentationStatus,
       retentionUntil: changes.retentionUntil !== undefined ? changes.retentionUntil : current.retentionUntil,
-      outcome30d: changes.outcome30d !== undefined ? changes.outcome30d : current.outcome30d,
-      outcome60d: changes.outcome60d !== undefined ? changes.outcome60d : current.outcome60d,
-      outcome90d: changes.outcome90d !== undefined ? changes.outcome90d : current.outcome90d,
+      outcome30d:
+        changes.outcome30d !== undefined ? sanitizeStructuredValue(changes.outcome30d) : current.outcome30d,
+      outcome60d:
+        changes.outcome60d !== undefined ? sanitizeStructuredValue(changes.outcome60d) : current.outcome60d,
+      outcome90d:
+        changes.outcome90d !== undefined ? sanitizeStructuredValue(changes.outcome90d) : current.outcome90d,
       outcomeSummary: changes.outcomeSummary !== undefined ? changes.outcomeSummary : current.outcomeSummary,
       reviewedBy: changes.reviewedBy !== undefined ? changes.reviewedBy : current.reviewedBy,
     };

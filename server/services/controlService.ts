@@ -10,6 +10,35 @@ type Actor = {
 };
 
 export class ControlService {
+  private async ensureEvidenceForStatusChange(
+    organizationId: string,
+    existing: Awaited<ReturnType<typeof storage.getSystemControlByIdForOrg>>,
+    input: Partial<InsertSystemControl>,
+  ) {
+    if (!existing) {
+      return;
+    }
+
+    const nextStatus = input.status ?? existing.status;
+    if (nextStatus !== "implemented" && nextStatus !== "verified") {
+      return;
+    }
+
+    const systemId = input.systemId ?? existing.systemId;
+    const controlId = input.controlId ?? existing.controlId;
+    const notes = `${input.notes ?? existing.notes ?? ""}`.trim();
+    const evidenceText = `${input.evidence ?? existing.evidence ?? ""}`.trim();
+    const evidenceFiles = await storage.getEvidenceFilesByOrg(organizationId, { systemId, controlId });
+
+    if (!notes && !evidenceText && evidenceFiles.length === 0) {
+      const error = new Error(
+        `Add evidence or reviewer notes before marking this control as ${nextStatus.replace("_", " ")}.`,
+      ) as Error & { status?: number };
+      error.status = 409;
+      throw error;
+    }
+  }
+
   async listControls(params: {
     organizationId: string;
     actor: Actor;
@@ -48,12 +77,18 @@ export class ControlService {
     controlId: string;
     input: Partial<InsertSystemControl>;
   }) {
+    const existing = await storage.getSystemControlByIdForOrg(params.organizationId, params.controlId);
+    if (!existing) {
+      return undefined;
+    }
+
     if (params.input.systemId) {
       await this.ensureSystemInOrg(params.organizationId, params.input.systemId);
     }
     if (params.input.controlId) {
       await this.ensureControlDefinitionExists(params.input.controlId);
     }
+    await this.ensureEvidenceForStatusChange(params.organizationId, existing, params.input);
     return storage.updateSystemControlForOrg(params.organizationId, params.controlId, params.input);
   }
 

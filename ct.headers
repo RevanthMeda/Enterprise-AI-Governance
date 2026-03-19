@@ -1,0 +1,24 @@
+HTTP/1.1 401 Unauthorized
+Date: Wed, 18 Mar 2026 21:54:03 GMT
+Content-Type: application/json; charset=utf-8
+Transfer-Encoding: chunked
+Connection: keep-alive
+CF-RAY: 9de7793bdcdc995f-DUB
+content-security-policy: default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https:
+etag: W/"1f-+6QzNnV5epxAIN04tcijgCAz6Yw"
+permissions-policy: camera=(), microphone=(), geolocation=()
+referrer-policy: strict-origin-when-cross-origin
+rndr-id: 4bd6bde9-e8c4-47ee
+Set-Cookie: connect.sid=s%3AeCG29KLwne6FJVhVJ3o_2EKefNn8WmvJ.A5hT8lhsy6OOL8EfZ3dyL6bcrThtnkZ9vG5QKXUJJCg; Path=/; Expires=Wed, 18 Mar 2026 22:09:02 GMT; HttpOnly; Secure; SameSite=None
+strict-transport-security: max-age=63072000; includeSubDomains; preload
+vary: Accept-Encoding
+x-content-type-options: nosniff
+x-csrf-token: d7c7b2bd0efc57d0ac6b64d73bddc15a1a13c76de1b6969c378d008f7b23ffd5
+x-frame-options: DENY
+x-powered-by: Express
+x-render-origin-server: Render
+x-request-id: db2c70e7-c4e9-43aa-a148-08599b501f20
+cf-cache-status: DYNAMIC
+Server: cloudflare
+alt-svc: h3=":443"; ma=86400
+

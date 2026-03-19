@@ -32,6 +32,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { EvidenceUpload } from "@/components/evidence-upload";
 import { exportComplianceSummaryCsv } from "@/lib/export-utils";
 import type { ComplianceControl, SystemControl, AiSystem } from "@shared/schema";
 
@@ -134,8 +135,11 @@ export default function Compliance() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      await apiRequest("PATCH", `/api/system-controls/${id}`, { status });
+    mutationFn: async ({ id, status, notes }: { id: string; status: string; notes?: string }) => {
+      await apiRequest("PATCH", `/api/system-controls/${id}`, {
+        status,
+        ...(notes ? { notes } : {}),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/system-controls"] });
@@ -229,13 +233,14 @@ export default function Compliance() {
                         <TableHead className="text-xs">Control Name</TableHead>
                         <TableHead className="text-xs">Category</TableHead>
                         <TableHead className="text-xs w-[120px]">Status</TableHead>
+                        <TableHead className="text-xs w-[120px]">Evidence</TableHead>
                         <TableHead className="text-xs w-[100px]">Assignee</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {frameworkControls.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={5} className="text-center py-8">
+                          <TableCell colSpan={6} className="text-center py-8">
                             <p className="text-sm text-muted-foreground">No controls defined for this framework</p>
                           </TableCell>
                         </TableRow>
@@ -263,7 +268,20 @@ export default function Compliance() {
                                 {sc ? (
                                   <Select
                                     value={sc.status}
-                                    onValueChange={(val) => updateStatusMutation.mutate({ id: sc.id, status: val })}
+                                    onValueChange={(val) => {
+                                      const requiresEvidenceNote = val === "implemented" || val === "verified";
+                                      const promptedNotes = requiresEvidenceNote
+                                        ? window.prompt(
+                                            `Add evidence notes or reviewer rationale before marking this control as ${val.replace("_", " ")}. Leave blank only if you already attached evidence files.`,
+                                            sc.notes || "",
+                                          )
+                                        : "";
+                                      if (requiresEvidenceNote && promptedNotes === null) {
+                                        return;
+                                      }
+                                      const notes = typeof promptedNotes === "string" ? promptedNotes.trim() : "";
+                                      updateStatusMutation.mutate({ id: sc.id, status: val, notes });
+                                    }}
                                   >
                                     <SelectTrigger className="h-7 text-[10px]" data-testid={`select-status-${control.id}`}>
                                       <SelectValue />
@@ -279,6 +297,13 @@ export default function Compliance() {
                                   <span className={`inline-flex items-center gap-1 text-[10px] ${statusColors["not_started"]}`}>
                                     <XCircle className="h-3 w-3" /> Not Mapped
                                   </span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {sc ? (
+                                  <EvidenceUpload compact systemId={sc.systemId} controlId={sc.controlId} />
+                                ) : (
+                                  <span className="text-[11px] text-muted-foreground">-</span>
                                 )}
                               </TableCell>
                               <TableCell className="text-[11px] text-muted-foreground">

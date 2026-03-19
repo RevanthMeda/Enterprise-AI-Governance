@@ -11,6 +11,22 @@ type Actor = {
 };
 
 export class WorkflowService {
+  private normalizeIdentity(value: string | null | undefined) {
+    return (value ?? "").trim().toLowerCase();
+  }
+
+  private actorMatchesReviewer(actor: Actor, reviewer: string | null | undefined) {
+    const normalizedReviewer = this.normalizeIdentity(reviewer);
+    if (!normalizedReviewer) {
+      return false;
+    }
+
+    return (
+      this.normalizeIdentity(actor.fullName) === normalizedReviewer ||
+      this.normalizeIdentity(actor.username) === normalizedReviewer
+    );
+  }
+
   private deriveRouting(input: InsertApprovalWorkflow, systemRiskLevel?: string | null) {
     const estimatedFinancialImpact = input.estimatedFinancialImpact ?? 0;
     const usesPii = Boolean(input.usesPii);
@@ -140,6 +156,29 @@ export class WorkflowService {
     const routing = this.deriveRouting(merged as InsertApprovalWorkflow, resolvedSystemRiskLevel);
 
     const nextStatus = params.input.status ?? existing.status ?? routing.status;
+    const statusChanged = params.input.status !== undefined && params.input.status !== existing.status;
+    const requiresAssignedReviewerAction =
+      statusChanged && ["in_review", "approved", "rejected"].includes(nextStatus);
+
+    if (requiresAssignedReviewerAction) {
+      const assignedReviewer = params.input.reviewer ?? existing.reviewer;
+      if (!assignedReviewer) {
+        const error = new Error(
+          "Assign a reviewer before starting review, approving, or rejecting this workflow.",
+        ) as Error & { status?: number };
+        error.status = 409;
+        throw error;
+      }
+
+      if (!this.actorMatchesReviewer(params.actor, assignedReviewer)) {
+        const error = new Error(
+          "Only the assigned reviewer can start review, approve, or reject this workflow.",
+        ) as Error & { status?: number };
+        error.status = 403;
+        throw error;
+      }
+    }
+
     if (routing.decisionTier === "tier_3" && nextStatus === "approved") {
       const error = new Error(
         "Tier 3 decisions require Governance Committee + CEO approval and cannot be approved from the standard workflow action.",
