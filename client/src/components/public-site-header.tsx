@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { BrandMark } from "@/components/brand-mark";
 
@@ -16,13 +16,13 @@ const marketingLinks = [
 ];
 
 export function PublicSiteHeader() {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/95 text-foreground backdrop-blur supports-[backdrop-filter]:bg-background/90" data-testid="public-site-header">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-4 py-4 sm:px-6 lg:px-8">
-        <a href="/welcome" className="flex items-center gap-2 font-semibold tracking-tight">
+        <Link href="/welcome" className="flex items-center gap-2 font-semibold tracking-tight">
           <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/15 text-primary">
             <BrandMark className="h-4 w-4" />
           </span>
@@ -30,29 +30,36 @@ export function PublicSiteHeader() {
             <span className="text-sm font-semibold tracking-tight">AI Control Tower</span>
             <span className="text-[11px] text-muted-foreground">Enterprise Governance</span>
           </div>
-        </a>
+        </Link>
 
         <nav className="hidden items-center gap-6 lg:flex">
           {marketingLinks.map((item) => {
             const active = location === item.href || (item.href.startsWith("/welcome#") && location === "/welcome");
-            return (
-              <a
-                key={item.label}
-                href={item.href}
-                className={`text-sm transition-colors hover:text-foreground ${active ? "font-medium text-foreground" : "text-muted-foreground"}`}
-              >
+            const content = (
+              <span className={`text-sm transition-colors hover:text-foreground ${active ? "font-medium text-foreground" : "text-muted-foreground"}`}>
                 {item.label}
-              </a>
+              </span>
+            );
+            return (
+              item.href.startsWith("/welcome#") ? (
+                <a key={item.label} href={item.href}>
+                  {content}
+                </a>
+              ) : (
+                <Link key={item.label} href={item.href}>
+                  {content}
+                </Link>
+              )
             );
           })}
         </nav>
 
         <div className="hidden items-center gap-3 lg:flex">
-          <Button asChild variant="ghost">
-            <a href="/auth/login">Sign In</a>
+          <Button variant="ghost" onClick={() => navigate("/auth/login")}>
+            Sign In
           </Button>
-          <Button asChild className="rounded-full px-5">
-            <a href="/book-demo">Book a Demo</a>
+          <Button className="rounded-full px-5" onClick={() => navigate("/book-demo")}>
+            Book a Demo
           </Button>
         </div>
 
@@ -70,21 +77,43 @@ export function PublicSiteHeader() {
         <div className="border-t border-border bg-background px-4 py-4 sm:px-6 lg:hidden">
           <nav className="flex flex-col gap-3">
             {marketingLinks.map((item) => (
-              <a
-                key={item.label}
-                href={item.href}
-                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                onClick={() => setMobileOpen(false)}
-              >
-                {item.label}
-              </a>
+              item.href.startsWith("/welcome#") ? (
+                <a
+                  key={item.label}
+                  href={item.href}
+                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  {item.label}
+                </a>
+              ) : (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  {item.label}
+                </Link>
+              )
             ))}
             <div className="mt-2 flex flex-col gap-2">
-              <Button asChild variant="outline">
-                <a href="/auth/login" onClick={() => setMobileOpen(false)}>Sign In</a>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setMobileOpen(false);
+                  navigate("/auth/login");
+                }}
+              >
+                Sign In
               </Button>
-              <Button asChild>
-                <a href="/book-demo" onClick={() => setMobileOpen(false)}>Book a Demo</a>
+              <Button
+                onClick={() => {
+                  setMobileOpen(false);
+                  navigate("/book-demo");
+                }}
+              >
+                Book a Demo
               </Button>
             </div>
           </nav>

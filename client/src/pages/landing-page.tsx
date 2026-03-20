@@ -1,774 +1,2591 @@
-import { useEffect, useState } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
 import {
-  Menu,
-  X,
-  CheckCircle2,
-  Building2,
-  ClipboardCheck,
+  Float,
+  Html,
+  Line,
+  PointMaterial,
+  Points,
+} from "@react-three/drei";
+import {
+  motion,
+  useInView,
+  useMotionValue,
+  useMotionValueEvent,
+  useScroll,
+  useSpring,
+  useTransform,
+  useVelocity,
+} from "framer-motion";
+import {
+  ArrowRight,
+  Blocks,
   Lock,
-  Users,
+  Shield,
+  SquareStack,
+  TriangleAlert,
   Workflow,
-  FileCheck2,
-  CalendarClock,
-  ChartNoAxesCombined,
-  FolderLock,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { buildTrackedPath, trackMarketingEvent } from "@/lib/marketing";
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Link, useLocation } from "wouter";
+import * as THREE from "three";
 import { BrandMark } from "@/components/brand-mark";
 
-const navItems = [
-  { label: "Control Layer", href: "#product" },
-  { label: "Use Cases", href: "#solutions" },
-  { label: "Governance", href: "#frameworks" },
-  { label: "How it Works", href: "#how-it-works" },
-  { label: "Deployment", href: "#pricing" },
-  { label: "FAQ", href: "#faq" },
+const glassClass =
+  "bg-white/[0.03] border border-white/[0.08] backdrop-blur-xl shadow-[0_0_40px_rgba(0,255,209,0.05)]";
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const lerp = (start: number, end: number, value: number) =>
+  start + (end - start) * value;
+
+const NAV_ITEMS = [
+  { label: "Product", href: "#product" },
+  { label: "Solutions", href: "#solutions" },
+  { label: "Frameworks", href: "#frameworks" },
+  { label: "Pricing", href: "#pricing" },
   { label: "Trust Center", href: "/trust-center" },
   { label: "Docs", href: "/api-docs" },
 ];
 
-const proofItems = [
-  "Inline prompt preflight controls",
-  "Output and tool-call postflight enforcement",
-  "OpenAI, Anthropic, Gemini, Azure, Vertex, and Bedrock coverage",
-  "Generic OpenAI-compatible provider gateway",
-  "Tool allowlists and typed argument enforcement",
-  "Runtime incidents and containment workflow",
-  "Decision traces and SHA-256 audit chain",
-  "Tenant-scoped reviewer exceptions",
-  "Encrypted upstream provider credential vault",
-  "Telemetry privacy profiles",
-  "SAML, OIDC, verified domains, and JIT onboarding",
-  "Tenant-safe architecture",
-];
-
-const painPoints = [
-  "Prompts go straight to models with no central interception point",
-  "Teams can see incidents after the fact but cannot stop unsafe output before release",
-  "Tool calls are approved implicitly instead of through explicit action policy",
-  "Runtime evidence is too thin to defend a decision during audit or investigation",
-  "False positives and reviewer overrides are handled manually with no tenant memory",
-  "Compliance, security, product, and platform teams operate on different facts",
-];
-
-const useCases = [
+const ENGINE_STEPS = [
   {
-    title: "Governance & Compliance",
-    body: "Run one operating surface for registry, policy, evidence, incidents, approvals, and audit posture.",
-    icon: ClipboardCheck,
+    label: "Inline preflight",
+    title: "Intercept prompts before they reach the model.",
+    body:
+      "Evaluate prompt intent, tenant context, and restricted patterns at the gateway edge before the provider sees a single token.",
   },
   {
-    title: "Security & Runtime Control",
-    body: "Intercept prompts, outputs, and tool calls before unsafe model behavior reaches downstream users or systems.",
+    label: "Tool allowlists",
+    title: "Constrain model actions to approved execution lanes.",
+    body:
+      "Default-deny tool routing, typed argument validation, and tenant-scoped action policy keep runtime behaviour inside governed boundaries.",
+  },
+  {
+    label: "Auto-escalation",
+    title: "Turn runtime breaches into immediate operational work.",
+    body:
+      "Critical detections open incidents, update risk posture, and attach decision evidence without waiting for manual triage.",
+  },
+];
+
+const BENTO_CARDS = [
+  {
+    icon: Shield,
+    title: "Inline gateway",
+    copy:
+      "Preflight prompts, postflight outputs, and tool invocations in one enforcement path with tenant-aware policy binding.",
+    accent: "#00FFD1",
+    outcome: "Ship copilots without a new risk team",
+    metric: "<250ms",
+  },
+  {
+    icon: Blocks,
+    title: "SDK guard mode",
+    copy:
+      "Drop runtime governance into first-party apps without requiring a separate telemetry database or proxy rewrite.",
+    accent: "#00FA9A",
+    outcome: "Deploy in existing app flows with minimal architecture change",
+    metric: "4 SDK lanes",
+  },
+  {
+    icon: TriangleAlert,
+    title: "Incident automation",
+    copy:
+      "Threshold breaches become containment work with escalation targets, decision traces, and review-ready evidence.",
+    accent: "#FF3366",
+    outcome: "Cut containment lag from hours to immediate runtime action",
+    metric: "94% auto-open",
+  },
+  {
     icon: Lock,
+    title: "Cryptographic evidence",
+    copy:
+      "Hash-chained decision records create due-diligence-grade auditability for M&A, LP reviews, and regulatory inspection.",
+    accent: "#00FFD1",
+    outcome: "Pass technical diligence with tamper-evident receipts",
+    metric: "SHA-256",
   },
   {
-    title: "Platform & AI Teams",
-    body: "Connect models through SDK or gateway mode and keep shipping without losing central control.",
     icon: Workflow,
+    title: "Human override controls",
+    copy:
+      "Reviewer exceptions stay scoped to the right organization and system instead of weakening policy platform-wide.",
+    accent: "#00FA9A",
+    outcome: "Allow justified overrides without globally weakening policy",
+    metric: "tenant-scoped",
   },
   {
-    title: "Audit & Investigation",
-    body: "Trace why a turn was allowed, warned, escalated, or blocked with linked evidence and incident history.",
-    icon: FileCheck2,
-  },
-  {
-    title: "Regulated Enterprises",
-    body: "Apply stricter runtime policy in finance, healthcare, employment, and other high-scrutiny environments.",
-    icon: Building2,
-  },
-  {
-    title: "Portfolio Operators",
-    body: "Roll out baseline policy, review workflows, and evidence standards across multiple operating companies.",
-    icon: ChartNoAxesCombined,
-  },
-  {
-    title: "Identity & Admin Teams",
-    body: "Use enterprise sign-in, domain verification, invites, and tenant isolation without custom governance glue code.",
-    icon: Users,
+    icon: SquareStack,
+    title: "Portfolio roll-up",
+    copy:
+      "Manage multiple operating companies from one control plane while preserving tenant isolation and local policy nuance.",
+    accent: "#00FFD1",
+    outcome: "See portfolio-wide AI posture in one pane",
+    metric: "50 portcos",
   },
 ];
 
-const differentiators = [
+const FOOTER_COLUMNS = [
   {
-    title: "Inline control, not just monitoring",
-    body: "AI Control Tower can evaluate prompts before the model call, evaluate outputs before release, and stop risky traffic in the middle of execution.",
+    title: "Product",
+    links: [
+      { label: "Runtime", href: "#solutions" },
+      { label: "Incidents", href: "#solutions" },
+      { label: "Evidence", href: "#vault" },
+      { label: "Portfolio", href: "#frameworks" },
+    ],
   },
   {
-    title: "System-bound governance",
-    body: "Every runtime decision is attached to a registered AI system with known ownership, purpose, domain, and sensitivity.",
+    title: "Security",
+    links: [
+      { label: "Inline gateway", href: "#engine" },
+      { label: "SDK guard", href: "#engine" },
+      { label: "Trust Center", href: "/trust-center" },
+      { label: "API Docs", href: "/api-docs" },
+    ],
   },
   {
-    title: "Action-level enforcement",
-    body: "Tool calls can be allowed, denied, or schema-validated so the model cannot execute arbitrary actions just because it asks.",
+    title: "Legal",
+    links: [
+      { label: "EU AI Act", href: "#frameworks" },
+      { label: "NIST AI RMF", href: "#frameworks" },
+      { label: "ISO 42001", href: "#frameworks" },
+      { label: "Due diligence", href: "#vault" },
+    ],
   },
   {
-    title: "Human review with memory",
-    body: "Reviewer-approved exceptions can be scoped to one tenant or system so a false positive becomes manageable without weakening global policy.",
-  },
-  {
-    title: "Multi-provider control plane",
-    body: "The same governance path can sit in front of OpenAI, Anthropic, Gemini, Azure OpenAI, Vertex AI, Bedrock, and compatible providers.",
-  },
-  {
-    title: "Operational evidence by default",
-    body: "Runtime events, incidents, approvals, evidence, and decision traces stay linked so audits and investigations are answerable.",
-  },
-];
-
-const howItWorks = [
-  "Register the AI system and baseline its risk",
-  "Bind a telemetry key, SDK, or inline gateway",
-  "Run prompt preflight before model execution",
-  "Evaluate output and tool calls before release",
-  "Open incidents, update audit, and reassess posture",
-  "Review exceptions and refine policy without losing control",
-];
-
-const features = [
-  { title: "AI System Registry", body: "Track owner, purpose, domain, sensitivity, geography, and oversight for every governed system." },
-  { title: "Risk Classification", body: "Baseline each AI system before runtime enforcement begins so policy decisions have business context." },
-  { title: "Telemetry Adapter", body: "Rotate keys, bind default systems, set privacy profiles, and manage upstream provider configuration." },
-  { title: "Telemetry Policy", body: "Configure allow, warn, escalate, and block rules for prompts, outputs, tools, and runtime thresholds." },
-  { title: "Inline Gateway", body: "Intercept prompt and response traffic for supported providers through a central OpenAI-compatible control surface." },
-  { title: "SDK Guard Mode", body: "Wrap application-side model calls when a full proxy is not the right deployment model." },
-  { title: "Tool and Action Control", body: "Use default-deny allowlists and typed argument policy to constrain what models may trigger." },
-  { title: "Runtime Monitoring", body: "Review live telemetry counts, threshold breaches, blocked decisions, and escalated incidents." },
-  { title: "Incident Response", body: "Create or update AI incidents automatically when runtime behavior crosses security, privacy, or safety lines." },
-  { title: "Decision Traces", body: "Maintain context, rationale, human override state, and linked outcomes with audit-chain verification." },
-  { title: "Evidence and Compliance", body: "Keep controls, evidence, reviewer notes, and framework posture linked to the same systems." },
-  { title: "Reviewer Exceptions", body: "Allow tenant-scoped false-positive suppression without weakening policy for every other customer." },
-  { title: "Enterprise Identity", body: "Use SAML, OIDC, verified domains, invite workflows, and JIT onboarding in a tenant-safe model." },
-  { title: "Provider Vault", body: "Store upstream provider credentials centrally and bind them to tenant policy and model allowlists." },
-  { title: "Multi-tenant Control Plane", body: "Run all of this with tenant-aware auth, isolation, scoped exports, and organization-safe operations." },
-];
-
-const operationsHighlights = [
-  {
-    title: "Security floors that override weak policy",
-    body: "Critical prompt-injection, PII, secret-exposure, and repeat-attack signals can hard-block even if a weaker tenant policy was configured.",
-    icon: CalendarClock,
-  },
-  {
-    title: "Runtime decisions with traceable failures",
-    body: "Correlation IDs, stable decision envelopes, request logging, and incident linkage make enforcement behavior inspectable instead of opaque.",
-    icon: ChartNoAxesCombined,
-  },
-  {
-    title: "Adaptive hardening under attack",
-    body: "Repeat adversarial attempts can trigger throttling, escalation, safe-model fallback, quarantine, or forced review.",
-    icon: Workflow,
-  },
-  {
-    title: "Immutable trace and incident posture",
-    body: "Decision lifecycle records, SHA-256 audit chains, and AI-specific incident playbooks give operators a defendable response story.",
-    icon: CheckCircle2,
-  },
-  {
-    title: "Tenant-safe operational controls",
-    body: "Org-scoped files, exports, sessions, domains, keys, exceptions, and admin surfaces stay inside real enterprise boundaries.",
-    icon: FolderLock,
+    title: "Contact",
+    links: [
+      { label: "Enterprise demos", href: "/book-demo" },
+      { label: "Security reviews", href: "/trust-center" },
+      { label: "Private equity", href: "/start-pilot" },
+      { label: "Support", href: "/auth/login" },
+    ],
   },
 ];
 
-const roleValue = [
+const HERO_SIGNAL_CARDS = [
   {
-    title: "For Compliance Leaders",
-    body: "Track control coverage, evidence gaps, incident trends, and reviewer decisions from one operating layer.",
+    label: "Runtime policy",
+    value: "Allow / warn / block",
   },
   {
-    title: "For Security & Risk Teams",
-    body: "Control prompt, output, and tool behavior centrally instead of relying on application teams to get enforcement right every time.",
+    label: "Decision sealing",
+    value: "SHA-256 linked evidence",
   },
   {
-    title: "For Product Teams",
-    body: "Connect AI systems once, then use the gateway or SDK path without rebuilding governance logic inside every app.",
-  },
-  {
-    title: "For Auditors",
-    body: "Access structured history, control mapping, runtime evidence, incidents, and exports without chasing sources.",
-  },
-  {
-    title: "For IT and Identity Owners",
-    body: "Deploy enterprise sign-in, verified domains, and controlled onboarding without stitching governance into the IdP by hand.",
-  },
-  {
-    title: "For Operating Partners",
-    body: "Assess portfolio readiness, enforcement maturity, and escalation discipline from a single multi-tenant control plane.",
+    label: "Operating model",
+    value: "Inline gateway + SDK guard",
   },
 ];
 
-const faqItems = [
+const HERO_OUTCOMES = [
   {
-    q: "What is AI Control Tower?",
-    a: "AI Control Tower is a runtime governance and control platform for AI systems. It combines registry, policy, inline enforcement, incidents, evidence, approvals, and audit operations in one control plane.",
+    title: "Block PII leaks from claims adjusters",
+    metric: "<250ms median enforcement",
   },
   {
-    q: "Who is it for?",
-    a: "Compliance teams, security teams, platform teams, AI governance owners, product teams, and auditors in regulated or high-scrutiny environments.",
+    title: "Prove EU AI Act readiness for underwriting copilots",
+    metric: "Tamper-evident decision receipts",
   },
   {
-    q: "Does it only monitor after the fact?",
-    a: "No. The platform can run inline so prompts are checked before model execution and outputs are checked before release. It can also run in SDK mode when a full gateway is not the right fit.",
-  },
-  {
-    q: "Which providers can it control?",
-    a: "It supports OpenAI, Anthropic, Gemini, Azure OpenAI, Vertex AI, Bedrock, and OpenAI-compatible providers through a central gateway model.",
-  },
-  {
-    q: "Can it control tool or action execution?",
-    a: "Yes. Tool calls can be constrained with allowlists and typed argument validation so the model cannot execute arbitrary actions just because it requested them.",
-  },
-  {
-    q: "How are false positives handled?",
-    a: "Reviewers can create tenant-scoped exceptions so a known acceptable pattern can be allowed for one organization or system without weakening policy for everyone else.",
-  },
-  {
-    q: "How much prompt and output data does it collect?",
-    a: "Customers can choose minimal, redacted, or full-evidence telemetry profiles based on privacy, legal, and operational requirements.",
-  },
-  {
-    q: "Can it support audits and investigations?",
-    a: "Yes. Runtime events, incidents, approvals, evidence, and decision traces are linked so teams can explain what happened and why a decision was taken.",
-  },
-  {
-    q: "How does it fit into the enterprise stack?",
-    a: "AI Control Tower supports SDK integration, inline gateway mode, enterprise identity, provider credential vaulting, API documentation, and tenant-safe administration.",
+    title: "Roll up 50 portfolio companies into one pane",
+    metric: "Tenant-isolated control plane",
   },
 ];
 
-function Section({
+const PROOF_STRIP = [
+  {
+    label: "Governed calls / day",
+    value: "1.2M+",
+    detail: "Runtime requests evaluated and sealed through the governed edge.",
+  },
+  {
+    label: "Median enforcement latency",
+    value: "<250ms",
+    detail: "Policy runs in-line fast enough for production customer workflows.",
+  },
+  {
+    label: "Critical incidents auto-opened",
+    value: "94%",
+    detail: "High-risk runtime breaches route straight into containment operations.",
+  },
+  {
+    label: "Due diligence evidence SLA",
+    value: "<1 week",
+    detail: "Operators can assemble audit-ready evidence without spreadsheet hunts.",
+  },
+];
+
+const OPERATOR_QUOTES = [
+  {
+    quote:
+      "We stopped treating AI governance as quarterly paperwork. The control plane now acts in-line with production traffic.",
+    by: "Operating partner, multi-org PE platform",
+  },
+  {
+    quote:
+      "Our security team finally has one place to see blocked prompts, escalations, and evidence without chasing teams in Slack.",
+    by: "Head of AI assurance, regulated financial services",
+  },
+];
+
+const FLOW_NODES = [
+  {
+    id: "user",
+    title: "User request",
+    detail: "Employee or customer prompt enters a governed workflow.",
+    color: "#94A3B8",
+  },
+  {
+    id: "gateway",
+    title: "Inline gateway",
+    detail: "Preflight policy checks, tenant binding, and tool restrictions execute before model invocation.",
+    color: "#00FFD1",
+  },
+  {
+    id: "models",
+    title: "Provider mesh",
+    detail: "Approved model routes only. Unsafe outputs are intercepted before release.",
+    color: "#00FA9A",
+  },
+  {
+    id: "vault",
+    title: "Evidence vault",
+    detail: "Every decision gets a tamper-evident receipt that auditors and operators can query later.",
+    color: "#7dd3fc",
+  },
+];
+
+const PILLARS = [
+  {
+    id: "runtime-policy",
+    title: "Runtime Policy",
+    icon: Shield,
+    body:
+      "Ship copilots without creating a new risk team. Prompt, output, and tool policy are enforced where traffic actually runs.",
+    metric: "Block sensitive prompt patterns before the provider call",
+  },
+  {
+    id: "incident-operations",
+    title: "Incident Operations",
+    icon: TriangleAlert,
+    body:
+      "Turn runtime breaches into immediate operational work with owners, containment clocks, and post-incident review already attached.",
+    metric: "Critical detections open incidents and escalate automatically",
+  },
+  {
+    id: "cryptographic-evidence",
+    title: "Cryptographic Evidence",
+    icon: Lock,
+    body:
+      "Pass technical due diligence faster with receipts that tie prompt, model, reviewer action, and framework context together.",
+    metric: "Every decision can be traced back to a sealed evidence chain",
+  },
+];
+
+const FRAMEWORK_BADGES = ["EU AI Act", "NIST AI RMF", "ISO 42001"];
+
+const TOUR_STEPS = [
+  {
+    title: "Preflight",
+    body: "Claims adjuster attempts to submit a prompt containing sensitive identity data.",
+    status: "blocked before model execution",
+  },
+  {
+    title: "Escalation",
+    body: "Control Tower opens a runtime incident and routes ownership to compliance and system operations.",
+    status: "incident opened automatically",
+  },
+  {
+    title: "Evidence",
+    body: "The final decision, reviewer action, and framework linkage are sealed into one receipt.",
+    status: "evidence stored for due diligence",
+  },
+];
+
+const BUILD_VERIFY_CARDS = [
+  {
+    title: "API Docs",
+    body: "Wire your gateway, SDK, and provider routes without reverse engineering the product.",
+    href: "/api-docs",
+    accent: "#00FFD1",
+  },
+  {
+    title: "Trust Center",
+    body: "Security posture, deployment assumptions, and diligence-facing controls in one place.",
+    href: "/trust-center",
+    accent: "#00FA9A",
+  },
+];
+
+const ROLE_CTA_CARDS = [
+  {
+    title: "For CISOs",
+    body: "Centralize AI enforcement and incident response without waiting for quarterly control reviews.",
+    href: "/book-demo",
+  },
+  {
+    title: "For PE Operating Partners",
+    body: "Standardize policy and evidence across portfolio companies while keeping each tenant isolated.",
+    href: "/start-pilot",
+  },
+  {
+    title: "For Heads of AI",
+    body: "Ship copilots with inline safeguards instead of after-the-fact monitoring alone.",
+    href: "/book-demo",
+  },
+];
+
+const VAULT_RECEIPTS = [
+  { hash: "0x3f1a...a91c", time: "14:03:12 UTC", tag: "EU AI Act linked" },
+  { hash: "0x77be...21dd", time: "14:03:19 UTC", tag: "Human override logged" },
+  { hash: "0xab42...fe90", time: "14:03:28 UTC", tag: "Incident receipt sealed" },
+];
+
+const ESCALATION_FLOW = [
+  { label: "Detect", detail: "restricted prompt flagged", tone: "#FF3366" },
+  { label: "Incident", detail: "runtime record opened", tone: "#00FFD1" },
+  { label: "Owner", detail: "compliance + ops assigned", tone: "#00FA9A" },
+  { label: "Receipt", detail: "evidence stored", tone: "#7dd3fc" },
+];
+
+const PORTFOLIO_COMPANIES = [
+  {
+    name: "Silverline Insurance",
+    detail: "Claims runtime governed",
+    className: "left-8 top-24",
+  },
+  {
+    name: "Northstar Consumer Bank",
+    detail: "Voice and service AI in scope",
+    className: "right-10 top-28",
+  },
+  {
+    name: "Policy Servicing Group",
+    detail: "Shared control plane attached",
+    className: "left-14 bottom-24",
+  },
+  {
+    name: "Northbridge Health",
+    detail: "Clinical copilots governed",
+    className: "right-14 bottom-24",
+  },
+];
+
+type HeroSceneProps = {
+  progress: number;
+  velocity: number;
+  pointer: { x: number; y: number };
+};
+
+type ProblemSceneProps = {
+  progress: number;
+  velocity: number;
+  particleCount: number;
+};
+
+type TerminalSceneProps = {
+  progress: number;
+  velocity: number;
+  blockTriggered: boolean;
+};
+
+type VaultSceneProps = {
+  progress: number;
+  velocity: number;
+};
+
+type GlobeSceneProps = {
+  progress: number;
+  velocity: number;
+  pointCount: number;
+};
+
+type MagneticButtonProps = {
+  href: string;
+  children: string;
+};
+
+type GlareCardProps = {
+  title: string;
+  copy: string;
+  accent: string;
+  icon: typeof Shield;
+  outcome: string;
+  metric: string;
+};
+
+type SceneCanvasProps = {
+  camera: { position: [number, number, number]; fov: number };
+  children: ReactNode;
+  label: string;
+  isMobile: boolean;
+  className?: string;
+  rootMargin?: string;
+};
+
+function NavLink({ href, children }: { href: string; children: string }) {
+  if (href.startsWith("#")) {
+    return (
+      <motion.a
+        href={href}
+        className="group relative text-sm font-medium text-slate-300 transition-colors duration-300 hover:text-white"
+        whileHover="hover"
+      >
+        {children}
+        <motion.span
+          className="absolute -bottom-3 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-[#00FFD1] opacity-0"
+          variants={{ hover: { opacity: 1, scale: 1.1 } }}
+          transition={{ duration: 0.2 }}
+        />
+      </motion.a>
+    );
+  }
+
+  return (
+    <motion.div whileHover="hover">
+      <SmartLink
+        href={href}
+        className="group relative text-sm font-medium text-slate-300 transition-colors duration-300 hover:text-white"
+      >
+        {children}
+        <motion.span
+          className="absolute -bottom-3 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-[#00FFD1] opacity-0"
+          variants={{ hover: { opacity: 1, scale: 1.1 } }}
+          transition={{ duration: 0.2 }}
+        />
+      </SmartLink>
+    </motion.div>
+  );
+}
+
+function Navbar() {
+  return (
+    <div className="fixed left-0 top-0 z-50 w-full bg-gradient-to-b from-[#050505] via-[#050505]/85 to-transparent backdrop-blur-md">
+      <div className="mx-auto flex h-20 max-w-[1600px] items-center justify-between px-8 lg:px-16">
+        <a href="#top" className="flex items-center gap-3">
+          <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-[#00FFD1] shadow-[0_0_28px_rgba(0,255,209,0.18)]">
+            <BrandMark className="h-5 w-5" />
+          </span>
+          <div className="flex flex-col">
+            <span className="text-xl font-bold tracking-[0.28em] text-white">
+              AI CONTROL TOWER
+            </span>
+            <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+              Runtime governance
+            </span>
+          </div>
+        </a>
+
+        <div className="hidden items-center gap-8 lg:flex">
+          {NAV_ITEMS.map((item) => (
+            <NavLink key={item.label} href={item.href}>
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
+
+        <div className="hidden items-center gap-3 lg:flex">
+          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+            <SmartLink
+              href="/auth/login"
+              className="rounded-full border border-white/10 px-5 py-2 text-sm font-semibold text-slate-300 transition-all duration-300 hover:border-white/20 hover:text-white"
+            >
+              Sign In
+            </SmartLink>
+          </motion.div>
+          <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.98 }}>
+            <SmartLink
+              href="/book-demo"
+              className="rounded-full border border-[#00FFD1] px-6 py-2 text-sm font-semibold text-[#00FFD1] transition-all duration-300 hover:bg-[#00FFD1] hover:text-black"
+            >
+              Book a Demo
+            </SmartLink>
+          </motion.div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SectionLabel({
+  children,
+  tone = "cyan",
+}: {
+  children: string;
+  tone?: "cyan" | "emerald" | "red";
+}) {
+  const tones = {
+    cyan: "text-[#00FFD1]",
+    emerald: "text-[#00FA9A]",
+    red: "text-[#FF3366]",
+  };
+
+  return (
+    <div
+      className={`mb-5 font-mono text-xs uppercase tracking-[0.3em] ${tones[tone]}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+function SectionShell({
   id,
-  eyebrow,
-  title,
-  subtitle,
+  className,
   children,
 }: {
   id?: string;
-  eyebrow?: string;
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
+  className?: string;
+  children: ReactNode;
 }) {
   return (
-    <section id={id} className="py-16 sm:py-20">
-      <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8">
-        <div className="mb-10 space-y-3">
-          {eyebrow ? (
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary/80">{eyebrow}</p>
-          ) : null}
-          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">{title}</h2>
-          {subtitle ? <p className="max-w-3xl text-sm text-muted-foreground sm:text-base">{subtitle}</p> : null}
-        </div>
-        {children}
-      </div>
+    <section
+      id={id}
+      className={`relative overflow-hidden ${className ?? ""}`.trim()}
+    >
+      {children}
     </section>
   );
 }
 
-export default function LandingPage() {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const trackedPath = (path: string, cta: string) => buildTrackedPath(path, { cta });
-  const handleCtaClick = (section: string, cta: string) => () => {
-    void trackMarketingEvent("cta_click", { section, cta });
-  };
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
-    void trackMarketingEvent("page_view", { section: "landing" });
-
-    const seenDepths = new Set<number>();
-    const onScroll = () => {
-      const maxScrollable = document.documentElement.scrollHeight - window.innerHeight;
-      if (maxScrollable <= 0) return;
-      const scrolledRatio = window.scrollY / maxScrollable;
-      for (const depth of [25, 50, 75, 100]) {
-        if (scrolledRatio >= depth / 100 && !seenDepths.has(depth)) {
-          seenDepths.add(depth);
-          void trackMarketingEvent("scroll_depth", {
-            section: "landing",
-            metadata: { depth },
-          });
-        }
-      }
+    const update = () => {
+      setIsMobile(window.innerWidth < 768);
     };
 
-    const sectionIds = ["product", "pain-points", "solutions", "frameworks", "how-it-works", "pricing", "faq"];
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting && entry.target instanceof HTMLElement) {
-            void trackMarketingEvent("section_engagement", {
-              section: entry.target.id,
-              metadata: { intersectionRatio: entry.intersectionRatio },
-            });
-            observer.unobserve(entry.target);
-          }
-        }
-      },
-      { threshold: 0.35 },
-    );
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
 
-    for (const id of sectionIds) {
-      const element = document.getElementById(id);
-      if (element) {
-        observer.observe(element);
+  return isMobile;
+}
+
+function SceneFallback({
+  label,
+  inactive = false,
+}: {
+  label: string;
+  inactive?: boolean;
+}) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,255,209,0.12),transparent_28%)]" />
+      <motion.div
+        className="absolute h-24 w-24 rounded-[28px] border border-[#00FFD1]/25"
+        animate={inactive ? { opacity: 0.18 } : { scale: [0.92, 1.05, 0.92], opacity: [0.28, 0.55, 0.28] }}
+        transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+      />
+      <div className="rounded-full border border-white/10 bg-black/35 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.22em] text-[#00FFD1] backdrop-blur-xl">
+        {inactive ? `${label} paused` : `${label} loading`}
+      </div>
+    </div>
+  );
+}
+
+function SceneCanvas({
+  camera,
+  children,
+  label,
+  isMobile,
+  className,
+  rootMargin = "-10% 0px -10% 0px",
+}: SceneCanvasProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { margin: rootMargin, amount: 0.08 });
+
+  return (
+    <div ref={ref} className={className ?? "absolute inset-0"}>
+      {inView ? (
+        <Suspense fallback={<SceneFallback label={label} />}>
+          <Canvas camera={camera} dpr={isMobile ? [1, 1.1] : [1, 1.5]}>
+            {children}
+          </Canvas>
+        </Suspense>
+      ) : (
+        <SceneFallback label={label} inactive />
+      )}
+    </div>
+  );
+}
+
+function SmartLink({
+  href,
+  className,
+  children,
+  onClick,
+}: {
+  href: string;
+  className?: string;
+  children: ReactNode;
+  onClick?: () => void;
+}) {
+  if (href.startsWith("#")) {
+    return (
+      <a href={href} className={className} onClick={onClick}>
+        {children}
+      </a>
+    );
+  }
+
+  return (
+    <Link href={href} className={className} onClick={onClick}>
+      {children}
+    </Link>
+  );
+}
+
+function HeroScene({ progress, velocity, pointer }: HeroSceneProps) {
+  const boxRef = useRef<THREE.Mesh>(null);
+  const shellRef = useRef<THREE.Mesh>(null);
+  const spotRef = useRef<THREE.SpotLight>(null);
+  const fragmentsRef = useRef<THREE.Mesh[]>([]);
+  const panelRefs = useRef<THREE.Mesh[]>([]);
+  const floorRef = useRef<THREE.Group>(null);
+  const radarRingsRef = useRef<THREE.Mesh[]>([]);
+
+  const fragments = useMemo(() => {
+    const items: Array<{
+      source: THREE.Vector3;
+      target: THREE.Vector3;
+      scale: number;
+    }> = [];
+
+    for (let x = -3; x <= 3; x += 1) {
+      for (let y = -3; y <= 3; y += 1) {
+        const target = new THREE.Vector3(x * 0.62, y * 0.62, 0);
+        const source = new THREE.Vector3(
+          x * 0.85 + (Math.random() - 0.5) * 5.5,
+          y * 0.75 + (Math.random() - 0.5) * 4.5,
+          (Math.random() - 0.5) * 5,
+        );
+
+        items.push({
+          source,
+          target,
+          scale: 0.12 + Math.random() * 0.18,
+        });
       }
     }
 
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      observer.disconnect();
-    };
+    return items;
   }, []);
 
+  useFrame((state, delta) => {
+    const t = THREE.MathUtils.smoothstep(progress, 0.06, 0.96);
+    const velocityBoost = clamp(velocity, 0, 1.4);
+
+    if (boxRef.current) {
+      boxRef.current.rotation.y += delta * (0.22 + velocityBoost * 0.18);
+      boxRef.current.rotation.x = THREE.MathUtils.lerp(
+        boxRef.current.rotation.x,
+        pointer.y * 0.22,
+        0.06,
+      );
+      boxRef.current.rotation.z = THREE.MathUtils.lerp(
+        boxRef.current.rotation.z,
+        -pointer.x * 0.16,
+        0.06,
+      );
+      boxRef.current.scale.setScalar(lerp(1, 0.68, t));
+      boxRef.current.position.z = lerp(0, -1.4, t);
+      const material = boxRef.current.material as THREE.MeshStandardMaterial;
+      material.opacity = lerp(1, 0.08, t);
+    }
+
+    if (shellRef.current) {
+      shellRef.current.rotation.copy(boxRef.current?.rotation ?? new THREE.Euler());
+      shellRef.current.scale.setScalar(lerp(1.03, 0.78, t));
+      const material = shellRef.current.material as THREE.MeshStandardMaterial;
+      material.opacity = lerp(0.24, 0.02, t);
+    }
+
+    fragments.forEach((fragment, index) => {
+      const mesh = fragmentsRef.current[index];
+      if (!mesh) return;
+
+      mesh.position.lerpVectors(fragment.source, fragment.target, t);
+      mesh.rotation.x += delta * (0.25 + velocityBoost * 0.4);
+      mesh.rotation.y += delta * (0.35 + velocityBoost * 0.45);
+      const scale = fragment.scale * lerp(0.3, 1.4 + velocityBoost * 0.2, t);
+      mesh.scale.setScalar(scale);
+      const material = mesh.material as THREE.MeshPhysicalMaterial;
+      material.opacity = lerp(0.05, 0.9, t);
+      material.emissiveIntensity = lerp(0.2, 1.1 + velocityBoost * 0.4, t);
+    });
+
+    panelRefs.current.forEach((mesh, index) => {
+      if (!mesh) return;
+      mesh.rotation.y += delta * (0.08 + index * 0.015);
+      mesh.position.y = Math.sin(state.clock.elapsedTime * 0.9 + index * 0.8) * 0.12 + (index % 2 === 0 ? 1.5 : -1.6);
+      const material = mesh.material as THREE.MeshPhysicalMaterial;
+      material.opacity = lerp(0.22, 0.52, t);
+      material.emissiveIntensity = 0.35 + velocityBoost * 0.22;
+    });
+
+    if (floorRef.current) {
+      floorRef.current.position.y = THREE.MathUtils.lerp(floorRef.current.position.y, -2.9, 0.08);
+      floorRef.current.rotation.x = THREE.MathUtils.lerp(floorRef.current.rotation.x, -1.18, 0.08);
+      floorRef.current.position.z = lerp(-3.5, -2.6, t);
+    }
+
+    radarRingsRef.current.forEach((ring, index) => {
+      if (!ring) return;
+      const phase = ((state.clock.elapsedTime * 0.28 + index * 0.22) % 1) + t * 0.18;
+      const scale = 1.2 + phase * 3.1;
+      ring.scale.set(scale, scale, 1);
+      const material = ring.material as THREE.MeshBasicMaterial;
+      material.opacity = 0.2 - phase * 0.14;
+    });
+
+    if (spotRef.current) {
+      spotRef.current.position.x = THREE.MathUtils.lerp(
+        spotRef.current.position.x,
+        pointer.x * 5.5,
+        0.08,
+      );
+      spotRef.current.position.y = THREE.MathUtils.lerp(
+        spotRef.current.position.y,
+        2.5 + pointer.y * 3.5,
+        0.08,
+      );
+    }
+
+    state.camera.position.z = THREE.MathUtils.lerp(
+      state.camera.position.z,
+      lerp(9.5, 8.2, t),
+      0.06,
+    );
+  });
+
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-40 border-b border-border/60 bg-background/90 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
-          <a href="/welcome" className="flex items-center gap-2 font-semibold tracking-tight">
-            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/15 text-primary">
-              <BrandMark className="h-4 w-4" />
-            </span>
-            <span>AI Control Tower</span>
-          </a>
+    <>
+      <color attach="background" args={["#050505"]} />
+      <ambientLight intensity={0.45} color="#7dd3fc" />
+      <directionalLight position={[4, 6, 8]} intensity={0.8} color="#ffffff" />
+      <spotLight
+        ref={spotRef}
+        position={[0, 3.4, 5]}
+        angle={0.35}
+        penumbra={0.8}
+        intensity={30}
+        color="#00FFD1"
+      />
 
-          <nav className="hidden items-center gap-6 text-sm md:flex">
-            {navItems.map((item) => (
-              <a key={item.href} href={item.href} className="text-muted-foreground transition-colors hover:text-foreground">
-                {item.label}
-              </a>
-            ))}
-          </nav>
+      <mesh ref={boxRef}>
+        <boxGeometry args={[3.4, 3.4, 3.4]} />
+        <meshStandardMaterial
+          color="#040404"
+          metalness={0.72}
+          roughness={0.24}
+          transparent
+        />
+      </mesh>
 
-          <div className="hidden md:flex md:items-center md:gap-3">
-            <a
-              href="/auth/login"
-              onClick={handleCtaClick("navbar", "sign_in")}
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Sign In
-            </a>
-            <Button asChild>
-              <a href={trackedPath("/book-demo", "navbar_book_demo")} onClick={handleCtaClick("navbar", "book_demo")}>Book a Demo</a>
-            </Button>
-          </div>
+      <mesh ref={shellRef}>
+        <boxGeometry args={[3.56, 3.56, 3.56]} />
+        <meshStandardMaterial
+          color="#0d1117"
+          emissive="#00FFD1"
+          emissiveIntensity={0.12}
+          wireframe
+          transparent
+          opacity={0.24}
+        />
+      </mesh>
 
-          <button
-            type="button"
-            className="inline-flex items-center rounded-md p-2 text-muted-foreground hover:bg-muted md:hidden"
-            onClick={() => setMobileOpen((v) => !v)}
-            aria-label="Toggle navigation"
+      <group>
+        {fragments.map((_, index) => (
+          <mesh
+            key={`fragment-${index}`}
+            ref={(node) => {
+              if (node) fragmentsRef.current[index] = node;
+            }}
           >
-            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
-        </div>
-        {mobileOpen ? (
-          <div className="border-t border-border/60 bg-background md:hidden">
-            <div className="mx-auto flex w-full max-w-6xl flex-col gap-1 px-4 py-3 sm:px-6 lg:px-8">
-              {navItems.map((item) => (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMobileOpen(false)}
-                  className="rounded px-2 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  {item.label}
-                </a>
-              ))}
-              <a
-                href="/auth/login"
-                onClick={handleCtaClick("mobile_nav", "sign_in")}
-                className="rounded px-2 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                Sign In
-              </a>
-              <Button asChild className="mt-2">
-                <a href={trackedPath("/book-demo", "mobile_nav_book_demo")} onClick={handleCtaClick("mobile_nav", "book_demo")}>Book a Demo</a>
-              </Button>
+            <boxGeometry args={[0.18, 0.18, 0.18]} />
+            <meshPhysicalMaterial
+              color="#7fffd4"
+              emissive="#00FFD1"
+              metalness={0.1}
+              roughness={0.08}
+              transmission={0.86}
+              thickness={0.8}
+              transparent
+              opacity={0.1}
+            />
+          </mesh>
+        ))}
+      </group>
+
+      <group ref={floorRef} position={[0, -2.9, -3.5]} rotation={[-1.18, 0, 0]}>
+        <gridHelper args={[18, 18, "#00FFD1", "#0f172a"]} />
+      </group>
+
+      <group position={[0, -0.35, -2.8]}>
+        {[0, 1, 2].map((index) => (
+          <mesh
+            key={`radar-ring-${index}`}
+            ref={(node) => {
+              if (node) radarRingsRef.current[index] = node;
+            }}
+            rotation={[-Math.PI / 2, 0, 0]}
+          >
+            <ringGeometry args={[0.62, 0.68, 64]} />
+            <meshBasicMaterial color="#00FFD1" transparent opacity={0.12} />
+          </mesh>
+        ))}
+        <mesh position={[0, 0.04, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[0.16, 32]} />
+          <meshBasicMaterial color="#00FFD1" transparent opacity={0.85} />
+        </mesh>
+      </group>
+
+      <group>
+        {[
+          { position: [-3.8, 1.55, -1.4], scale: [1.7, 1.05, 1] as [number, number, number] },
+          { position: [3.9, -1.6, -1.2], scale: [1.95, 1.2, 1] as [number, number, number] },
+          { position: [4.6, 1.2, -2.2], scale: [1.35, 0.82, 1] as [number, number, number] },
+        ].map((panel, index) => (
+          <mesh
+            key={`panel-${index}`}
+            ref={(node) => {
+              if (node) panelRefs.current[index] = node;
+            }}
+            position={panel.position as [number, number, number]}
+            scale={panel.scale}
+            rotation={[0, index % 2 === 0 ? -0.42 : 0.36, 0]}
+          >
+            <planeGeometry args={[1, 1]} />
+            <meshPhysicalMaterial
+              color="#dbeafe"
+              emissive={index === 1 ? "#00FA9A" : "#00FFD1"}
+              emissiveIntensity={0.28}
+              transmission={0.88}
+              roughness={0.08}
+              thickness={0.9}
+              transparent
+              opacity={0.24}
+            />
+          </mesh>
+        ))}
+      </group>
+
+      <group position={[0, 0, -3.4]}>
+        {Array.from({ length: 18 }).map((_, index) => {
+          const radius = 4 + (index % 6) * 0.75;
+          const angle = (index / 18) * Math.PI * 2;
+          return (
+            <mesh
+              key={`halo-${index}`}
+              position={[
+                Math.cos(angle) * radius,
+                Math.sin(angle) * radius * 0.55,
+                0,
+              ]}
+            >
+              <sphereGeometry args={[0.05, 12, 12]} />
+              <meshBasicMaterial color="#00FFD1" />
+            </mesh>
+          );
+        })}
+      </group>
+    </>
+  );
+}
+
+function ProblemScene({ progress, velocity, particleCount }: ProblemSceneProps) {
+  const particleRefs = useRef<THREE.Mesh[]>([]);
+  const shieldRef = useRef<THREE.Mesh>(null);
+  const streamRefs = useRef<THREE.Mesh[]>([]);
+
+  const particles = useMemo(
+    () =>
+      Array.from({ length: particleCount }, (_, index) => ({
+        angle: (index / particleCount) * Math.PI * 2,
+        radius: 0.65 + Math.random() * 1.45,
+        height: lerp(-2.9, 2.9, index / Math.max(particleCount - 1, 1)),
+        streamX: lerp(-1.9, 1.9, (index % 10) / 9),
+        streamZ: lerp(-0.9, 0.9, ((index + 3) % 10) / 9),
+        threshold: 0.14 + (index / particleCount) * 0.34,
+      })),
+    [particleCount],
+  );
+
+  const red = useMemo(() => new THREE.Color("#FF3366"), []);
+  const emerald = useMemo(() => new THREE.Color("#00FA9A"), []);
+  const darkRed = useMemo(() => new THREE.Color("#7f1d1d"), []);
+  const darkEmerald = useMemo(() => new THREE.Color("#064e3b"), []);
+
+  useFrame((state, delta) => {
+    const velocityBoost = clamp(velocity, 0, 1.3);
+    const time = state.clock.elapsedTime;
+
+    particles.forEach((particle, index) => {
+      const mesh = particleRefs.current[index];
+      if (!mesh) return;
+
+      const phase = particle.angle + time * (0.95 + velocityBoost * 0.55);
+      const funnelRadius = particle.radius * (1.25 - Math.abs(particle.height) * 0.1);
+      const vortexPosition = new THREE.Vector3(
+        Math.sin(phase) * funnelRadius,
+        particle.height + Math.sin(time * 0.9 + index * 0.14) * 0.24,
+        Math.cos(phase) * funnelRadius,
+      );
+
+      const streamProgress = (time * 0.12 + index / particles.length) % 1;
+      const streamPosition = new THREE.Vector3(
+        particle.streamX,
+        lerp(2.8, -2.8, streamProgress),
+        particle.streamZ,
+      );
+
+      const cleanse = clamp((progress - particle.threshold) * 2.8, 0, 1);
+      mesh.position.lerpVectors(vortexPosition, streamPosition, cleanse);
+      mesh.scale.setScalar(0.095 + cleanse * 0.04 + velocityBoost * 0.018);
+
+      const material = mesh.material as THREE.MeshStandardMaterial;
+      material.color.lerpColors(red, emerald, cleanse);
+      material.emissive.lerpColors(darkRed, darkEmerald, cleanse);
+      material.emissiveIntensity = 0.8 + cleanse * 0.55;
+    });
+
+    if (shieldRef.current) {
+      shieldRef.current.position.x = lerp(4.5, -0.2, progress);
+      shieldRef.current.rotation.y += delta * 0.15;
+      const material = shieldRef.current.material as THREE.MeshPhysicalMaterial;
+      material.opacity = lerp(0.08, 0.42, clamp(progress * 1.4, 0, 1));
+      material.emissiveIntensity = 0.65 + clamp(progress, 0, 1) * 0.6;
+    }
+
+    streamRefs.current.forEach((mesh, index) => {
+      if (!mesh) return;
+      const phase = ((time * 0.22 + index * 0.17) % 1) * Math.PI * 2;
+      mesh.scale.y = 0.65 + Math.sin(phase) * 0.25 + progress * 0.55;
+      const material = mesh.material as THREE.MeshBasicMaterial;
+      material.opacity = clamp(progress * 1.35 - 0.15, 0, 1) * 0.55;
+    });
+  });
+
+  return (
+    <>
+      <color attach="background" args={["#050505"]} />
+      <ambientLight intensity={0.55} color="#c4b5fd" />
+      <pointLight position={[3, 4, 3]} intensity={24} color="#00FFD1" />
+      <pointLight position={[-3, -2, -1]} intensity={14} color="#FF3366" />
+      <pointLight position={[0, -2, 4]} intensity={12} color="#00FA9A" />
+
+      <group>
+        {particles.map((_, index) => (
+          <mesh
+            key={`particle-${index}`}
+            ref={(node) => {
+              if (node) particleRefs.current[index] = node;
+            }}
+          >
+            <sphereGeometry args={[0.11, 18, 18]} />
+            <meshStandardMaterial
+              color="#FF3366"
+              emissive="#7f1d1d"
+              emissiveIntensity={1.25}
+            />
+          </mesh>
+        ))}
+      </group>
+
+      <mesh ref={shieldRef} position={[4.5, 0, 0]} scale={[0.36, 4.2, 3.1]}>
+        <sphereGeometry args={[1.25, 48, 48]} />
+        <meshPhysicalMaterial
+          color="#00FFD1"
+          emissive="#00FFD1"
+          emissiveIntensity={1}
+          transmission={0.92}
+          thickness={0.9}
+          roughness={0.08}
+          transparent
+          opacity={0.18}
+        />
+      </mesh>
+
+      <group position={[0, 0, -0.6]}>
+        {Array.from({ length: 10 }).map((_, index) => (
+          <mesh
+            key={`stream-${index}`}
+            position={[lerp(-1.9, 1.9, index / 9), 0, 0]}
+            ref={(node) => {
+              if (node) streamRefs.current[index] = node;
+            }}
+          >
+            <cylinderGeometry args={[0.08, 0.08, 6.1, 18]} />
+            <meshBasicMaterial color="#00FA9A" transparent opacity={0.12} />
+          </mesh>
+        ))}
+      </group>
+
+      <mesh position={[0, -2.5, -1.8]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[7, 7]} />
+        <meshBasicMaterial color="#001a18" transparent opacity={0.28} />
+      </mesh>
+    </>
+  );
+}
+
+function TerminalScene({ progress, velocity, blockTriggered }: TerminalSceneProps) {
+  const ringRef = useRef<THREE.Mesh>(null);
+  const planeRef = useRef<THREE.Mesh>(null);
+  const streakRef = useRef<THREE.Mesh>(null);
+
+  useFrame((state) => {
+    const pulse = blockTriggered
+      ? 0.65 + ((state.clock.elapsedTime * 1.35) % 1)
+      : 0.25;
+
+    if (ringRef.current) {
+      ringRef.current.scale.x = THREE.MathUtils.lerp(
+        ringRef.current.scale.x,
+        pulse * 2.1,
+        0.08,
+      );
+      ringRef.current.scale.y = THREE.MathUtils.lerp(
+        ringRef.current.scale.y,
+        pulse * 2.1,
+        0.08,
+      );
+      const material = ringRef.current.material as THREE.MeshBasicMaterial;
+      material.opacity = blockTriggered ? 0.35 - (pulse - 0.65) * 0.22 : 0.08;
+    }
+
+    if (planeRef.current) {
+      planeRef.current.rotation.x = THREE.MathUtils.lerp(
+        planeRef.current.rotation.x,
+        -0.14 + velocity * 0.03,
+        0.04,
+      );
+      planeRef.current.rotation.y = THREE.MathUtils.lerp(
+        planeRef.current.rotation.y,
+        -0.28,
+        0.05,
+      );
+    }
+
+    if (streakRef.current) {
+      streakRef.current.position.y = 1.8 - (((state.clock.elapsedTime * 1.6 + progress) % 1) * 3.6);
+      const material = streakRef.current.material as THREE.MeshBasicMaterial;
+      material.opacity = 0.28 + progress * 0.2;
+    }
+  });
+
+  return (
+    <>
+      <ambientLight intensity={0.6} color="#dbeafe" />
+      <pointLight position={[0, 2, 3]} intensity={18} color="#00FFD1" />
+      <pointLight position={[0, -1, 1]} intensity={blockTriggered ? 15 : 4} color="#FF3366" />
+
+      <Float speed={1.1} rotationIntensity={0.25} floatIntensity={0.4}>
+        <mesh ref={planeRef}>
+          <planeGeometry args={[5.6, 3.5, 1, 1]} />
+          <meshPhysicalMaterial
+            color="#0b1320"
+            transparent
+            opacity={0.48}
+            transmission={0.72}
+            roughness={0.08}
+            metalness={0.08}
+            thickness={1.1}
+          />
+        </mesh>
+      </Float>
+
+      <mesh ref={ringRef} position={[0, 0, 0.12]} scale={[0.2, 0.2, 1]}>
+        <ringGeometry args={[0.35, 0.55, 64]} />
+        <meshBasicMaterial color="#FF3366" transparent opacity={0.08} />
+      </mesh>
+
+      <mesh ref={streakRef} position={[0, 1.8, 0.18]}>
+        <planeGeometry args={[5.2, 0.04]} />
+        <meshBasicMaterial color="#00FFD1" transparent opacity={0.16} />
+      </mesh>
+
+      <group position={[0, 0, 0.14]}>
+        {Array.from({ length: 6 }).map((_, index) => (
+          <mesh
+            key={`line-${index}`}
+            position={[0, lerp(-1.2, 1.2, index / 5), 0]}
+          >
+            <planeGeometry args={[4.8, 0.01]} />
+            <meshBasicMaterial color="#0f766e" transparent opacity={0.16} />
+          </mesh>
+        ))}
+      </group>
+    </>
+  );
+}
+
+function VaultScene({ progress, velocity }: VaultSceneProps) {
+  const cubesRef = useRef<THREE.Mesh[]>([]);
+  const [hovered, setHovered] = useState<number | null>(null);
+
+  const cubes = useMemo(
+    () =>
+      Array.from({ length: 16 }, (_, index) => ({
+        baseX: -12 + index * 1.7,
+        label:
+          index % 3 === 0
+            ? "SHA-256 Verified"
+            : index % 3 === 1
+              ? "EU AI Act Linked"
+              : "Human Override: True",
+      })),
+    [],
+  );
+
+  useFrame((state) => {
+    const offset = progress * 10 + state.clock.elapsedTime * (0.35 + velocity * 0.12);
+
+    cubes.forEach((cube, index) => {
+      const mesh = cubesRef.current[index];
+      if (!mesh) return;
+
+      const wrapped = ((cube.baseX - offset + 16) % 28) - 14;
+      mesh.position.x = wrapped;
+      mesh.position.y = Math.sin(state.clock.elapsedTime * 0.65 + index * 0.4) * 0.08;
+      const isHovered = hovered === index;
+      const targetScale = isHovered ? 1.55 : 1;
+      mesh.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.12);
+      mesh.rotation.y = THREE.MathUtils.lerp(
+        mesh.rotation.y,
+        isHovered ? 0 : state.clock.elapsedTime * 0.08,
+        0.1,
+      );
+      const material = mesh.material as THREE.MeshPhysicalMaterial;
+      material.emissiveIntensity = isHovered ? 0.85 : 0.35;
+    });
+  });
+
+  return (
+    <>
+      <color attach="background" args={["#050505"]} />
+      <ambientLight intensity={0.5} color="#e0f2fe" />
+      <pointLight position={[0, 2, 4]} intensity={16} color="#00FFD1" />
+
+      <Line
+        points={[
+          [-14, 0, 0],
+          [14, 0, 0],
+        ]}
+        color="#00FFD1"
+        lineWidth={2.4}
+      />
+
+      <Line
+        points={[
+          [-14, 0.16, 0],
+          [14, 0.16, 0],
+        ]}
+        color="#7dd3fc"
+        lineWidth={0.8}
+      />
+
+      <Line
+        points={[
+          [-14, -1.4, -1.4],
+          [14, -1.4, -1.4],
+        ]}
+        color="#00FA9A"
+        lineWidth={1.2}
+      />
+
+      <group>
+        {cubes.map((cube, index) => (
+          <mesh
+            key={`vault-cube-${index}`}
+            ref={(node) => {
+              if (node) cubesRef.current[index] = node;
+            }}
+            position={[cube.baseX, 0, 0]}
+            onPointerOver={() => setHovered(index)}
+            onPointerOut={() => setHovered((current) => (current === index ? null : current))}
+          >
+            <boxGeometry args={[1.22, 1.22, 1.22]} />
+            <meshPhysicalMaterial
+              color="#d1fae5"
+              emissive="#00FFD1"
+              emissiveIntensity={0.55}
+              transmission={0.84}
+              roughness={0.08}
+              thickness={1}
+              transparent
+              opacity={0.82}
+            />
+            {hovered === index ? (
+              <Html center transform distanceFactor={8.5}>
+                <div className="rounded-2xl border border-white/10 bg-[#050505]/90 px-4 py-3 text-center font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1] shadow-[0_0_30px_rgba(0,255,209,0.2)]">
+                  {cube.label}
+                </div>
+              </Html>
+            ) : null}
+          </mesh>
+        ))}
+      </group>
+
+      <group position={[0, -1.4, -1.4]}>
+        {cubes.map((cube, index) => (
+          <mesh
+            key={`vault-backfill-${index}`}
+            position={[cube.baseX * 0.95, 0, 0]}
+            scale={[0.78, 0.78, 0.78]}
+          >
+            <boxGeometry args={[1.22, 1.22, 1.22]} />
+            <meshPhysicalMaterial
+              color="#93c5fd"
+              emissive="#00FA9A"
+              emissiveIntensity={0.28}
+              transmission={0.74}
+              roughness={0.1}
+              thickness={0.8}
+              transparent
+              opacity={0.36}
+            />
+          </mesh>
+        ))}
+      </group>
+    </>
+  );
+}
+
+function GlobeScene({ progress, velocity, pointCount }: GlobeSceneProps) {
+  const groupRef = useRef<THREE.Group>(null);
+
+  const points = useMemo(() => {
+    const data: number[] = [];
+    for (let i = 0; i < pointCount; i += 1) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const radius = 2.2 + (Math.random() - 0.5) * 0.05;
+      data.push(
+        radius * Math.sin(phi) * Math.cos(theta),
+        radius * Math.sin(phi) * Math.sin(theta),
+        radius * Math.cos(phi),
+      );
+    }
+    return data;
+  }, [pointCount]);
+
+  const nodes = useMemo(
+    () => [
+      new THREE.Vector3(1.8, 0.4, 1.1),
+      new THREE.Vector3(-1.5, 1.2, 0.8),
+      new THREE.Vector3(1.1, -1.4, 1.2),
+      new THREE.Vector3(-0.6, -1.8, -1.1),
+      new THREE.Vector3(0.4, 1.7, -1.3),
+      new THREE.Vector3(2.05, -0.1, -0.95),
+      new THREE.Vector3(-1.95, 0.15, -0.7),
+    ],
+    [],
+  );
+
+  useFrame((state, delta) => {
+    if (groupRef.current) {
+      groupRef.current.rotation.y += delta * (0.14 + velocity * 0.08);
+      groupRef.current.rotation.x = THREE.MathUtils.lerp(
+        groupRef.current.rotation.x,
+        0.28,
+        0.04,
+      );
+    }
+
+    state.camera.position.z = THREE.MathUtils.lerp(
+      state.camera.position.z,
+      lerp(8.2, 3.2, clamp(progress, 0, 1)),
+      0.08,
+    );
+    state.camera.lookAt(0, 0, 0);
+  });
+
+  return (
+    <>
+      <color attach="background" args={["#050505"]} />
+      <ambientLight intensity={0.35} />
+      <pointLight position={[0, 3, 6]} intensity={16} color="#00FFD1" />
+      <pointLight position={[-3, -2, -4]} intensity={8} color="#00FA9A" />
+
+      <group ref={groupRef}>
+        <Points positions={points} stride={3} frustumCulled={false}>
+          <PointMaterial
+            transparent
+            size={0.04}
+            sizeAttenuation
+            depthWrite={false}
+            color="#7dd3fc"
+            opacity={0.92}
+          />
+        </Points>
+
+        <mesh>
+          <sphereGeometry args={[0.18, 24, 24]} />
+          <meshBasicMaterial color="#00FFD1" />
+        </mesh>
+
+        <mesh scale={[1.02, 1.02, 1.02]}>
+          <sphereGeometry args={[0.24, 24, 24]} />
+          <meshBasicMaterial color="#00FFD1" transparent opacity={0.18} />
+        </mesh>
+
+        {nodes.map((node, index) => (
+          <group key={`node-${index}`}>
+            <Line
+              points={[
+                [0, 0, 0],
+                [node.x, node.y, node.z],
+              ]}
+              color="#00FFD1"
+              lineWidth={1.5}
+            />
+            <mesh position={node}>
+              <sphereGeometry args={[0.1, 18, 18]} />
+              <meshBasicMaterial color={index % 2 === 0 ? "#00FFD1" : "#00FA9A"} />
+            </mesh>
+          </group>
+        ))}
+
+        {[
+          0,
+          0.52,
+          1.04,
+        ].map((rotation, index) => (
+          <mesh
+            key={`orbit-ring-${index}`}
+            rotation={[Math.PI / 2 + rotation * 0.14, rotation, 0]}
+            scale={1 + index * 0.12}
+          >
+            <torusGeometry args={[2.28 + index * 0.1, 0.007, 12, 160]} />
+            <meshBasicMaterial
+              color={index === 0 ? "#00FFD1" : "#7dd3fc"}
+              transparent
+              opacity={index === 0 ? 0.28 : 0.14}
+            />
+          </mesh>
+        ))}
+
+        {nodes.map((node, index) => (
+          <mesh key={`pulse-${index}`} position={node} scale={[1.8, 1.8, 1.8]}>
+            <sphereGeometry args={[0.05, 12, 12]} />
+            <meshBasicMaterial color="#00FFD1" transparent opacity={0.22} />
+          </mesh>
+        ))}
+
+        <Line
+          points={[
+            [nodes[0].x, nodes[0].y, nodes[0].z],
+            [nodes[2].x, nodes[2].y, nodes[2].z],
+            [nodes[4].x, nodes[4].y, nodes[4].z],
+            [nodes[6].x, nodes[6].y, nodes[6].z],
+          ]}
+          color="#00FA9A"
+          lineWidth={1}
+        />
+
+        <Line
+          points={[
+            [nodes[1].x, nodes[1].y, nodes[1].z],
+            [nodes[3].x, nodes[3].y, nodes[3].z],
+            [nodes[5].x, nodes[5].y, nodes[5].z],
+          ]}
+          color="#7dd3fc"
+          lineWidth={1}
+        />
+      </group>
+    </>
+  );
+}
+
+function MagneticButton({ href, children }: MagneticButtonProps) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [, navigate] = useLocation();
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const springX = useSpring(x, { stiffness: 220, damping: 18 });
+  const springY = useSpring(y, { stiffness: 220, damping: 18 });
+
+  useEffect(() => {
+    const handleMove = (event: MouseEvent) => {
+      if (!buttonRef.current) return;
+      const rect = buttonRef.current.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const distance = Math.hypot(event.clientX - centerX, event.clientY - centerY);
+      const radius = 140;
+
+      if (distance < radius) {
+        x.set((event.clientX - centerX) * 0.22);
+        y.set((event.clientY - centerY) * 0.22);
+      } else {
+        x.set(0);
+        y.set(0);
+      }
+    };
+
+    const handleLeave = () => {
+      x.set(0);
+      y.set(0);
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseleave", handleLeave);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseleave", handleLeave);
+    };
+  }, [x, y]);
+
+  return (
+    <div className="relative inline-flex items-center justify-center">
+      <div className="absolute inset-0 rounded-full bg-[#00FFD1] opacity-20 blur-[100px]" />
+      <motion.button
+        ref={buttonRef}
+        type="button"
+        style={{ x: springX, y: springY }}
+        whileTap={{ scale: 0.98 }}
+        className="relative inline-flex items-center justify-center rounded-full bg-[#00FFD1] px-12 py-6 text-xl font-bold text-black shadow-[0_0_40px_rgba(0,255,209,0.38)]"
+        onClick={() => navigate(href)}
+      >
+        {children}
+      </motion.button>
+    </div>
+  );
+}
+
+function GlareCard({ title, copy, accent, icon: Icon, outcome, metric }: GlareCardProps) {
+  const [glare, setGlare] = useState({ x: 50, y: 50 });
+
+  return (
+    <motion.div
+      className={`group relative h-80 overflow-hidden rounded-[28px] p-8 ${glassClass}`}
+      whileHover={{ scale: 1.02, rotateX: 2, rotateY: 2 }}
+      onMouseMove={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        setGlare({
+          x: ((event.clientX - rect.left) / rect.width) * 100,
+          y: ((event.clientY - rect.top) / rect.height) * 100,
+        });
+      }}
+      style={{ transformStyle: "preserve-3d" }}
+    >
+      <div
+        className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        style={{
+          background: `radial-gradient(circle at ${glare.x}% ${glare.y}%, ${accent}33 0%, transparent 42%)`,
+        }}
+      />
+      <div className="relative flex h-full flex-col justify-between">
+        <div className="space-y-5">
+          <div className="flex items-start justify-between gap-4">
+            <div
+              className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10"
+              style={{ backgroundColor: `${accent}14` }}
+            >
+              <Icon className="h-6 w-6" style={{ color: accent }} />
+            </div>
+            <div
+              className="rounded-full border px-3 py-2 font-mono text-[11px] uppercase tracking-[0.18em]"
+              style={{
+                borderColor: `${accent}55`,
+                color: accent,
+                backgroundColor: `${accent}14`,
+              }}
+            >
+              {metric}
             </div>
           </div>
-        ) : null}
-      </header>
+          <div>
+            <h3 className="text-2xl font-bold text-white">{title}</h3>
+            <p className="mt-3 max-w-[26ch] text-sm leading-7 text-slate-400">{copy}</p>
+          </div>
+        </div>
+        <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-slate-500">
+          {outcome}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
 
-      <section className="relative overflow-hidden border-b border-border/60">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(37,99,235,0.16),transparent_60%)]" />
-        <div className="mx-auto grid w-full max-w-6xl gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-2 lg:items-center lg:px-8">
-          <div className="space-y-6">
-            <p className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-muted/40 px-3 py-1 text-xs font-medium text-muted-foreground">
-              <BrandMark className="h-3.5 w-3.5 text-primary" />
-              Enterprise AI Governance Platform
+function ProofArchitectureSection() {
+  const [activeNode, setActiveNode] = useState(FLOW_NODES[1].id);
+  const [tourStep, setTourStep] = useState(0);
+
+  return (
+    <SectionShell id="how-it-works" className="bg-[#050505] px-8 py-18 lg:px-24">
+      <div className="mx-auto grid max-w-[1500px] gap-10 lg:grid-cols-[0.98fr_1.02fr]">
+        <div className="space-y-8">
+          <div className="max-w-3xl">
+            <SectionLabel tone="cyan">Three operating pillars</SectionLabel>
+            <h2 className="text-4xl font-bold tracking-tight text-white lg:text-5xl">
+              One control system. Three enterprise outcomes.
+            </h2>
+            <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-400">
+              The platform is organized intentionally: runtime policy contains the
+              model, incident operations contain the breach, and cryptographic
+              evidence contains the audit story.
             </p>
-            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
-              Control prompts, outputs, and AI actions before they become production incidents.
+          </div>
+
+          <div className="grid gap-5 md:grid-cols-3">
+            {PILLARS.map((pillar, index) => {
+              const Icon = pillar.icon;
+              const accent =
+                index === 0 ? "#00FFD1" : index === 1 ? "#f59e0b" : "#a78bfa";
+              return (
+                <div
+                  key={pillar.id}
+                  className={`rounded-[28px] border-l-2 p-6 ${glassClass}`}
+                  style={{ borderLeftColor: accent }}
+                >
+                  <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-[#00FFD1]">
+                    <Icon className="h-5 w-5" style={{ color: accent }} />
+                  </div>
+                  <h3 className="mt-5 text-2xl font-bold text-white">{pillar.title}</h3>
+                  <p className="mt-4 text-sm leading-7 text-slate-400">{pillar.body}</p>
+                  <div className="mt-5 font-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: accent }}>
+                    {pillar.metric}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className={`rounded-[32px] p-7 ${glassClass}`}>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <SectionLabel tone="emerald">Control flow map</SectionLabel>
+                <h3 className="text-2xl font-bold text-white">
+                  User to evidence vault, left to right.
+                </h3>
+              </div>
+              <SmartLink
+                href="#frameworks"
+                className="rounded-full border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300 transition-colors hover:border-[#00FFD1]/40 hover:text-[#00FFD1]"
+              >
+                Audit frameworks
+              </SmartLink>
+            </div>
+
+            <div className="mt-8 grid gap-4 lg:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr]">
+              {FLOW_NODES.map((node, index) => (
+                <div key={node.id} className="contents">
+                  <motion.button
+                    type="button"
+                    onMouseEnter={() => setActiveNode(node.id)}
+                    onFocus={() => setActiveNode(node.id)}
+                    whileHover={{ y: -4 }}
+                    className={`h-full min-h-[180px] rounded-[24px] border px-5 py-5 text-left transition-all ${
+                      node.id === "gateway"
+                        ? "border-[#00FFD1]/35 bg-[#00FFD1]/[0.04]"
+                        : activeNode === node.id
+                        ? "border-[#00FFD1]/40 bg-white/[0.05]"
+                        : "border-white/[0.08] bg-white/[0.02]"
+                    }`}
+                  >
+                    <div
+                      className="font-mono text-[11px] uppercase tracking-[0.22em]"
+                      style={{ color: node.color }}
+                    >
+                      {node.title}
+                    </div>
+                    <p className="mt-3 text-sm leading-7 text-slate-400">{node.detail}</p>
+                  </motion.button>
+                  {index < FLOW_NODES.length - 1 ? (
+                    <div className="hidden items-center justify-center lg:flex">
+                      <div className="relative flex items-center justify-center">
+                        <div className="h-[2px] w-14 bg-gradient-to-r from-[#00FFD1]/20 via-[#00FFD1]/60 to-[#00FA9A]/60" />
+                        <motion.span
+                          className="absolute right-0 text-[#00FFD1]"
+                          animate={{ x: [-6, 2, -6], opacity: [0.35, 1, 0.35] }}
+                          transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+                        >
+                          <ArrowRight className="h-4 w-4" />
+                        </motion.span>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className={`rounded-[32px] p-8 ${glassClass}`}>
+            <SectionLabel tone="cyan">2-minute interactive tour</SectionLabel>
+            <h3 className="max-w-xl text-2xl font-bold leading-tight text-white">
+              Feel the product before you talk to sales.
+            </h3>
+            <p className="mt-4 max-w-xl text-sm leading-7 text-slate-400">
+              Click through one concrete workflow and watch the control plane go
+              from preflight detection to incident escalation to sealed evidence.
+            </p>
+
+            <div className="mt-6 flex flex-wrap gap-2">
+              {TOUR_STEPS.map((step, index) => (
+                <button
+                  key={step.title}
+                  type="button"
+                  onClick={() => setTourStep(index)}
+                  className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors ${
+                    tourStep === index
+                      ? "bg-[#00FFD1] text-black"
+                      : "border border-white/10 bg-white/[0.02] text-slate-300"
+                  }`}
+                >
+                  {step.title}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-6 rounded-[24px] border border-white/[0.08] bg-black/30 p-5">
+              <div className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#00FFD1]">
+                {TOUR_STEPS[tourStep].status}
+              </div>
+              <p className="mt-4 text-base leading-8 text-slate-300">
+                {TOUR_STEPS[tourStep].body}
+              </p>
+            </div>
+          </div>
+
+          <div className={`max-w-full overflow-hidden rounded-[32px] p-7 ${glassClass}`}>
+            <SectionLabel tone="emerald">Audit-ready by design</SectionLabel>
+            <h3 className="max-w-[22rem] text-2xl font-bold leading-tight text-white">
+              Framework linkage should be visible before procurement asks for it.
+            </h3>
+            <div className="mt-6 flex flex-wrap gap-3">
+              {FRAMEWORK_BADGES.map((badge) => (
+                <SmartLink
+                  key={badge}
+                  href="#frameworks"
+                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 font-mono text-[11px] uppercase tracking-[0.22em] text-slate-300 transition-colors hover:border-[#00FFD1]/40 hover:text-[#00FFD1]"
+                >
+                  {badge}
+                </SmartLink>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </SectionShell>
+  );
+}
+
+function BuildVerifySection() {
+  return (
+    <SectionShell className="bg-[#050505] px-8 py-18 lg:px-24">
+      <div className="mx-auto max-w-[1500px]">
+        <div className="mb-10 max-w-3xl">
+          <SectionLabel tone="cyan">Build and verify</SectionLabel>
+          <h2 className="text-4xl font-bold tracking-tight text-white lg:text-5xl">
+            Docs, trust posture, and role-specific paths in one ecosystem.
+          </h2>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+          <div className="grid gap-6 md:grid-cols-2">
+            {BUILD_VERIFY_CARDS.map((card) => (
+              <SmartLink
+                key={card.title}
+                href={card.href}
+                className={`group rounded-[28px] p-7 transition-transform hover:-translate-y-1 ${glassClass}`}
+              >
+                <div
+                  className="font-mono text-[11px] uppercase tracking-[0.22em]"
+                  style={{ color: card.accent }}
+                >
+                  {card.title}
+                </div>
+                <p className="mt-4 text-sm leading-7 text-slate-400">{card.body}</p>
+                <div className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-white">
+                  Open
+                  <ArrowRight className="h-4 w-4" />
+                </div>
+              </SmartLink>
+            ))}
+          </div>
+
+          <div className={`rounded-[32px] p-7 ${glassClass}`}>
+            <SectionLabel tone="emerald">Role paths</SectionLabel>
+            <div className="grid gap-4 md:grid-cols-3">
+              {ROLE_CTA_CARDS.map((card) => (
+                <SmartLink
+                  key={card.title}
+                  href={card.href}
+                  className="rounded-[24px] border border-white/[0.08] bg-black/20 p-5 transition-colors hover:border-[#00FFD1]/30"
+                >
+                  <div className="text-lg font-bold text-white">{card.title}</div>
+                  <p className="mt-3 text-sm leading-7 text-slate-400">{card.body}</p>
+                </SmartLink>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </SectionShell>
+  );
+}
+
+function HeroSection({ velocity, isMobile }: { velocity: number; isMobile: boolean }) {
+  const sectionRef = useRef<HTMLElement>(null);
+  const [pointer, setPointer] = useState({ x: 0, y: 0 });
+  const [progress, setProgress] = useState(0);
+  const [railMode, setRailMode] = useState<"inline_gateway" | "sdk_guard">(
+    "inline_gateway",
+  );
+  const [railPolicy, setRailPolicy] = useState<
+    "claims_prod" | "underwriting_eu" | "portfolio_rollup"
+  >("claims_prod");
+  const { scrollY } = useScroll();
+  const { scrollYProgress } = useScroll({
+    target: sectionRef,
+    offset: ["start start", "end start"],
+  });
+
+  const headlineY = useTransform(scrollY, [0, 500], [0, -120]);
+  const headlineOpacity = useTransform(scrollY, [0, 260, 520], [1, 1, 0]);
+
+  const pseudoLogs = useMemo(() => {
+    const policyLabel =
+      railPolicy === "claims_prod"
+        ? "finance.claims.prod"
+        : railPolicy === "underwriting_eu"
+          ? "insurance.underwriting.eu"
+          : "portfolio.rollup.global";
+
+    if (railPolicy === "claims_prod") {
+      return [
+        `mode=${railMode}`,
+        `policy=${policyLabel}`,
+        "prompt classified: contains_sensitive_request",
+        "preflight action: block + escalate",
+        "receipt: sealed for incident review",
+      ];
+    }
+
+    if (railPolicy === "underwriting_eu") {
+      return [
+        `mode=${railMode}`,
+        `policy=${policyLabel}`,
+        "model route: approved underwriting copilot",
+        "framework linkage: eu_ai_act + iso_42001",
+        "receipt: archived for audit query",
+      ];
+    }
+
+    return [
+      `mode=${railMode}`,
+      `policy=${policyLabel}`,
+      "tenant context: 50 portcos normalized",
+      "runtime alerts: 3 incidents routed",
+      "roll-up: board view refreshed",
+    ];
+  }, [railMode, railPolicy]);
+
+  useMotionValueEvent(scrollYProgress, "change", setProgress);
+
+  return (
+    <SectionShell id="top" className="min-h-screen">
+      <section
+        ref={sectionRef}
+        className="relative overflow-hidden bg-[#050505] px-8 pt-24 lg:px-16"
+        onMouseMove={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          setPointer({
+            x: ((event.clientX - rect.left) / rect.width - 0.5) * 2,
+            y: ((event.clientY - rect.top) / rect.height - 0.5) * -2,
+          });
+        }}
+      >
+        <SceneCanvas
+          label="hero control plane"
+          isMobile={isMobile}
+          camera={{ position: [0, 0, 9.5], fov: 42 }}
+          className="pointer-events-none absolute inset-0"
+        >
+            <HeroScene progress={progress} velocity={velocity} pointer={pointer} />
+        </SceneCanvas>
+
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(0,255,209,0.12),transparent_36%),radial-gradient(circle_at_center,rgba(0,255,180,0.05),transparent_26%),radial-gradient(circle_at_80%_20%,rgba(255,51,102,0.08),transparent_24%),linear-gradient(180deg,rgba(5,5,5,0.35),rgba(5,5,5,0.9))]" />
+        <div className="pointer-events-none absolute inset-0 opacity-[0.16] [background-image:radial-gradient(rgba(125,211,252,0.9)_0.8px,transparent_0.8px)] [background-size:24px_24px]" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-[radial-gradient(circle_at_bottom,rgba(0,255,209,0.18),transparent_45%)]" />
+        <div className="pointer-events-none absolute left-1/2 top-[38%] hidden h-[20rem] w-[20rem] -translate-x-1/2 -translate-y-1/2 lg:block">
+          <motion.div
+            className="absolute inset-0 rounded-full border border-[#00FFD1]/20"
+            animate={{ scale: [0.86, 1.04, 0.86], opacity: [0.18, 0.38, 0.18] }}
+            transition={{ duration: 4.2, repeat: Infinity, ease: "easeInOut" }}
+          />
+          <motion.div
+            className="absolute inset-[20%] rounded-full border border-[#7dd3fc]/20"
+            animate={{ scale: [0.92, 1.1, 0.92], opacity: [0.12, 0.3, 0.12] }}
+            transition={{ duration: 3.6, repeat: Infinity, ease: "easeInOut" }}
+          />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,255,209,0.16),transparent_28%),radial-gradient(circle_at_center,rgba(125,211,252,0.08),transparent_44%)]" />
+          {[
+            "left-[15%] top-[42%]",
+            "left-[42%] top-[16%]",
+            "right-[18%] top-[38%]",
+            "left-[36%] bottom-[18%]",
+          ].map((pos, index) => (
+            <motion.span
+              key={`hero-node-${index}`}
+              className={`absolute h-2.5 w-2.5 rounded-full bg-[#00FFD1] shadow-[0_0_20px_rgba(0,255,209,0.75)] ${pos}`}
+              animate={{ scale: [0.9, 1.4, 0.9], opacity: [0.45, 1, 0.45] }}
+              transition={{ duration: 2 + index * 0.45, repeat: Infinity, ease: "easeInOut" }}
+            />
+          ))}
+          <div className="absolute left-[18%] top-[44%] h-px w-[25%] rotate-[-16deg] bg-gradient-to-r from-transparent via-[#00FFD1]/60 to-transparent" />
+          <div className="absolute left-[44%] top-[20%] h-px w-[18%] rotate-[36deg] bg-gradient-to-r from-transparent via-[#7dd3fc]/50 to-transparent" />
+          <div className="absolute left-[41%] top-[54%] h-px w-[22%] rotate-[14deg] bg-gradient-to-r from-transparent via-[#00FA9A]/45 to-transparent" />
+        </div>
+
+        <motion.div
+          style={{ y: headlineY, opacity: headlineOpacity }}
+          className="relative z-10 mx-auto grid min-h-[92vh] w-full max-w-[1500px] items-center gap-10 lg:grid-cols-[0.9fr_0.75fr]"
+        >
+          <div className="max-w-3xl pt-8 text-center lg:pt-14 lg:text-left">
+            <div className={`mb-8 inline-flex items-center gap-3 rounded-full px-5 py-2 ${glassClass}`}>
+              <span className="font-mono text-[11px] uppercase tracking-[0.3em] text-[#00FFD1]">
+                Runtime policy • incident operations • cryptographic evidence
+              </span>
+            </div>
+
+            <h1 className="max-w-4xl text-6xl font-extrabold tracking-tight text-white lg:text-8xl">
+              Govern AI at Runtime. Protect Exit Valuations.
             </h1>
-            <p className="text-sm text-muted-foreground sm:text-base">
-              AI Control Tower is the runtime control plane for enterprise AI. Register systems, bind policy, intercept model traffic,
-              govern tool execution, open incidents automatically, and keep the full evidence trail tied to business context.
+            <p className="mt-6 max-w-2xl text-lg font-light leading-8 text-slate-400 lg:text-xl">
+              Intercept prompts, enforce policy, and cryptographically seal every
+              AI decision before it reaches production.
             </p>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              {[
-                "Inline prompt preflight and output postflight enforcement",
-                "Gateway and SDK deployment modes for real application traffic",
-                "Tool allowlists, typed argument policy, and multi-provider control",
-                "Incidents, evidence, decision traces, and audit in one path",
-                "Tenant-safe identity, provider vaulting, and review workflows",
-              ].map((line) => (
-                <li key={line} className="flex items-start gap-2">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                  <span>{line}</span>
+            <p className="mt-4 max-w-2xl text-sm font-medium uppercase tracking-[0.22em] text-slate-500">
+              For PE funds and regulated enterprises that cannot afford AI
+              guesswork.
+            </p>
+
+            <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row lg:items-start">
+              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                <SmartLink
+                  href="/book-demo"
+                  className="inline-flex items-center gap-3 rounded-full bg-[#00FFD1] px-8 py-4 text-lg font-semibold text-black shadow-[0_0_30px_rgba(0,255,209,0.4)]"
+                >
+                  Book a Demo
+                  <ArrowRight className="h-5 w-5" />
+                </SmartLink>
+              </motion.div>
+              <motion.a
+                href="#engine"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="inline-flex items-center gap-3 rounded-full border border-white/10 px-8 py-4 text-lg font-semibold text-white"
+              >
+                Inspect the enforcement engine
+              </motion.a>
+            </div>
+
+            <div className="mt-5">
+              <SmartLink
+                href="#vault"
+                className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#00FFD1] transition-colors hover:text-white"
+              >
+                See the evidence chain
+              </SmartLink>
+            </div>
+          </div>
+
+          <div className="relative grid gap-4 lg:justify-self-end lg:pt-10">
+            <div className="justify-self-start rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-5 backdrop-blur-xl lg:w-64">
+              <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FA9A]">
+                Runtime seal
+              </div>
+              <p className="mt-3 text-sm leading-7 text-slate-400">
+                Prompt, output, decision, and incident linkage sealed before release.
+              </p>
+            </div>
+
+            <div className="justify-self-end rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-5 backdrop-blur-xl lg:w-[22rem]">
+              <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
+                Live command rail
+              </div>
+              <div className="mt-4 grid gap-3">
+                <div>
+                  <div className="mb-2 font-mono text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                    Mode
+                  </div>
+                  <div className="flex gap-2">
+                    {(["inline_gateway", "sdk_guard"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setRailMode(mode)}
+                        className={`rounded-full px-3 py-2 font-mono text-[11px] uppercase tracking-[0.18em] transition-colors ${
+                          railMode === mode
+                            ? "bg-[#00FFD1] text-black"
+                            : "border border-white/10 bg-black/20 text-slate-300"
+                        }`}
+                      >
+                        {mode.replace("_", " ")}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-2 font-mono text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                    Policy
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      { id: "claims_prod", label: "claims" },
+                      { id: "underwriting_eu", label: "underwriting" },
+                      { id: "portfolio_rollup", label: "portfolio" },
+                    ] as const).map((policy) => (
+                      <button
+                        key={policy.id}
+                        type="button"
+                        onClick={() => setRailPolicy(policy.id)}
+                        className={`rounded-full px-3 py-2 font-mono text-[11px] uppercase tracking-[0.18em] transition-colors ${
+                          railPolicy === policy.id
+                            ? "bg-[#00FA9A] text-black"
+                            : "border border-white/10 bg-black/20 text-slate-300"
+                        }`}
+                      >
+                        {policy.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-[20px] border border-white/[0.08] bg-black/25 p-4">
+                  <div className="space-y-2 font-mono text-sm text-slate-300">
+                    {pseudoLogs.map((line, index) => (
+                      <div key={line} className={index === pseudoLogs.length - 2 ? "text-[#FF3366]" : ""}>
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        <div className="relative z-10 mx-auto w-full max-w-[1500px] space-y-4 pb-14">
+          <div className="grid gap-4 md:grid-cols-3">
+            {HERO_OUTCOMES.map((item) => (
+              <div key={item.title} className={`rounded-[26px] p-5 text-left ${glassClass}`}>
+                <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
+                  {item.metric}
+                </div>
+                <p className="mt-3 text-base leading-7 text-slate-200">{item.title}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className={`rounded-[28px] p-4 ${glassClass}`}>
+            <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {PROOF_STRIP.map((item) => (
+                  <div key={item.label} className="rounded-[22px] border border-white/[0.08] bg-black/20 px-4 py-4 text-left">
+                    <div className="text-4xl font-bold tracking-tight text-white">{item.value}</div>
+                    <div className="mt-3 font-mono text-[11px] uppercase tracking-[0.22em] text-[#00FFD1]">
+                      {item.label}
+                    </div>
+                    <div className="mt-3 text-sm leading-6 text-slate-400">{item.detail}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+                {OPERATOR_QUOTES.map((quote) => (
+                  <div key={quote.by} className="rounded-[22px] border border-white/[0.08] bg-black/20 px-5 py-4 text-left">
+                    <p className="max-w-full text-sm leading-7 text-slate-300">“{quote.quote}”</p>
+                    <div className="mt-3 font-mono text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                      — {quote.by}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className={`grid gap-4 rounded-[28px] p-4 ${glassClass} lg:grid-cols-3`}>
+            {HERO_SIGNAL_CARDS.map((item) => (
+              <div key={item.label} className="rounded-[22px] border border-white/[0.08] bg-black/20 px-5 py-4 text-left">
+                <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
+                  {item.label}
+                </div>
+                <div className="mt-2 text-sm font-medium text-slate-200">{item.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </SectionShell>
+  );
+}
+
+function ProblemSection({ velocity, isMobile }: { velocity: number; isMobile: boolean }) {
+  const sectionRef = useRef<HTMLElement>(null);
+  const [progress, setProgress] = useState(0);
+  const { scrollYProgress } = useScroll({
+    target: sectionRef,
+    offset: ["start end", "end start"],
+  });
+
+  useMotionValueEvent(scrollYProgress, "change", setProgress);
+
+  return (
+    <SectionShell id="product" className="min-h-[92vh] bg-[#050505] px-8 py-12 lg:px-24">
+      <section
+        ref={sectionRef}
+        className="grid min-h-[100vh] grid-cols-1 items-center gap-12 lg:grid-cols-2"
+      >
+        <motion.div
+          style={{ y: lerp(0, -60, clamp(progress, 0, 1)) }}
+          className="relative z-10 max-w-xl"
+        >
+          <SectionLabel tone="red">The shadow AI problem</SectionLabel>
+          <h2 className="text-4xl font-bold tracking-tight text-white lg:text-5xl">
+            A claims adjuster asks for an SSN. Legacy controls notice after the fact.
+          </h2>
+          <p className="mt-6 text-lg leading-8 text-slate-400">
+            In a real workflow, the risk is not an abstract “silent exposure”.
+            It is one employee prompt, one unsafe model route, and one response
+            that should never leave production. The difference is whether the
+            system blocks it before the model runs or logs it after impact.
+          </p>
+          <div className="mt-10 grid gap-4">
+            <div className={`rounded-[28px] p-6 ${glassClass}`}>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="flex min-h-[220px] flex-col rounded-[22px] border border-[#FF3366]/20 bg-[#FF3366]/8 p-5">
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[#FF3366]/20 bg-[#FF3366]/10 text-[#FF3366]">
+                      <TriangleAlert className="h-5 w-5" />
+                    </span>
+                    <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#FF3366]">
+                      Before: ungoverned
+                    </div>
+                  </div>
+                  <p className="mt-3 text-sm leading-7 text-slate-300">
+                    An adjuster asks the assistant to include policyholder identity
+                    data. The provider call goes out and security learns about it later.
+                  </p>
+                </div>
+                <div className="flex min-h-[220px] flex-col rounded-[22px] border border-[#00FA9A]/20 bg-[#00FA9A]/8 p-5">
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[#00FA9A]/20 bg-[#00FA9A]/10 text-[#00FA9A]">
+                      <Shield className="h-5 w-5" />
+                    </span>
+                    <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FA9A]">
+                      After: governed
+                    </div>
+                  </div>
+                  <p className="mt-3 text-sm leading-7 text-slate-300">
+                    The inline gateway blocks the prompt in under 250ms, opens an
+                    incident, assigns owners, and writes a receipt auditors can query later.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        <div className="relative h-[620px] overflow-hidden rounded-[32px] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] shadow-[0_0_80px_rgba(0,255,209,0.08)]">
+          <SceneCanvas
+            label="shadow traffic scene"
+            isMobile={isMobile}
+            camera={{ position: [0, 0, 8.6], fov: 42 }}
+          >
+            <ProblemScene
+              progress={progress}
+              velocity={velocity}
+              particleCount={isMobile ? 40 : 120}
+            />
+          </SceneCanvas>
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(255,51,102,0.2),transparent_28%),radial-gradient(circle_at_75%_55%,rgba(0,255,209,0.16),transparent_34%)]" />
+          <div className="pointer-events-none absolute left-6 top-6 rounded-full border border-[#FF3366]/30 bg-[#FF3366]/10 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.24em] text-[#FF3366]">
+            Shadow traffic ingress
+          </div>
+          <div className="pointer-events-none absolute bottom-6 right-6 rounded-full border border-[#00FA9A]/30 bg-[#00FA9A]/10 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FA9A]">
+            Gateway shield online
+          </div>
+          <div className="pointer-events-none absolute left-6 bottom-6 hidden w-72 rounded-[24px] border border-white/[0.08] bg-black/30 p-4 backdrop-blur-xl lg:block">
+            <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#FF3366]">
+              Prompt stream anomaly
+            </div>
+            <div className="mt-3 space-y-2 font-mono text-xs text-slate-300">
+              <div>vector: exfiltration + shadow route</div>
+              <div>source: unmanaged business unit agent</div>
+              <div className="text-[#00FA9A]">shield result: cleansed + re-routed</div>
+            </div>
+          </div>
+          <div className="pointer-events-none absolute right-6 top-20 hidden w-60 rounded-[24px] border border-white/[0.08] bg-black/30 p-4 backdrop-blur-xl lg:block">
+            <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
+              Gateway telemetry
+            </div>
+            <div className="mt-3 text-sm leading-7 text-slate-400">
+              Runtime adapter, gateway label, and policy scope bound before downstream execution.
+            </div>
+          </div>
+        </div>
+      </section>
+    </SectionShell>
+  );
+}
+
+function EnforcementSection({ velocity, isMobile }: { velocity: number; isMobile: boolean }) {
+  const sectionRef = useRef<HTMLElement>(null);
+  const [progress, setProgress] = useState(0);
+  const { scrollYProgress } = useScroll({
+    target: sectionRef,
+    offset: ["start start", "end end"],
+  });
+
+  useMotionValueEvent(scrollYProgress, "change", setProgress);
+
+  const activeIndex = progress < 0.34 ? 0 : progress < 0.67 ? 1 : 2;
+  const visibleCode = useMemo(() => {
+    const full = [
+      "const policy = runtime.bind(system, tenant);",
+      "if (prompt.contains(PII) || prompt.contains(restrictedIntent)) {",
+      "  AI_Control_Tower.block();",
+      "  incident.escalate('privacy.security');",
+      "} else {",
+      "  gateway.forward(providerRoute);",
+      "}",
+    ].join("\n");
+    const length = clamp(Math.floor(full.length * (0.2 + progress * 1.25)), 0, full.length);
+    return full.slice(0, length);
+  }, [progress]);
+
+  const blockTriggered = visibleCode.includes("block()");
+
+  return (
+    <SectionShell id="engine" className="relative h-[132vh] bg-[#050505]">
+      <section ref={sectionRef} className="sticky top-0 flex h-screen items-center px-8 lg:px-24">
+        <div className="grid w-full grid-cols-1 items-center gap-12 py-12 lg:grid-cols-[0.92fr_1.08fr]">
+          <div className="relative z-10 max-w-xl">
+            <SectionLabel tone="emerald">Enforcement engine</SectionLabel>
+            <div className="space-y-6">
+              {ENGINE_STEPS.map((step, index) => {
+                const distance = Math.abs(index - activeIndex);
+                const opacity = distance === 0 ? 1 : distance === 1 ? 0.38 : 0.18;
+                const translate = distance === 0 ? 0 : distance === 1 ? 14 : 24;
+
+                return (
+                  <motion.div
+                    key={step.label}
+                    animate={{ opacity, y: translate }}
+                    transition={{ duration: 0.35, ease: "easeOut" }}
+                    className={`rounded-[28px] p-7 ${glassClass}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="h-10 w-px bg-gradient-to-b from-[#00FFD1]/0 via-[#00FFD1]/80 to-[#00FFD1]/0" />
+                      <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
+                        {`${String(index + 1).padStart(2, "0")} / ${step.label}`}
+                      </div>
+                    </div>
+                    <h3 className="mt-4 text-3xl font-bold text-white">{step.title}</h3>
+                    <p className="mt-4 text-base leading-8 text-slate-400">{step.body}</p>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="relative z-10 h-[560px]">
+            <div
+              className={`absolute inset-0 overflow-hidden rounded-[32px] border border-white/[0.1] bg-white/[0.03] ${glassClass}`}
+              style={{
+                transform: "perspective(1600px) rotateY(-8deg) rotateX(2deg)",
+              }}
+            >
+              <SceneCanvas
+                label="policy terminal"
+                isMobile={isMobile}
+                camera={{ position: [0, 0, 5], fov: 42 }}
+                className="absolute inset-0"
+                rootMargin="-5% 0px -5% 0px"
+              >
+                  <TerminalScene
+                    progress={progress}
+                    velocity={velocity}
+                    blockTriggered={blockTriggered}
+                  />
+              </SceneCanvas>
+
+              <div className="relative z-10 flex h-full flex-col">
+                <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+                  <div className="flex items-center gap-2">
+                    {["#FF3366", "#f59e0b", "#00FFD1"].map((color) => (
+                      <span
+                        key={color}
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: color }}
+                      />
+                    ))}
+                  </div>
+                  <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-slate-400">
+                    policy_as_code.runtime.ts
+                  </div>
+                </div>
+                <div className="flex-1 p-8 font-mono text-sm leading-8 text-slate-300">
+                  <div className="mb-4 text-[11px] uppercase tracking-[0.28em] text-[#00FA9A]">
+                    Inline gateway &amp; SDK guard
+                  </div>
+                  <pre className="overflow-hidden whitespace-pre-wrap text-[15px] text-slate-200">
+                    {visibleCode}
+                    <motion.span
+                      animate={{ opacity: [0, 1, 0] }}
+                      transition={{ duration: 1.1, repeat: Infinity }}
+                      className="ml-1 inline-block h-5 w-[2px] bg-[#00FFD1] align-middle"
+                    />
+                  </pre>
+                </div>
+                <div className="grid grid-cols-[1fr_auto] border-t border-white/10 px-6 py-5 font-mono text-[11px] uppercase tracking-[0.24em] text-slate-400">
+                  <span>Decision latency: &lt;250 ms</span>
+                  <span className="justify-self-end pl-4 text-right text-[10px] text-[#FF3366]">
+                    {blockTriggered ? "block shockwave emitted" : "preflight armed"}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="pointer-events-none absolute -bottom-5 left-6 w-[20rem] rounded-[22px] border border-white/[0.08] bg-[#050505]/80 px-5 py-4 backdrop-blur-xl">
+              <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
+                Policy outcome
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3 font-mono text-xs text-slate-300">
+                <div>pii: blocked inline</div>
+                <div>tools: deny by default</div>
+                <div>critical: incident opened</div>
+                <div className="text-[#00FA9A]">receipt: sealed immediately</div>
+              </div>
+            </div>
+            <div className="pointer-events-none absolute right-6 top-6 hidden w-[25rem] rounded-[24px] border border-white/[0.08] bg-black/35 px-5 py-5 backdrop-blur-xl lg:block">
+              <div className="flex items-center justify-between gap-4">
+                <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FA9A]">
+                  Auto-escalation path
+                </div>
+                <div className="rounded-full border border-[#FF3366]/30 bg-[#FF3366]/10 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-[#FF3366]">
+                  no manual triage gap
+                </div>
+              </div>
+              <div className="relative mt-5 space-y-4">
+                {ESCALATION_FLOW.map((step, index) => (
+                  <div key={step.label} className="relative pl-9">
+                    {index < ESCALATION_FLOW.length - 1 ? (
+                      <div className="absolute left-[10px] top-6 h-10 w-px bg-gradient-to-b from-white/0 via-[#00FFD1]/60 to-white/0" />
+                    ) : null}
+                    <span
+                      className="absolute left-0 top-1 h-5 w-5 rounded-full border"
+                      style={{
+                        borderColor: `${step.tone}66`,
+                        backgroundColor: `${step.tone}22`,
+                        boxShadow: `0 0 24px ${step.tone}55`,
+                      }}
+                    />
+                    <div className="font-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: step.tone }}>
+                      {step.label}
+                    </div>
+                    <div className="mt-1 text-sm text-slate-300">{step.detail}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </SectionShell>
+  );
+}
+
+function VaultSection({ velocity, isMobile }: { velocity: number; isMobile: boolean }) {
+  const sectionRef = useRef<HTMLElement>(null);
+  const [progress, setProgress] = useState(0);
+  const { scrollYProgress } = useScroll({
+    target: sectionRef,
+    offset: ["start end", "end start"],
+  });
+
+  useMotionValueEvent(scrollYProgress, "change", setProgress);
+
+  return (
+    <SectionShell id="vault" className="bg-[#050505] px-8 py-14 lg:px-24">
+      <section ref={sectionRef} className="mx-auto max-w-[1500px] overflow-hidden">
+        <div className="mx-auto max-w-4xl text-center">
+          <SectionLabel tone="cyan">Verifiable trust vault</SectionLabel>
+          <h2 className="text-5xl font-bold tracking-tight text-white">
+            Every decision cryptographically sealed.
+          </h2>
+          <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-slate-400">
+            Runtime evidence is not a screenshot or spreadsheet artifact. It is
+            hash-linked, reviewable, and ready for LP due diligence, security
+            review, and regulatory challenge.
+          </p>
+        </div>
+
+        <div className="relative mt-14 h-[390px] overflow-hidden rounded-[34px] border border-white/[0.08] bg-white/[0.02] shadow-[0_0_72px_rgba(0,255,209,0.08)]">
+          <SceneCanvas
+            label="evidence vault"
+            isMobile={isMobile}
+            camera={{ position: [0, 0, 7], fov: 38 }}
+          >
+            <VaultScene progress={progress} velocity={velocity} />
+          </SceneCanvas>
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(0,255,209,0.18),transparent_26%),linear-gradient(180deg,rgba(5,5,5,0.06),rgba(5,5,5,0.55))]" />
+          <div className="pointer-events-none absolute left-6 top-6 rounded-full border border-[#00FFD1]/30 bg-[#00FFD1]/10 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
+            SHA-256 chain
+          </div>
+          <div className="pointer-events-none absolute bottom-6 right-6 rounded-full border border-[#00FA9A]/30 bg-[#00FA9A]/10 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FA9A]">
+            Diligence ready evidence
+          </div>
+          <div className="pointer-events-none absolute right-6 top-6 hidden w-72 rounded-[24px] border border-white/[0.08] bg-black/30 p-4 backdrop-blur-xl lg:block">
+            <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
+              Evidence payload
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3 font-mono text-xs text-slate-300">
+              <div>prompt: validated</div>
+              <div>output: reviewed</div>
+              <div>override: logged</div>
+              <div>framework: eu_ai_act</div>
+            </div>
+          </div>
+          <div className="pointer-events-none absolute inset-x-6 top-1/2 hidden -translate-y-1/2 lg:block">
+            <div className="absolute left-[16.5%] right-[16.5%] top-1/2 h-px -translate-y-1/2 bg-gradient-to-r from-transparent via-[#00FFD1]/55 to-transparent" />
+            <div className="relative grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-4">
+              {VAULT_RECEIPTS.map((receipt) => (
+                <div key={receipt.hash} className="contents">
+                  <div className="rounded-[22px] border border-white/[0.08] bg-black/35 px-4 py-4 backdrop-blur-xl">
+                    <div className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#00FFD1]">
+                      {receipt.hash}
+                    </div>
+                    <div className="mt-3 text-sm font-medium text-slate-200">{receipt.tag}</div>
+                    <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                      {receipt.time}
+                    </div>
+                  </div>
+                  {receipt.hash !== VAULT_RECEIPTS[VAULT_RECEIPTS.length - 1].hash ? (
+                    <div className="flex items-center justify-center">
+                      <div className="relative h-px w-12 bg-gradient-to-r from-[#00FFD1]/20 via-[#00FFD1]/70 to-[#00FA9A]/60">
+                        <ArrowRight className="absolute -right-1 -top-[7px] h-4 w-4 text-[#00FFD1]" />
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+    </SectionShell>
+  );
+}
+
+function BentoSection() {
+  return (
+    <SectionShell id="solutions" className="bg-[#050505] px-8 py-18 lg:px-24">
+      <div className="mx-auto max-w-[1500px]">
+        <div className="mb-14 max-w-3xl">
+          <SectionLabel tone="emerald">Runtime enforcement</SectionLabel>
+          <h2 className="text-4xl font-bold tracking-tight text-white lg:text-5xl">
+            Concrete outcomes, not just feature lists.
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+          {BENTO_CARDS.map((card) => (
+            <GlareCard key={card.title} {...card} />
+          ))}
+        </div>
+      </div>
+    </SectionShell>
+  );
+}
+
+function PortfolioSection({ velocity, isMobile }: { velocity: number; isMobile: boolean }) {
+  const sectionRef = useRef<HTMLElement>(null);
+  const [progress, setProgress] = useState(0);
+  const { scrollYProgress } = useScroll({
+    target: sectionRef,
+    offset: ["start end", "end start"],
+  });
+
+  useMotionValueEvent(scrollYProgress, "change", setProgress);
+
+  return (
+    <SectionShell id="frameworks" className="relative h-[92vh] bg-[#050505]">
+      <section ref={sectionRef} className="relative flex h-[92vh] items-center justify-center overflow-hidden px-8 lg:px-24">
+        <SceneCanvas
+          label="portfolio network"
+          isMobile={isMobile}
+          camera={{ position: [0, 0, 8.2], fov: 42 }}
+          className="absolute inset-0"
+        >
+          <GlobeScene
+            progress={progress}
+            velocity={velocity}
+            pointCount={isMobile ? 400 : 1100}
+          />
+        </SceneCanvas>
+
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,255,209,0.1),transparent_35%),linear-gradient(180deg,rgba(5,5,5,0.3),rgba(5,5,5,0.82))]" />
+        <div className="pointer-events-none absolute inset-0 hidden lg:block">
+          <div className="absolute left-[22%] top-[32%] h-px w-[28%] rotate-[9deg] bg-gradient-to-r from-transparent via-[#00FFD1]/65 to-transparent" />
+          <div className="absolute left-[52%] top-[31%] h-px w-[22%] -rotate-[10deg] bg-gradient-to-r from-transparent via-[#00FFD1]/65 to-transparent" />
+          <div className="absolute left-[24%] top-[62%] h-px w-[24%] -rotate-[18deg] bg-gradient-to-r from-transparent via-[#00FA9A]/55 to-transparent" />
+          <div className="absolute left-[55%] top-[64%] h-px w-[21%] rotate-[18deg] bg-gradient-to-r from-transparent via-[#7dd3fc]/55 to-transparent" />
+        </div>
+
+        <div className="relative z-20 mx-auto max-w-5xl rounded-[36px] bg-[#050505]/58 px-8 py-8 text-center backdrop-blur-md">
+          <SectionLabel tone="cyan">Portfolio-scale roll-up</SectionLabel>
+          <h2 className="text-4xl font-bold tracking-tight text-white lg:text-6xl">
+            Built for multi-org private equity. Manage 50 portfolio companies from one control plane.
+          </h2>
+          <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-400">
+            Standardize runtime governance centrally, preserve tenant isolation
+            locally, and inspect the complete AI operating posture across the
+            investment perimeter.
+          </p>
+        </div>
+
+        <div className="pointer-events-none absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 lg:block">
+          <div className="rounded-[24px] border border-[#00FFD1]/25 bg-black/45 px-5 py-4 text-center backdrop-blur-xl shadow-[0_0_44px_rgba(0,255,209,0.12)]">
+            <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
+              Control plane
+            </div>
+            <div className="mt-2 text-sm font-medium text-slate-200">
+              policy, incidents, evidence
+            </div>
+          </div>
+        </div>
+
+        {PORTFOLIO_COMPANIES.map((company) => (
+          <div
+            key={company.name}
+            className={`pointer-events-none absolute hidden w-64 rounded-[24px] border border-white/[0.08] bg-black/30 p-4 backdrop-blur-xl lg:block ${company.className}`}
+          >
+            <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
+              Portfolio node
+            </div>
+            <div className="mt-3 text-sm font-medium text-slate-100">{company.name}</div>
+            <div className="mt-2 text-sm leading-7 text-slate-400">{company.detail}</div>
+          </div>
+        ))}
+      </section>
+    </SectionShell>
+  );
+}
+
+function FinalCTASection() {
+  return (
+    <SectionShell id="cta" className="bg-[#020202] px-8 py-18 lg:px-24">
+      <div className="relative flex min-h-[56vh] flex-col items-center justify-center overflow-hidden text-center">
+        <div className="pointer-events-none absolute inset-0 hidden lg:block">
+          <div className="absolute left-1/2 top-12 h-px w-[32rem] -translate-x-[78%] rotate-[18deg] bg-gradient-to-r from-transparent via-[#00FFD1]/70 to-transparent" />
+          <div className="absolute left-1/2 top-12 h-px w-[32rem] -translate-x-[22%] -rotate-[18deg] bg-gradient-to-r from-transparent via-[#00FFD1]/70 to-transparent" />
+          <div className="absolute left-1/2 top-20 h-px w-[22rem] -translate-x-1/2 bg-gradient-to-r from-transparent via-[#00FA9A]/60 to-transparent" />
+          <div className="absolute left-1/2 top-28 h-32 w-32 -translate-x-1/2 rounded-full bg-[#00FFD1]/10 blur-[90px]" />
+        </div>
+        <SectionLabel tone="emerald">Enterprise activation</SectionLabel>
+        <h2 className="max-w-4xl text-5xl font-extrabold tracking-tight text-white">
+          Bring your AI systems into one control tower.
+        </h2>
+        <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-400">
+          Bring runtime policy, incident response, cryptographic evidence, and
+          portfolio oversight into one institutional-grade operating layer.
+        </p>
+        <div className="mt-12" id="pricing">
+          <MagneticButton href="/book-demo">
+            Book an Enterprise Demo
+          </MagneticButton>
+        </div>
+      </div>
+    </SectionShell>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="border-t border-white/10 bg-[#050505] px-8 pb-8 pt-16 lg:px-24" id="footer">
+      <div className="mx-auto grid max-w-[1500px] grid-cols-1 gap-10 md:grid-cols-2 xl:grid-cols-5">
+        <div className="xl:col-span-1">
+          <div className="flex items-center gap-3">
+            <span className="h-3 w-3 rounded-full bg-[#00FFD1] shadow-[0_0_24px_rgba(0,255,209,0.9)]" />
+            <span className="text-lg font-bold tracking-[0.28em] text-white">
+              AI CONTROL TOWER
+            </span>
+          </div>
+          <p className="mt-4 max-w-xs text-sm leading-7 text-slate-500">
+            Institutional-grade AI runtime governance for private equity, regulated operators, and high-consequence enterprise workflows.
+          </p>
+        </div>
+
+        {FOOTER_COLUMNS.map((column) => (
+          <div key={column.title}>
+            <h3 className="text-sm font-bold uppercase tracking-[0.18em] text-white">
+              {column.title}
+            </h3>
+            <ul className="mt-4 space-y-3">
+              {column.links.map((link) => (
+                <li key={link.label}>
+                  <SmartLink href={link.href} className="text-sm text-slate-500 transition-colors hover:text-[#00FFD1]">
+                    {link.label}
+                  </SmartLink>
                 </li>
               ))}
             </ul>
-            <div className="flex flex-wrap gap-3">
-              <Button size="lg" asChild>
-                <a href={trackedPath("/book-demo", "hero_book_demo")} onClick={handleCtaClick("hero", "book_demo")}>Book a Demo</a>
-              </Button>
-              <Button size="lg" variant="outline" asChild>
-                <a href="#product">Explore the Platform</a>
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <a href="/api-docs" className="inline-flex items-center rounded-full border border-border/70 bg-background/70 px-3 py-1.5 transition-colors hover:text-foreground">
-                Review API docs
-              </a>
-              <a href="/security" className="inline-flex items-center rounded-full border border-border/70 bg-background/70 px-3 py-1.5 transition-colors hover:text-foreground">
-                Security practices
-              </a>
-              <a href={trackedPath("/start-pilot", "hero_start_pilot")} onClick={handleCtaClick("hero", "start_pilot")} className="inline-flex items-center rounded-full border border-border/70 bg-background/70 px-3 py-1.5 transition-colors hover:text-foreground">
-                Start a pilot
-              </a>
-            </div>
           </div>
+        ))}
+      </div>
 
-          <Card className="border-border/70 bg-card/75">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Runtime Control Snapshot</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="rounded-md border border-border/70 bg-muted/30 p-3">
-                  <p className="text-muted-foreground">Telemetry Events</p>
-                  <p className="mt-1 text-lg font-semibold">36</p>
-                </div>
-                <div className="rounded-md border border-border/70 bg-muted/30 p-3">
-                  <p className="text-muted-foreground">Blocked Decisions</p>
-                  <p className="mt-1 text-lg font-semibold">6</p>
-                </div>
-                <div className="rounded-md border border-border/70 bg-muted/30 p-3">
-                  <p className="text-muted-foreground">Threshold Breaches</p>
-                  <p className="mt-1 text-lg font-semibold">18</p>
-                </div>
-                <div className="rounded-md border border-border/70 bg-muted/30 p-3">
-                  <p className="text-muted-foreground">Escalated Incidents</p>
-                  <p className="mt-1 text-lg font-semibold">12</p>
-                </div>
-              </div>
-              <div className="rounded-md border border-border/70 bg-muted/25 p-3">
-                <p className="mb-2 text-xs font-medium text-muted-foreground">Latest Enforcement Outcomes</p>
-                <div className="space-y-2 text-xs">
-                  <div className="flex items-center justify-between rounded bg-background/60 px-2 py-1.5">
-                    <span>Claims Support Assistant Prompt</span>
-                    <span className="rounded bg-rose-500/15 px-2 py-0.5 text-rose-500">Blocked</span>
-                  </div>
-                  <div className="flex items-center justify-between rounded bg-background/60 px-2 py-1.5">
-                    <span>Talent Review Output Evaluation</span>
-                    <span className="rounded bg-amber-500/15 px-2 py-0.5 text-amber-500">Escalated</span>
-                  </div>
-                </div>
-              </div>
-              <div className="grid gap-2 rounded-md border border-border/70 bg-background/40 p-3 text-xs sm:grid-cols-3">
-                <div>
-                  <p className="text-muted-foreground">Enforcement</p>
-                  <p className="mt-1 font-semibold text-foreground">Prompt, output, and tool control</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Providers</p>
-                  <p className="mt-1 font-semibold text-foreground">Native + compatible gateway coverage</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Auditability</p>
-                  <p className="mt-1 font-semibold text-foreground">Incident, evidence, and decision trace linkage</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </section>
+      <div className="mx-auto mt-12 flex max-w-[1500px] flex-col gap-4 border-t border-white/10 pt-6 text-xs uppercase tracking-[0.22em] text-slate-600 md:flex-row md:items-center md:justify-between">
+        <span>Runtime policy • incident operations • cryptographic evidence</span>
+        <span>© 2026 AI Control Tower</span>
+      </div>
+    </footer>
+  );
+}
 
-      <Section
-        id="product"
-        eyebrow="Credibility"
-        title="Built for teams that need more than passive monitoring"
-        subtitle="Real AI control requires a system registry, inline enforcement, action policy, and tenant-safe operations."
-      >
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {proofItems.map((item) => (
-            <div key={item} className="rounded-md border border-border/70 bg-card/60 px-4 py-3 text-sm text-muted-foreground">
-              {item}
-            </div>
-          ))}
-        </div>
-      </Section>
+export default function LandingPage() {
+  const { scrollY } = useScroll();
+  const velocity = useVelocity(scrollY);
+  const isMobile = useIsMobile();
+  const smoothedVelocity = useSpring(velocity, {
+    damping: 28,
+    stiffness: 180,
+    mass: 0.35,
+  });
+  const [velocityState, setVelocityState] = useState(0);
 
-      <Section
-        id="pain-points"
-        eyebrow="Pain Points"
-        title="Why AI governance breaks down in most organizations"
-        subtitle="AI adoption accelerates while runtime control stays fragmented across apps, gateways, and teams."
-      >
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {painPoints.map((item) => (
-            <Card key={item} className="border-border/70 bg-card/70">
-              <CardContent className="pt-5 text-sm text-muted-foreground">{item}</CardContent>
-            </Card>
-          ))}
-        </div>
-        <p className="mt-6 text-sm text-foreground/90">
-          AI Control Tower replaces fragmented governance with one control plane for AI registration, runtime enforcement, review, and audit.
-        </p>
-      </Section>
+  useMotionValueEvent(smoothedVelocity, "change", (latest) => {
+    setVelocityState(clamp(Math.abs(latest) / 1800, 0, 1.4));
+  });
 
-      <Section id="solutions" eyebrow="Use Cases" title="Who uses AI Control Tower">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {useCases.map((useCase) => (
-            <Card key={useCase.title} className="border-border/70 bg-card/70">
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <useCase.icon className="h-4 w-4 text-primary" />
-                  {useCase.title}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">{useCase.body}</CardContent>
-            </Card>
-          ))}
-        </div>
-      </Section>
+  return (
+    <div className="min-h-screen bg-[#050505] text-white">
+      <Navbar />
 
-      <Section id="frameworks" eyebrow="Why Us" title="Why teams choose AI Control Tower">
-        <div className="grid gap-4 md:grid-cols-2">
-          {differentiators.map((item) => (
-            <Card key={item.title} className="border-border/70 bg-card/70">
-              <CardHeader className="pb-1">
-                <CardTitle className="text-base">{item.title}</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">{item.body}</CardContent>
-            </Card>
-          ))}
-        </div>
-      </Section>
+      <main className="bg-[#050505]">
+        <HeroSection velocity={velocityState} isMobile={isMobile} />
+        <ProofArchitectureSection />
+        <ProblemSection velocity={velocityState} isMobile={isMobile} />
+        <EnforcementSection velocity={velocityState} isMobile={isMobile} />
+        <VaultSection velocity={velocityState} isMobile={isMobile} />
+        <BentoSection />
+        <PortfolioSection velocity={velocityState} isMobile={isMobile} />
+        <BuildVerifySection />
+        <FinalCTASection />
+      </main>
 
-      <Section
-        eyebrow="Operations"
-        title="Built to run in production, not just to observe production"
-        subtitle="The platform exposes the operational controls enterprise teams need once governance moves from policy documents into live traffic."
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          {operationsHighlights.map((item) => (
-            <Card key={item.title} className="border-border/70 bg-card/70">
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <item.icon className="h-4 w-4 text-primary" />
-                  {item.title}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">{item.body}</CardContent>
-            </Card>
-          ))}
-        </div>
-        <div className="mt-6 grid gap-3 rounded-2xl border border-border/70 bg-muted/20 p-4 text-sm sm:grid-cols-3">
-          <div className="rounded-xl border border-border/70 bg-background/70 p-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">For platform teams</p>
-            <p className="mt-2 font-medium">Use gateway mode, SDK mode, provider vaulting, and enforcement telemetry to control runtime behavior centrally.</p>
-          </div>
-          <div className="rounded-xl border border-border/70 bg-background/70 p-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">For enterprise buyers</p>
-            <p className="mt-2 font-medium">Show identity federation, inline control, incident discipline, and tenant-safe operations without hand-wavy future claims.</p>
-          </div>
-          <div className="rounded-xl border border-border/70 bg-background/70 p-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">For integrators</p>
-            <p className="mt-2 font-medium">Expose API docs, OpenAI-compatible routes, and controlled onboarding paths from the same product surface.</p>
-          </div>
-        </div>
-      </Section>
-
-      <Section id="how-it-works" eyebrow="How it Works" title="A practical control flow from intake to audit">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          {howItWorks.map((step, index) => (
-            <Card key={step} className="border-border/70 bg-card/70">
-              <CardContent className="flex h-full flex-col gap-3 pt-5">
-                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
-                  {index + 1}
-                </span>
-                <p className="text-sm font-medium">{step}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </Section>
-
-      <Section title="What the platform gives your team" subtitle="Capabilities designed for day-to-day runtime governance execution.">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {features.map((feature) => (
-            <Card key={feature.title} className="border-border/70 bg-card/70">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">{feature.title}</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">{feature.body}</CardContent>
-            </Card>
-          ))}
-        </div>
-      </Section>
-
-      <Section title="Value by role" subtitle="Different teams get a shared control layer with role-relevant visibility.">
-        <div className="grid gap-4 sm:grid-cols-2">
-          {roleValue.map((item) => (
-            <Card key={item.title} className="border-border/70 bg-card/70">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">{item.title}</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">{item.body}</CardContent>
-            </Card>
-          ))}
-        </div>
-      </Section>
-
-      <Section id="pricing" eyebrow="Deployment" title="Deployment models built for governance maturity">
-        <div className="grid gap-4 lg:grid-cols-3">
-          <Card className="border-border/70 bg-card/70">
-            <CardHeader>
-              <CardTitle className="text-xl">SDK Guard</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">For teams that need application-side guardrails without changing upstream routing first.</p>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                <li>Preflight and postflight checks in app code</li>
-                <li>Linked telemetry, incidents, and audit</li>
-                <li>Fastest path to first runtime control</li>
-              </ul>
-              <Button className="w-full" asChild>
-                <a href={trackedPath("/start-pilot", "deployment_sdk_start")} onClick={handleCtaClick("deployment_sdk", "start_pilot")}>Start a Pilot</a>
-              </Button>
-            </CardContent>
-          </Card>
-          <Card className="border-primary/40 bg-card/70">
-            <CardHeader>
-              <CardTitle className="text-xl">Inline Gateway</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">For organizations that want all model traffic to pass through a central control point.</p>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                <li>Prompt, output, and tool interception</li>
-                <li>Provider vaulting and model allowlists</li>
-                <li>Best fit for real control-tower operations</li>
-              </ul>
-              <Button className="w-full" variant="outline" asChild>
-                <a href={trackedPath("/book-demo", "deployment_gateway_book_demo")} onClick={handleCtaClick("deployment_gateway", "book_demo")}>Book a Demo</a>
-              </Button>
-            </CardContent>
-          </Card>
-          <Card className="border-border/70 bg-card/70">
-            <CardHeader>
-              <CardTitle className="text-xl">Tenant Enterprise</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">For regulated deployments that need strict policy, review memory, and portfolio-wide governance controls.</p>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                <li>Repeat-attack controls and forced review options</li>
-                <li>Tenant-scoped exceptions and evidence workflows</li>
-                <li>Enterprise identity and multi-org control plane</li>
-              </ul>
-              <Button className="w-full" variant="outline" asChild>
-                <a href={trackedPath("/book-demo", "deployment_enterprise_book_demo")} onClick={handleCtaClick("deployment_enterprise", "book_demo")}>Book Enterprise Demo</a>
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </Section>
-
-      <Section title="Designed around real governance work">
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card className="border-border/70 bg-card/70">
-            <CardContent className="pt-6 text-sm text-muted-foreground">
-              “Intercept the turn before the model, not just the incident after the model.”
-            </CardContent>
-          </Card>
-          <Card className="border-border/70 bg-card/70">
-            <CardContent className="pt-6 text-sm text-muted-foreground">
-              “Bind every runtime decision to a real system, real owner, and real policy.”
-            </CardContent>
-          </Card>
-          <Card className="border-border/70 bg-card/70">
-            <CardContent className="pt-6 text-sm text-muted-foreground">
-              “Use incidents, evidence, and decision traces to keep governance explainable under pressure.”
-            </CardContent>
-          </Card>
-        </div>
-      </Section>
-
-      <section className="border-y border-border/70 bg-muted/20 py-16 sm:py-20">
-        <div className="mx-auto w-full max-w-4xl px-4 text-center sm:px-6 lg:px-8">
-          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            Bring your AI systems, runtime policy, incidents, and evidence into one control tower.
-          </h2>
-          <p className="mt-3 text-sm text-muted-foreground sm:text-base">
-            See how your organization can move from scattered governance to central runtime control.
-          </p>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-            <Button size="lg" asChild>
-              <a href={trackedPath("/book-demo", "cta_strip_book_demo")} onClick={handleCtaClick("cta_strip", "book_demo")}>Book a Demo</a>
-            </Button>
-            <Button size="lg" variant="outline" asChild>
-              <a href={trackedPath("/start-pilot", "cta_strip_start_pilot")} onClick={handleCtaClick("cta_strip", "start_pilot")}>Start a Pilot</a>
-            </Button>
-            <Button size="lg" variant="outline" asChild>
-              <a href="/api-docs">Review the API</a>
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      <Section id="faq" title="Frequently asked questions">
-        <Accordion type="single" collapsible className="rounded-md border border-border/70 bg-card/70 px-4">
-          {faqItems.map((item, index) => (
-            <AccordionItem key={item.q} value={`faq-${index}`}>
-              <AccordionTrigger className="text-left">{item.q}</AccordionTrigger>
-              <AccordionContent className="text-sm text-muted-foreground">{item.a}</AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
-      </Section>
-
-      <footer className="border-t border-border/70 py-10">
-        <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 sm:px-6 md:grid-cols-3 lg:px-8">
-          <div className="space-y-2">
-            <p className="flex items-center gap-2 font-semibold">
-              <BrandMark className="h-4 w-4 text-primary" />
-              AI Control Tower
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Enterprise AI runtime governance with policy enforcement, evidence, and audit-ready control.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
-            <a href="#product" className="hover:text-foreground">Product</a>
-            <a href="/security" className="hover:text-foreground">Security</a>
-            <a href="/privacy" className="hover:text-foreground">Privacy</a>
-            <a href="/terms" className="hover:text-foreground">Terms</a>
-            <a href={trackedPath("/book-demo", "footer_contact")} onClick={handleCtaClick("footer", "contact")} className="hover:text-foreground">Contact</a>
-            <a href={trackedPath("/book-demo", "footer_book_demo")} onClick={handleCtaClick("footer", "book_demo")} className="hover:text-foreground">Book Demo</a>
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1"><Users className="h-3.5 w-3.5 text-primary" /> Reviewer workflows</span>
-            <span className="inline-flex items-center gap-1"><ChartNoAxesCombined className="h-3.5 w-3.5 text-primary" /> Runtime telemetry</span>
-            <span className="inline-flex items-center gap-1"><FolderLock className="h-3.5 w-3.5 text-primary" /> Tenant isolation</span>
-            <span className="inline-flex items-center gap-1"><CalendarClock className="h-3.5 w-3.5 text-primary" /> Incident discipline</span>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }
