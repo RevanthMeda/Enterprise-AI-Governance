@@ -1,7 +1,12 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import * as nodemailer from "nodemailer";
 import type { User } from "@shared/schema";
-import { getPublicAppBaseUrl, normalizeOptionalString, parseBooleanEnv } from "../env";
+import {
+  getPublicAppBaseUrl,
+  getSmtpEnvironmentConfig,
+  normalizeOptionalString,
+  parseBooleanEnv,
+} from "../env";
 import { fetchWithTimeout } from "../http";
 
 export type PasswordResetDeliveryStatus = "sent" | "webhook_sent" | "preview" | "failed";
@@ -60,12 +65,13 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 function getSmtpConfig() {
-  const host = normalizeOptionalString(process.env.SMTP_HOST);
-  const port = Number(process.env.SMTP_PORT || 587);
-  const secure = parseBooleanEnv(process.env.SMTP_SECURE, false);
-  const user = normalizeOptionalString(process.env.SMTP_USER);
-  const pass = normalizeOptionalString(process.env.SMTP_PASSWORD);
-  const from = normalizeOptionalString(process.env.SMTP_FROM);
+  const smtpEnv = getSmtpEnvironmentConfig();
+  const host = smtpEnv.host;
+  const port = Number(smtpEnv.port || 587);
+  const secure = parseBooleanEnv(smtpEnv.secure, false);
+  const user = smtpEnv.user;
+  const pass = smtpEnv.pass;
+  const from = smtpEnv.from;
 
   const hostLooksPlaceholder = !host || host.includes("example.com") || host.includes("<");
   const fromLooksPlaceholder = !from || from.includes("example.com") || from.includes("<");

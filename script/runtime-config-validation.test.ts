@@ -5,6 +5,7 @@ import os from "os";
 import path from "path";
 import {
   areMockAuthRoutesEnabled,
+  getSmtpEnvironmentConfig,
   getRuntimeConfig,
   validateRuntimeEnvironment,
 } from "../server/env";
@@ -118,6 +119,22 @@ test("runtime validation recognizes boolean-like Vercel flags", () => {
       }),
     ),
   );
+});
+
+test("runtime validation accepts legacy SMTP environment variable names", () => {
+  const env = makeProductionEnv({
+    SMTP_SERVER: "smtp.mail.test",
+    SMTP_USERNAME: "mailer",
+    SMTP_PASSWORD: "app-password",
+    DEFAULT_SENDER: "alerts@controltower.test",
+  });
+
+  assert.doesNotThrow(() => validateRuntimeEnvironment(env));
+
+  const smtpConfig = getSmtpEnvironmentConfig(env);
+  assert.equal(smtpConfig.host, "smtp.mail.test");
+  assert.equal(smtpConfig.user, "mailer");
+  assert.equal(smtpConfig.from, "alerts@controltower.test");
 });
 
 test("project env loader prefers shell variables and lets .env.local override .env", () => {

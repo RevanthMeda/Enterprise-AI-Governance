@@ -12,6 +12,15 @@ export type RuntimeConfig = {
   publicAppUrl: string | null;
 };
 
+export type SmtpEnvironmentConfig = {
+  host?: string;
+  port?: string;
+  secure?: string;
+  user?: string;
+  pass?: string;
+  from?: string;
+};
+
 const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
 const FALSE_VALUES = new Set(["0", "false", "no", "off"]);
 
@@ -40,6 +49,19 @@ export function parseBooleanEnv(value: string | undefined | null, defaultValue =
     return false;
   }
   return defaultValue;
+}
+
+export function getSmtpEnvironmentConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): SmtpEnvironmentConfig {
+  return {
+    host: normalizeOptionalString(env.SMTP_HOST) ?? normalizeOptionalString(env.SMTP_SERVER),
+    port: normalizeOptionalString(env.SMTP_PORT),
+    secure: normalizeOptionalString(env.SMTP_SECURE),
+    user: normalizeOptionalString(env.SMTP_USER) ?? normalizeOptionalString(env.SMTP_USERNAME),
+    pass: normalizeOptionalString(env.SMTP_PASSWORD),
+    from: normalizeOptionalString(env.SMTP_FROM) ?? normalizeOptionalString(env.DEFAULT_SENDER),
+  };
 }
 
 export function isVercelRuntime(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -192,12 +214,7 @@ function validateOptionalWebhook(name: string, rawValue: string | undefined, err
 }
 
 function validateSmtpConfig(env: NodeJS.ProcessEnv, errors: string[], isProduction: boolean) {
-  const host = normalizeOptionalString(env.SMTP_HOST);
-  const port = normalizeOptionalString(env.SMTP_PORT);
-  const secure = normalizeOptionalString(env.SMTP_SECURE);
-  const user = normalizeOptionalString(env.SMTP_USER);
-  const pass = normalizeOptionalString(env.SMTP_PASSWORD);
-  const from = normalizeOptionalString(env.SMTP_FROM);
+  const { host, port, secure, user, pass, from } = getSmtpEnvironmentConfig(env);
   const provided = [host, port, secure, user, pass, from].filter(Boolean).length;
 
   if (provided === 0) {
