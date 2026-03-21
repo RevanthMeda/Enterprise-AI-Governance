@@ -1,4 +1,6 @@
 import { randomUUID } from "crypto";
+import path from "path";
+import { fileURLToPath } from "url";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../server/db";
 import { hashPassword } from "../server/auth";
@@ -186,15 +188,39 @@ type EvidenceSpec = {
   uploadedBy: string;
 };
 
+export type DemoSeedSummary = {
+  portfolioSlug: string;
+  portfolioName: string;
+  controlTowerLogins: Array<{
+    username: string;
+    email: string;
+    fullName: string;
+    role: string;
+    password: string;
+    defaultOrganizationSlug: string;
+  }>;
+  linkedRuntime: {
+    organizationSlug: string;
+    organizationName: string;
+    systemName: string;
+    systemId: string;
+    gateway: string;
+    telemetryKey: string;
+  };
+};
+
 const baselineUsers: BaselineUserSpec[] = [
-  { username: "admin_test", fullName: "Admin Test User", email: "admin_test@aicontroltower.local", role: "admin", membershipRole: "owner" },
-  { username: "cro_test", fullName: "CRO Test User", email: "cro_test@aicontroltower.local", role: "cro", membershipRole: "cro" },
-  { username: "ciso_test", fullName: "CISO Test User", email: "ciso_test@aicontroltower.local", role: "ciso", membershipRole: "ciso" },
-  { username: "compliance_lead_test", fullName: "Compliance Lead Test User", email: "compliance_lead_test@aicontroltower.local", role: "compliance_lead", membershipRole: "compliance_lead" },
-  { username: "reviewer_test", fullName: "Reviewer Test User", email: "reviewer_test@aicontroltower.local", role: "reviewer", membershipRole: "reviewer" },
-  { username: "system_owner_test", fullName: "System Owner Test User", email: "system_owner_test@aicontroltower.local", role: "system_owner", membershipRole: "system_owner" },
-  { username: "auditor_test", fullName: "Auditor Test User", email: "auditor_test@aicontroltower.local", role: "auditor", membershipRole: "auditor" },
+  { username: "olivia.grant", fullName: "Olivia Grant", email: "olivia.grant@pilotwaveholdings.example", role: "admin", membershipRole: "owner" },
+  { username: "marcus.reed", fullName: "Marcus Reed", email: "marcus.reed@pilotwaveholdings.example", role: "cro", membershipRole: "cro" },
+  { username: "irene.cho", fullName: "Irene Cho", email: "irene.cho@pilotwaveholdings.example", role: "ciso", membershipRole: "ciso" },
+  { username: "sophia.malik", fullName: "Sophia Malik", email: "sophia.malik@pilotwaveholdings.example", role: "compliance_lead", membershipRole: "compliance_lead" },
+  { username: "noah.bennett", fullName: "Noah Bennett", email: "noah.bennett@northstarbank.example", role: "reviewer", membershipRole: "reviewer" },
+  { username: "ethan.ford", fullName: "Ethan Ford", email: "ethan.ford@northstarbank.example", role: "system_owner", membershipRole: "system_owner" },
+  { username: "clara.wells", fullName: "Clara Wells", email: "clara.wells@pilotwaveholdings.example", role: "auditor", membershipRole: "auditor" },
 ];
+
+const demoUserPassword =
+  process.env.DEMO_USER_PASSWORD || "Northstar!Demo24";
 
 const sourceCatalog = {
   nistAiRmf: {
@@ -1662,7 +1688,7 @@ function daysFromNow(days: number) {
 async function ensureBaselineUsers() {
   const existing = await db.select().from(users).where(inArray(users.username, baselineUsers.map((user) => user.username)));
   const existingByUsername = new Map(existing.map((user) => [user.username, user]));
-  const passwordHash = await hashPassword(process.env.TEST_USER_PASSWORD || "TestUser123!");
+  const passwordHash = await hashPassword(demoUserPassword);
 
   const missing = baselineUsers
     .filter((user) => !existingByUsername.has(user.username))
@@ -1692,7 +1718,19 @@ async function ensureOrganizations() {
       plan: org.plan,
       settings: {
         demoSeed: "real-world-demo",
+        demoNarrative:
+          org.slug === "northstar-consumer-bank-demo"
+            ? "Primary end-to-end demo tenant for the Northstar collections hardship assistant."
+            : "Supporting portfolio company used in the real-world governance showcase.",
         sourceReferences: Object.values(sourceCatalog).map((source) => source.url),
+        auth: {
+          mode: "local",
+          allowedDomains: org.domains.filter((domain) => domain.isVerified).map((domain) => domain.domain),
+          jitProvisioning: false,
+          enforceSso: false,
+          strictSamlValidation: false,
+          defaultRole: "reviewer",
+        },
       },
     })),
   ).onConflictDoNothing();
@@ -1765,9 +1803,9 @@ async function ensurePortfolio(orgMap: Map<string, Organization>, userMap: Map<s
   }
 
   const portfolioRoles = [
-    { username: "admin_test", role: "portfolio_admin" },
-    { username: "cro_test", role: "portfolio_operator" },
-    { username: "auditor_test", role: "portfolio_viewer" },
+    { username: "olivia.grant", role: "portfolio_admin" },
+    { username: "marcus.reed", role: "portfolio_operator" },
+    { username: "clara.wells", role: "portfolio_viewer" },
   ];
 
   for (const membership of portfolioRoles) {
@@ -1808,6 +1846,8 @@ async function ensurePortfolio(orgMap: Map<string, Organization>, userMap: Map<s
 }
 
 async function ensureOrgAdminData(orgMap: Map<string, Organization>, userMap: Map<string, User>) {
+  let primaryOrgTelemetryKey: string | null = null;
+
   for (const orgSpec of demoOrganizations) {
     const organization = orgMap.get(orgSpec.slug);
     if (!organization) continue;
@@ -1864,7 +1904,7 @@ async function ensureOrgAdminData(orgMap: Map<string, Organization>, userMap: Ma
         .where(and(eq(organizationInvites.organizationId, organization.id), eq(organizationInvites.email, invite.email)))
         .limit(1);
 
-      const invitedBy = userMap.get("admin_test")?.id ?? null;
+      const invitedBy = userMap.get("olivia.grant")?.id ?? null;
       const values = {
         organizationId: organization.id,
         email: invite.email,
@@ -1933,15 +1973,14 @@ async function ensureOrgAdminData(orgMap: Map<string, Organization>, userMap: Ma
     if (effectivePolicy.source !== "portfolio") {
       await telemetryPolicyService.resetOrgOverride(primaryOrg.id);
     }
-    const adapter = await telemetryAdapterService.getForOrg(primaryOrg.id);
+    await telemetryAdapterService.getForOrg(primaryOrg.id);
     await telemetryAdapterService.updateForOrg(primaryOrg.id, {
       enabled: true,
       allowedGateways: ["underwriting-gateway", "customer-support-gateway", "clinical-model-gateway"],
     });
-    if (!adapter.hasActiveKey) {
-      const rotated = await telemetryAdapterService.rotateKeyForOrg(primaryOrg.id);
-      console.log(`[seed:real-world-demo] Telemetry SDK key for ${primaryOrg.slug}: ${rotated.plainTextKey}`);
-    }
+    const rotated = await telemetryAdapterService.rotateKeyForOrg(primaryOrg.id);
+    primaryOrgTelemetryKey = rotated.plainTextKey;
+    console.log(`[seed:real-world-demo] Telemetry SDK key for ${primaryOrg.slug}: ${rotated.plainTextKey}`);
   }
 
   if (healthOrg) {
@@ -1979,6 +2018,10 @@ async function ensureOrgAdminData(orgMap: Map<string, Organization>, userMap: Ma
       notifyOnWarning: true,
     });
   }
+
+  return {
+    primaryOrgTelemetryKey,
+  };
 }
 
 async function ensureSystems(orgMap: Map<string, Organization>) {
@@ -2334,7 +2377,7 @@ async function ensureNotifications(orgMap: Map<string, Organization>, userMap: M
   const notificationSpecs = [
     {
       organizationSlug: "northstar-consumer-bank-demo",
-      username: "admin_test",
+      username: "olivia.grant",
       title: "Tier 3 workflow awaiting executive review",
       message: "Credit Eligibility Decision Engine rollout is blocked pending Governance Committee + CEO approval.",
       type: "approval_assigned",
@@ -2343,7 +2386,7 @@ async function ensureNotifications(orgMap: Map<string, Organization>, userMap: M
     },
     {
       organizationSlug: "harborview-diagnostics-demo",
-      username: "ciso_test",
+      username: "irene.cho",
       title: "Clinical drift threshold breached",
       message: "Mammography Triage Model crossed the drift alert threshold for dense-tissue cases.",
       type: "high_risk_created",
@@ -2352,7 +2395,7 @@ async function ensureNotifications(orgMap: Map<string, Organization>, userMap: M
     },
     {
       organizationSlug: "meridian-talent-systems-demo",
-      username: "reviewer_test",
+      username: "noah.bennett",
       title: "Bias review reopened for screening pilot",
       message: "Candidate Screening Ranker requires reviewer follow-up after override-rate and cohort-gap findings.",
       type: "workflow_status_changed",
@@ -2361,7 +2404,7 @@ async function ensureNotifications(orgMap: Map<string, Organization>, userMap: M
     },
     {
       organizationSlug: "gridreliant-utilities-demo",
-      username: "ciso_test",
+      username: "irene.cho",
       title: "Critical infrastructure drift incident opened",
       message: "Vegetation Outage Risk Forecaster breached the critical drift threshold for constrained environmental zones.",
       type: "high_risk_created",
@@ -2370,7 +2413,7 @@ async function ensureNotifications(orgMap: Map<string, Organization>, userMap: M
     },
     {
       organizationSlug: "silverline-insurance-operations-demo",
-      username: "admin_test",
+      username: "olivia.grant",
       title: "Claims triage workflow escalated",
       message: "Catastrophe Claims Severity Triage is awaiting Governance Committee and CEO approval before rollout.",
       type: "approval_assigned",
@@ -2379,7 +2422,7 @@ async function ensureNotifications(orgMap: Map<string, Organization>, userMap: M
     },
     {
       organizationSlug: "summit-education-services-demo",
-      username: "compliance_lead_test",
+      username: "sophia.malik",
       title: "Scholarship pilot fairness review required",
       message: "Scholarship Eligibility Support Model triggered a bias review for first-generation applicant prioritization.",
       type: "workflow_status_changed",
@@ -2414,7 +2457,7 @@ async function ensureNotifications(orgMap: Map<string, Organization>, userMap: M
 }
 
 async function ensureBackgroundJobs(orgMap: Map<string, Organization>, userMap: Map<string, User>) {
-  const adminUserId = userMap.get("admin_test")?.id ?? null;
+  const adminUserId = userMap.get("olivia.grant")?.id ?? null;
   const primaryOrgId = orgMap.get("northstar-consumer-bank-demo")?.id;
   if (!primaryOrgId || !adminUserId) return;
 
@@ -2474,9 +2517,9 @@ async function ensureBackgroundJobs(orgMap: Map<string, Organization>, userMap: 
 }
 
 async function ensureAuditLogs(orgMap: Map<string, Organization>, workflowMap: Map<string, ApprovalWorkflow>, traceMap: Map<string, typeof decisionAudits.$inferSelect>, userMap: Map<string, User>) {
-  const admin = userMap.get("admin_test");
+  const admin = userMap.get("olivia.grant");
   if (!admin) {
-    throw new Error("admin_test not found");
+    throw new Error("olivia.grant not found");
   }
 
   const actor = {
@@ -2545,7 +2588,7 @@ async function ensureAuditLogs(orgMap: Map<string, Organization>, workflowMap: M
   }
 }
 
-async function main() {
+export async function seedRealWorldDemo(): Promise<DemoSeedSummary> {
   console.log("[seed:real-world-demo] Starting real-world demo seed");
   const userMap = await ensureBaselineUsers();
   const orgMap = await ensureOrganizations();
@@ -2566,7 +2609,7 @@ async function main() {
   }
 
   const portfolio = await ensurePortfolio(orgMap, userMap);
-  await ensureOrgAdminData(orgMap, userMap);
+  const adminData = await ensureOrgAdminData(orgMap, userMap);
 
   const systemMap = await ensureSystems(orgMap);
   await ensureSystemControls(systemMap, orgMap);
@@ -2591,10 +2634,53 @@ async function main() {
   console.log(`[seed:real-world-demo] Decision traces seeded: ${decisionTraces.length}`);
   console.log(`[seed:real-world-demo] Manual incidents seeded: ${manualIncidents.length}`);
   console.log(`[seed:real-world-demo] Telemetry events seeded: ${telemetryEvents.length}`);
+  console.log(`[seed:real-world-demo] Control Tower login: ${baselineUsers[0].email} / ${demoUserPassword}`);
+  console.log(`[seed:real-world-demo] Linked runtime system: ${primaryOrg.name} / Collections Hardship Assistant`);
   console.log(`[seed:real-world-demo] Complete`);
+
+  const linkedRuntimeSystemName = "Collections Hardship Assistant";
+  const linkedRuntimeGateway = "customer-support-gateway";
+  const linkedRuntimeSystem = systemMap.get(`${primaryOrg.id}::${linkedRuntimeSystemName}`);
+  if (!linkedRuntimeSystem) {
+    throw new Error(`Linked runtime demo system missing: ${linkedRuntimeSystemName}`);
+  }
+  if (!adminData.primaryOrgTelemetryKey) {
+    throw new Error("Linked runtime telemetry key missing after demo seed");
+  }
+
+  return {
+    portfolioSlug: "pilotwave-holdings-demo",
+    portfolioName: portfolio.name,
+    controlTowerLogins: baselineUsers.map((user) => ({
+      username: user.username,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      password: demoUserPassword,
+      defaultOrganizationSlug: primaryOrg.slug,
+    })),
+    linkedRuntime: {
+      organizationSlug: primaryOrg.slug,
+      organizationName: primaryOrg.name,
+      systemName: linkedRuntimeSystemName,
+      systemId: linkedRuntimeSystem.id,
+      gateway: linkedRuntimeGateway,
+      telemetryKey: adminData.primaryOrgTelemetryKey,
+    },
+  };
 }
 
-main().catch((error) => {
-  console.error("[seed:real-world-demo] Failed:", error);
-  process.exit(1);
-});
+async function main() {
+  await seedRealWorldDemo();
+}
+
+const isDirectRun = process.argv[1]
+  ? path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  : false;
+
+if (isDirectRun) {
+  main().catch((error) => {
+    console.error("[seed:real-world-demo] Failed:", error);
+    process.exit(1);
+  });
+}

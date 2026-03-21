@@ -66,7 +66,9 @@ const BASELINE_TEST_USERS: BaselineTestUser[] = [
 
 async function ensureBaselineTestUsers() {
   const shouldSeedTestUsers =
-    parseBooleanEnv(process.env.SEED_TEST_USERS, false) || !isProductionEnvironment();
+    process.env.SEED_TEST_USERS !== undefined
+      ? parseBooleanEnv(process.env.SEED_TEST_USERS, false)
+      : !isProductionEnvironment();
   if (!shouldSeedTestUsers) {
     return;
   }

@@ -41,6 +41,7 @@
     "test:smoke:roles": "tsx --test script/roles-core-smoke.test.ts",
     "test:regression:all": "npm run test:regression:rbac && npm run test:regression:routing && npm run test:regression:domains && npm run test:regression:password-reset && npm run test:regression:decision-audits && npm run test:regression:jobs && npm run test:regression:telemetry-adapter && npm run test:regression:telemetry-policy && npm run test:regression:onboarding && npm run test:regression:settings-ui && npm run test:regression:sso && npm run test:smoke:roles",
     "tenant:guard": "tsx script/enforce-tenant-storage-usage.ts",
+    "demo:prep": "tsx script/prepare-demo-day.ts",
     "seed:real-world-demo": "tsx script/seed-real-world-demo.ts",
     "seed:real-world-demo:supabase": "tsx script/seed-real-world-demo-supabase.ts",
     "seed:heavy": "tsx script/seed-heavy-data.ts",
