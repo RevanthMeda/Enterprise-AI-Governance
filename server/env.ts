@@ -222,7 +222,9 @@ function validateSmtpConfig(env: NodeJS.ProcessEnv, errors: string[], isProducti
   }
 
   if (!host || !from) {
-    errors.push("SMTP configuration is incomplete. Set SMTP_HOST and SMTP_FROM or remove the partial SMTP values.");
+    // Email delivery is optional. If the deployment only provides partial SMTP
+    // values, treat SMTP as disabled and let the delivery services fall back to
+    // webhook or preview behavior instead of aborting app startup.
     return;
   }
 

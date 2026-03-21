@@ -137,6 +137,17 @@ test("runtime validation accepts legacy SMTP environment variable names", () => 
   assert.equal(smtpConfig.from, "alerts@controltower.test");
 });
 
+test("runtime validation allows partial SMTP settings and disables mail delivery instead of aborting startup", () => {
+  assert.doesNotThrow(() =>
+    validateRuntimeEnvironment(
+      makeProductionEnv({
+        SMTP_FROM: "alerts@controltower.test",
+        SMTP_PORT: "587",
+      }),
+    ),
+  );
+});
+
 test("project env loader prefers shell variables and lets .env.local override .env", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aict-env-loader-"));
 
