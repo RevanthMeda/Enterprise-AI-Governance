@@ -15,6 +15,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { resolveApiUrl } from "@/lib/api-url";
 import { PublicSiteHeader } from "@/components/public-site-header";
@@ -59,6 +60,11 @@ export default function AuthPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [mfaRequired, setMfaRequired] = useState(false);
   const [recoveryMode, setRecoveryMode] = useState(false);
+  const [resetIdentifier, setResetIdentifier] = useState("");
+  const [resetRequestLoading, setResetRequestLoading] = useState(false);
+  const [resetRequestSent, setResetRequestSent] = useState(false);
+  const [resetPreviewUrl, setResetPreviewUrl] = useState<string | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
   const [ssoOrgSlug, setSsoOrgSlug] = useState("");
   const [ssoLoading, setSsoLoading] = useState(false);
   const [ssoError, setSsoError] = useState<string | null>(null);
@@ -86,6 +92,10 @@ export default function AuthPage() {
     setMode(nextMode);
     setMfaRequired(false);
     setRecoveryMode(false);
+    setResetIdentifier("");
+    setResetRequestSent(false);
+    setResetPreviewUrl(null);
+    setResetError(null);
     setSsoError(null);
   };
 
@@ -105,6 +115,11 @@ export default function AuthPage() {
         onError: (error: unknown) => {
           if ((error as { mfaRequired?: boolean })?.mfaRequired) {
             setMfaRequired(true);
+            return;
+          }
+          if ((error as { message?: string })?.message?.includes("Password expired")) {
+            setRecoveryMode(true);
+            setResetIdentifier(loginForm.getValues("username"));
           }
         },
       },
@@ -140,6 +155,30 @@ export default function AuthPage() {
         `/api/auth/sso/start?org=${encodeURIComponent(orgSlug)}&next=${encodeURIComponent(getNextPath("/dashboard"))}`,
       ),
     );
+  };
+
+  const requestPasswordReset = async () => {
+    const identifier = resetIdentifier.trim() || loginForm.getValues("username").trim();
+    if (!identifier) {
+      setResetError("Enter your username or email to request a reset link.");
+      return;
+    }
+
+    setResetRequestLoading(true);
+    setResetError(null);
+    setResetRequestSent(false);
+    setResetPreviewUrl(null);
+    try {
+      const res = await apiRequest("POST", "/api/auth/forgot-password", { identifier });
+      const body = await res.json();
+      setResetIdentifier(identifier);
+      setResetRequestSent(true);
+      setResetPreviewUrl(body.previewUrl ?? null);
+    } catch (error: any) {
+      setResetError(error.message);
+    } finally {
+      setResetRequestLoading(false);
+    }
   };
 
   const submitLabel = mfaRequired
@@ -339,18 +378,60 @@ export default function AuthPage() {
                         <button
                           type="button"
                           className="transition-colors hover:text-foreground hover:underline"
-                          onClick={() => setRecoveryMode(true)}
+                          onClick={() => {
+                            setRecoveryMode(true);
+                            setResetIdentifier((current) => current || loginForm.getValues("username"));
+                          }}
                         >
                           Forgot password?
                         </button>
                       </div>
 
                       {recoveryMode && !mfaRequired ? (
-                        <div className="rounded-xl border border-border/70 bg-muted/20 p-4 text-[12px] leading-5 text-muted-foreground">
-                          <p className="font-medium text-foreground">Account recovery</p>
-                          <p className="mt-1">
-                            If your organization uses SSO, reset your password with your identity provider. For local accounts, contact your organization administrator to reset access.
-                          </p>
+                        <div className="space-y-3 rounded-xl border border-border/70 bg-muted/20 p-4 text-[12px] leading-5 text-muted-foreground">
+                          <div>
+                            <p className="font-medium text-foreground">Account recovery</p>
+                            <p className="mt-1">
+                              Local accounts can request a reset link here. SSO-managed identities should be reset with the external identity provider.
+                            </p>
+                          </div>
+                          <Input
+                            value={resetIdentifier}
+                            onChange={(event) => {
+                              setResetIdentifier(event.target.value);
+                              if (resetError) {
+                                setResetError(null);
+                              }
+                            }}
+                            placeholder="Username or email"
+                            data-testid="input-forgot-password-identifier"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={requestPasswordReset}
+                            disabled={resetRequestLoading}
+                            data-testid="button-forgot-password-submit"
+                          >
+                            {resetRequestLoading ? "Sending reset link..." : "Send reset link"}
+                          </Button>
+                          {resetRequestSent ? (
+                            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-emerald-700">
+                              If an eligible local account exists, a password reset link has been sent.
+                              {resetPreviewUrl ? (
+                                <div className="mt-2">
+                                  <a className="font-medium underline" href={resetPreviewUrl}>
+                                    Open reset link
+                                  </a>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {resetError ? (
+                            <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-destructive">
+                              {resetError}
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
                     </form>

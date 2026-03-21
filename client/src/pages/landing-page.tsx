@@ -27,7 +27,18 @@ import {
 } from "lucide-react";
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import * as THREE from "three";
+import {
+  Color,
+  Euler,
+  MathUtils,
+  Vector3,
+  type Group,
+  type Mesh,
+  type MeshBasicMaterial,
+  type MeshPhysicalMaterial,
+  type MeshStandardMaterial,
+  type SpotLight,
+} from "three";
 import { BrandMark } from "@/components/brand-mark";
 
 const glassClass =
@@ -355,22 +366,22 @@ const PORTFOLIO_COMPANIES = [
   {
     name: "Silverline Insurance",
     detail: "Claims runtime governed",
-    className: "left-8 top-24",
+    className: "left-6 top-28 xl:left-10",
   },
   {
     name: "Northstar Consumer Bank",
     detail: "Voice and service AI in scope",
-    className: "right-10 top-28",
+    className: "right-6 top-28 xl:right-10",
   },
   {
     name: "Policy Servicing Group",
     detail: "Shared control plane attached",
-    className: "left-14 bottom-24",
+    className: "left-8 bottom-16 xl:left-12",
   },
   {
     name: "Northbridge Health",
     detail: "Clinical copilots governed",
-    className: "right-14 bottom-24",
+    className: "right-8 bottom-16 xl:right-12",
   },
 ];
 
@@ -464,34 +475,34 @@ function NavLink({ href, children }: { href: string; children: string }) {
 function Navbar() {
   return (
     <div className="fixed left-0 top-0 z-50 w-full bg-gradient-to-b from-[#050505] via-[#050505]/85 to-transparent backdrop-blur-md">
-      <div className="mx-auto flex h-20 max-w-[1600px] items-center justify-between px-8 lg:px-16">
+      <div className="mx-auto flex h-[clamp(4.25rem,6vw,5rem)] max-w-[1600px] items-center justify-between px-4 sm:px-6 lg:px-10 xl:px-16">
         <a href="#top" className="flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-[#00FFD1] shadow-[0_0_28px_rgba(0,255,209,0.18)]">
-            <BrandMark className="h-5 w-5" />
+          <span className="flex h-[clamp(2.5rem,4vw,2.75rem)] w-[clamp(2.5rem,4vw,2.75rem)] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-[#00FFD1] shadow-[0_0_28px_rgba(0,255,209,0.18)]">
+            <BrandMark className="h-4 w-4 sm:h-5 sm:w-5" />
           </span>
           <div className="flex flex-col">
-            <span className="text-xl font-bold tracking-[0.28em] text-white">
+            <span className="text-[clamp(1rem,1.5vw,1.25rem)] font-bold tracking-[0.18em] text-white sm:tracking-[0.24em]">
               AI CONTROL TOWER
             </span>
-            <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+            <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500 sm:text-[11px] sm:tracking-[0.22em]">
               Runtime governance
             </span>
           </div>
         </a>
 
-        <div className="hidden items-center gap-8 lg:flex">
-          {NAV_ITEMS.map((item) => (
-            <NavLink key={item.label} href={item.href}>
-              {item.label}
-            </NavLink>
+        <div className="hidden items-center gap-4 md:flex lg:gap-5 xl:gap-8">
+          {NAV_ITEMS.map((item, index) => (
+            <div key={item.label} className={index > 3 ? "hidden xl:block" : ""}>
+              <NavLink href={item.href}>{item.label}</NavLink>
+            </div>
           ))}
         </div>
 
-        <div className="hidden items-center gap-3 lg:flex">
+        <div className="flex items-center gap-2 sm:gap-3">
           <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
             <SmartLink
               href="/auth/login"
-              className="rounded-full border border-white/10 px-5 py-2 text-sm font-semibold text-slate-300 transition-all duration-300 hover:border-white/20 hover:text-white"
+              className="hidden rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-300 transition-all duration-300 hover:border-white/20 hover:text-white sm:inline-flex"
             >
               Sign In
             </SmartLink>
@@ -499,7 +510,7 @@ function Navbar() {
           <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.98 }}>
             <SmartLink
               href="/book-demo"
-              className="rounded-full border border-[#00FFD1] px-6 py-2 text-sm font-semibold text-[#00FFD1] transition-all duration-300 hover:bg-[#00FFD1] hover:text-black"
+              className="rounded-full border border-[#00FFD1] px-4 py-2 text-sm font-semibold text-[#00FFD1] transition-all duration-300 hover:bg-[#00FFD1] hover:text-black sm:px-5 xl:px-6"
             >
               Book a Demo
             </SmartLink>
@@ -598,7 +609,10 @@ function SceneCanvas({
   rootMargin = "-10% 0px -10% 0px",
 }: SceneCanvasProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref, { margin: rootMargin, amount: 0.08 });
+  const inView = useInView(ref, {
+    margin: rootMargin as NonNullable<Parameters<typeof useInView>[1]>["margin"],
+    amount: 0.08,
+  });
 
   return (
     <div ref={ref} className={className ?? "absolute inset-0"}>
@@ -642,25 +656,25 @@ function SmartLink({
 }
 
 function HeroScene({ progress, velocity, pointer }: HeroSceneProps) {
-  const boxRef = useRef<THREE.Mesh>(null);
-  const shellRef = useRef<THREE.Mesh>(null);
-  const spotRef = useRef<THREE.SpotLight>(null);
-  const fragmentsRef = useRef<THREE.Mesh[]>([]);
-  const panelRefs = useRef<THREE.Mesh[]>([]);
-  const floorRef = useRef<THREE.Group>(null);
-  const radarRingsRef = useRef<THREE.Mesh[]>([]);
+  const boxRef = useRef<Mesh>(null);
+  const shellRef = useRef<Mesh>(null);
+  const spotRef = useRef<SpotLight>(null);
+  const fragmentsRef = useRef<Mesh[]>([]);
+  const panelRefs = useRef<Mesh[]>([]);
+  const floorRef = useRef<Group>(null);
+  const radarRingsRef = useRef<Mesh[]>([]);
 
   const fragments = useMemo(() => {
     const items: Array<{
-      source: THREE.Vector3;
-      target: THREE.Vector3;
+      source: Vector3;
+      target: Vector3;
       scale: number;
     }> = [];
 
     for (let x = -3; x <= 3; x += 1) {
       for (let y = -3; y <= 3; y += 1) {
-        const target = new THREE.Vector3(x * 0.62, y * 0.62, 0);
-        const source = new THREE.Vector3(
+        const target = new Vector3(x * 0.62, y * 0.62, 0);
+        const source = new Vector3(
           x * 0.85 + (Math.random() - 0.5) * 5.5,
           y * 0.75 + (Math.random() - 0.5) * 4.5,
           (Math.random() - 0.5) * 5,
@@ -678,31 +692,31 @@ function HeroScene({ progress, velocity, pointer }: HeroSceneProps) {
   }, []);
 
   useFrame((state, delta) => {
-    const t = THREE.MathUtils.smoothstep(progress, 0.06, 0.96);
+    const t = MathUtils.smoothstep(progress, 0.06, 0.96);
     const velocityBoost = clamp(velocity, 0, 1.4);
 
     if (boxRef.current) {
       boxRef.current.rotation.y += delta * (0.22 + velocityBoost * 0.18);
-      boxRef.current.rotation.x = THREE.MathUtils.lerp(
+      boxRef.current.rotation.x = MathUtils.lerp(
         boxRef.current.rotation.x,
         pointer.y * 0.22,
         0.06,
       );
-      boxRef.current.rotation.z = THREE.MathUtils.lerp(
+      boxRef.current.rotation.z = MathUtils.lerp(
         boxRef.current.rotation.z,
         -pointer.x * 0.16,
         0.06,
       );
       boxRef.current.scale.setScalar(lerp(1, 0.68, t));
       boxRef.current.position.z = lerp(0, -1.4, t);
-      const material = boxRef.current.material as THREE.MeshStandardMaterial;
+      const material = boxRef.current.material as MeshStandardMaterial;
       material.opacity = lerp(1, 0.08, t);
     }
 
     if (shellRef.current) {
-      shellRef.current.rotation.copy(boxRef.current?.rotation ?? new THREE.Euler());
+      shellRef.current.rotation.copy(boxRef.current?.rotation ?? new Euler());
       shellRef.current.scale.setScalar(lerp(1.03, 0.78, t));
-      const material = shellRef.current.material as THREE.MeshStandardMaterial;
+      const material = shellRef.current.material as MeshStandardMaterial;
       material.opacity = lerp(0.24, 0.02, t);
     }
 
@@ -715,7 +729,7 @@ function HeroScene({ progress, velocity, pointer }: HeroSceneProps) {
       mesh.rotation.y += delta * (0.35 + velocityBoost * 0.45);
       const scale = fragment.scale * lerp(0.3, 1.4 + velocityBoost * 0.2, t);
       mesh.scale.setScalar(scale);
-      const material = mesh.material as THREE.MeshPhysicalMaterial;
+      const material = mesh.material as MeshPhysicalMaterial;
       material.opacity = lerp(0.05, 0.9, t);
       material.emissiveIntensity = lerp(0.2, 1.1 + velocityBoost * 0.4, t);
     });
@@ -724,14 +738,14 @@ function HeroScene({ progress, velocity, pointer }: HeroSceneProps) {
       if (!mesh) return;
       mesh.rotation.y += delta * (0.08 + index * 0.015);
       mesh.position.y = Math.sin(state.clock.elapsedTime * 0.9 + index * 0.8) * 0.12 + (index % 2 === 0 ? 1.5 : -1.6);
-      const material = mesh.material as THREE.MeshPhysicalMaterial;
+      const material = mesh.material as MeshPhysicalMaterial;
       material.opacity = lerp(0.22, 0.52, t);
       material.emissiveIntensity = 0.35 + velocityBoost * 0.22;
     });
 
     if (floorRef.current) {
-      floorRef.current.position.y = THREE.MathUtils.lerp(floorRef.current.position.y, -2.9, 0.08);
-      floorRef.current.rotation.x = THREE.MathUtils.lerp(floorRef.current.rotation.x, -1.18, 0.08);
+      floorRef.current.position.y = MathUtils.lerp(floorRef.current.position.y, -2.9, 0.08);
+      floorRef.current.rotation.x = MathUtils.lerp(floorRef.current.rotation.x, -1.18, 0.08);
       floorRef.current.position.z = lerp(-3.5, -2.6, t);
     }
 
@@ -740,24 +754,24 @@ function HeroScene({ progress, velocity, pointer }: HeroSceneProps) {
       const phase = ((state.clock.elapsedTime * 0.28 + index * 0.22) % 1) + t * 0.18;
       const scale = 1.2 + phase * 3.1;
       ring.scale.set(scale, scale, 1);
-      const material = ring.material as THREE.MeshBasicMaterial;
+      const material = ring.material as MeshBasicMaterial;
       material.opacity = 0.2 - phase * 0.14;
     });
 
     if (spotRef.current) {
-      spotRef.current.position.x = THREE.MathUtils.lerp(
+      spotRef.current.position.x = MathUtils.lerp(
         spotRef.current.position.x,
         pointer.x * 5.5,
         0.08,
       );
-      spotRef.current.position.y = THREE.MathUtils.lerp(
+      spotRef.current.position.y = MathUtils.lerp(
         spotRef.current.position.y,
         2.5 + pointer.y * 3.5,
         0.08,
       );
     }
 
-    state.camera.position.z = THREE.MathUtils.lerp(
+    state.camera.position.z = MathUtils.lerp(
       state.camera.position.z,
       lerp(9.5, 8.2, t),
       0.06,
@@ -900,9 +914,9 @@ function HeroScene({ progress, velocity, pointer }: HeroSceneProps) {
 }
 
 function ProblemScene({ progress, velocity, particleCount }: ProblemSceneProps) {
-  const particleRefs = useRef<THREE.Mesh[]>([]);
-  const shieldRef = useRef<THREE.Mesh>(null);
-  const streamRefs = useRef<THREE.Mesh[]>([]);
+  const particleRefs = useRef<Mesh[]>([]);
+  const shieldRef = useRef<Mesh>(null);
+  const streamRefs = useRef<Mesh[]>([]);
 
   const particles = useMemo(
     () =>
@@ -917,10 +931,10 @@ function ProblemScene({ progress, velocity, particleCount }: ProblemSceneProps) 
     [particleCount],
   );
 
-  const red = useMemo(() => new THREE.Color("#FF3366"), []);
-  const emerald = useMemo(() => new THREE.Color("#00FA9A"), []);
-  const darkRed = useMemo(() => new THREE.Color("#7f1d1d"), []);
-  const darkEmerald = useMemo(() => new THREE.Color("#064e3b"), []);
+  const red = useMemo(() => new Color("#FF3366"), []);
+  const emerald = useMemo(() => new Color("#00FA9A"), []);
+  const darkRed = useMemo(() => new Color("#7f1d1d"), []);
+  const darkEmerald = useMemo(() => new Color("#064e3b"), []);
 
   useFrame((state, delta) => {
     const velocityBoost = clamp(velocity, 0, 1.3);
@@ -932,14 +946,14 @@ function ProblemScene({ progress, velocity, particleCount }: ProblemSceneProps) 
 
       const phase = particle.angle + time * (0.95 + velocityBoost * 0.55);
       const funnelRadius = particle.radius * (1.25 - Math.abs(particle.height) * 0.1);
-      const vortexPosition = new THREE.Vector3(
+      const vortexPosition = new Vector3(
         Math.sin(phase) * funnelRadius,
         particle.height + Math.sin(time * 0.9 + index * 0.14) * 0.24,
         Math.cos(phase) * funnelRadius,
       );
 
       const streamProgress = (time * 0.12 + index / particles.length) % 1;
-      const streamPosition = new THREE.Vector3(
+      const streamPosition = new Vector3(
         particle.streamX,
         lerp(2.8, -2.8, streamProgress),
         particle.streamZ,
@@ -949,7 +963,7 @@ function ProblemScene({ progress, velocity, particleCount }: ProblemSceneProps) 
       mesh.position.lerpVectors(vortexPosition, streamPosition, cleanse);
       mesh.scale.setScalar(0.095 + cleanse * 0.04 + velocityBoost * 0.018);
 
-      const material = mesh.material as THREE.MeshStandardMaterial;
+      const material = mesh.material as MeshStandardMaterial;
       material.color.lerpColors(red, emerald, cleanse);
       material.emissive.lerpColors(darkRed, darkEmerald, cleanse);
       material.emissiveIntensity = 0.8 + cleanse * 0.55;
@@ -958,7 +972,7 @@ function ProblemScene({ progress, velocity, particleCount }: ProblemSceneProps) 
     if (shieldRef.current) {
       shieldRef.current.position.x = lerp(4.5, -0.2, progress);
       shieldRef.current.rotation.y += delta * 0.15;
-      const material = shieldRef.current.material as THREE.MeshPhysicalMaterial;
+      const material = shieldRef.current.material as MeshPhysicalMaterial;
       material.opacity = lerp(0.08, 0.42, clamp(progress * 1.4, 0, 1));
       material.emissiveIntensity = 0.65 + clamp(progress, 0, 1) * 0.6;
     }
@@ -967,7 +981,7 @@ function ProblemScene({ progress, velocity, particleCount }: ProblemSceneProps) 
       if (!mesh) return;
       const phase = ((time * 0.22 + index * 0.17) % 1) * Math.PI * 2;
       mesh.scale.y = 0.65 + Math.sin(phase) * 0.25 + progress * 0.55;
-      const material = mesh.material as THREE.MeshBasicMaterial;
+      const material = mesh.material as MeshBasicMaterial;
       material.opacity = clamp(progress * 1.35 - 0.15, 0, 1) * 0.55;
     });
   });
@@ -1036,9 +1050,9 @@ function ProblemScene({ progress, velocity, particleCount }: ProblemSceneProps) 
 }
 
 function TerminalScene({ progress, velocity, blockTriggered }: TerminalSceneProps) {
-  const ringRef = useRef<THREE.Mesh>(null);
-  const planeRef = useRef<THREE.Mesh>(null);
-  const streakRef = useRef<THREE.Mesh>(null);
+  const ringRef = useRef<Mesh>(null);
+  const planeRef = useRef<Mesh>(null);
+  const streakRef = useRef<Mesh>(null);
 
   useFrame((state) => {
     const pulse = blockTriggered
@@ -1046,27 +1060,27 @@ function TerminalScene({ progress, velocity, blockTriggered }: TerminalSceneProp
       : 0.25;
 
     if (ringRef.current) {
-      ringRef.current.scale.x = THREE.MathUtils.lerp(
+      ringRef.current.scale.x = MathUtils.lerp(
         ringRef.current.scale.x,
         pulse * 2.1,
         0.08,
       );
-      ringRef.current.scale.y = THREE.MathUtils.lerp(
+      ringRef.current.scale.y = MathUtils.lerp(
         ringRef.current.scale.y,
         pulse * 2.1,
         0.08,
       );
-      const material = ringRef.current.material as THREE.MeshBasicMaterial;
+      const material = ringRef.current.material as MeshBasicMaterial;
       material.opacity = blockTriggered ? 0.35 - (pulse - 0.65) * 0.22 : 0.08;
     }
 
     if (planeRef.current) {
-      planeRef.current.rotation.x = THREE.MathUtils.lerp(
+      planeRef.current.rotation.x = MathUtils.lerp(
         planeRef.current.rotation.x,
         -0.14 + velocity * 0.03,
         0.04,
       );
-      planeRef.current.rotation.y = THREE.MathUtils.lerp(
+      planeRef.current.rotation.y = MathUtils.lerp(
         planeRef.current.rotation.y,
         -0.28,
         0.05,
@@ -1075,7 +1089,7 @@ function TerminalScene({ progress, velocity, blockTriggered }: TerminalSceneProp
 
     if (streakRef.current) {
       streakRef.current.position.y = 1.8 - (((state.clock.elapsedTime * 1.6 + progress) % 1) * 3.6);
-      const material = streakRef.current.material as THREE.MeshBasicMaterial;
+      const material = streakRef.current.material as MeshBasicMaterial;
       material.opacity = 0.28 + progress * 0.2;
     }
   });
@@ -1127,7 +1141,7 @@ function TerminalScene({ progress, velocity, blockTriggered }: TerminalSceneProp
 }
 
 function VaultScene({ progress, velocity }: VaultSceneProps) {
-  const cubesRef = useRef<THREE.Mesh[]>([]);
+  const cubesRef = useRef<Mesh[]>([]);
   const [hovered, setHovered] = useState<number | null>(null);
 
   const cubes = useMemo(
@@ -1156,13 +1170,13 @@ function VaultScene({ progress, velocity }: VaultSceneProps) {
       mesh.position.y = Math.sin(state.clock.elapsedTime * 0.65 + index * 0.4) * 0.08;
       const isHovered = hovered === index;
       const targetScale = isHovered ? 1.55 : 1;
-      mesh.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.12);
-      mesh.rotation.y = THREE.MathUtils.lerp(
+      mesh.scale.lerp(new Vector3(targetScale, targetScale, targetScale), 0.12);
+      mesh.rotation.y = MathUtils.lerp(
         mesh.rotation.y,
         isHovered ? 0 : state.clock.elapsedTime * 0.08,
         0.1,
       );
-      const material = mesh.material as THREE.MeshPhysicalMaterial;
+      const material = mesh.material as MeshPhysicalMaterial;
       material.emissiveIntensity = isHovered ? 0.85 : 0.35;
     });
   });
@@ -1259,7 +1273,7 @@ function VaultScene({ progress, velocity }: VaultSceneProps) {
 }
 
 function GlobeScene({ progress, velocity, pointCount }: GlobeSceneProps) {
-  const groupRef = useRef<THREE.Group>(null);
+  const groupRef = useRef<Group>(null);
 
   const points = useMemo(() => {
     const data: number[] = [];
@@ -1273,18 +1287,18 @@ function GlobeScene({ progress, velocity, pointCount }: GlobeSceneProps) {
         radius * Math.cos(phi),
       );
     }
-    return data;
+    return new Float32Array(data);
   }, [pointCount]);
 
   const nodes = useMemo(
     () => [
-      new THREE.Vector3(1.8, 0.4, 1.1),
-      new THREE.Vector3(-1.5, 1.2, 0.8),
-      new THREE.Vector3(1.1, -1.4, 1.2),
-      new THREE.Vector3(-0.6, -1.8, -1.1),
-      new THREE.Vector3(0.4, 1.7, -1.3),
-      new THREE.Vector3(2.05, -0.1, -0.95),
-      new THREE.Vector3(-1.95, 0.15, -0.7),
+      new Vector3(1.8, 0.4, 1.1),
+      new Vector3(-1.5, 1.2, 0.8),
+      new Vector3(1.1, -1.4, 1.2),
+      new Vector3(-0.6, -1.8, -1.1),
+      new Vector3(0.4, 1.7, -1.3),
+      new Vector3(2.05, -0.1, -0.95),
+      new Vector3(-1.95, 0.15, -0.7),
     ],
     [],
   );
@@ -1292,14 +1306,14 @@ function GlobeScene({ progress, velocity, pointCount }: GlobeSceneProps) {
   useFrame((state, delta) => {
     if (groupRef.current) {
       groupRef.current.rotation.y += delta * (0.14 + velocity * 0.08);
-      groupRef.current.rotation.x = THREE.MathUtils.lerp(
+      groupRef.current.rotation.x = MathUtils.lerp(
         groupRef.current.rotation.x,
         0.28,
         0.04,
       );
     }
 
-    state.camera.position.z = THREE.MathUtils.lerp(
+    state.camera.position.z = MathUtils.lerp(
       state.camera.position.z,
       lerp(8.2, 3.2, clamp(progress, 0, 1)),
       0.08,
@@ -1466,7 +1480,7 @@ function GlareCard({ title, copy, accent, icon: Icon, outcome, metric }: GlareCa
 
   return (
     <motion.div
-      className={`group relative h-80 overflow-hidden rounded-[28px] p-8 ${glassClass}`}
+      className={`group relative min-h-[clamp(16.5rem,24vw,20rem)] overflow-hidden rounded-[28px] p-[clamp(1.1rem,1.6vw,2rem)] ${glassClass}`}
       whileHover={{ scale: 1.02, rotateX: 2, rotateY: 2 }}
       onMouseMove={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
@@ -1484,16 +1498,16 @@ function GlareCard({ title, copy, accent, icon: Icon, outcome, metric }: GlareCa
         }}
       />
       <div className="relative flex h-full flex-col justify-between">
-        <div className="space-y-5">
-          <div className="flex items-start justify-between gap-4">
+        <div className="space-y-[clamp(0.9rem,1.1vw,1.25rem)]">
+          <div className="flex items-start justify-between gap-3">
             <div
-              className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10"
+              className="inline-flex h-[clamp(2.8rem,3.5vw,3.5rem)] w-[clamp(2.8rem,3.5vw,3.5rem)] items-center justify-center rounded-2xl border border-white/10"
               style={{ backgroundColor: `${accent}14` }}
             >
-              <Icon className="h-6 w-6" style={{ color: accent }} />
+              <Icon className="h-[clamp(1.15rem,1.5vw,1.5rem)] w-[clamp(1.15rem,1.5vw,1.5rem)]" style={{ color: accent }} />
             </div>
             <div
-              className="rounded-full border px-3 py-2 font-mono text-[11px] uppercase tracking-[0.18em]"
+              className="rounded-full border px-[clamp(0.55rem,0.7vw,0.75rem)] py-[clamp(0.4rem,0.55vw,0.55rem)] font-mono text-[10px] uppercase tracking-[0.16em] sm:text-[11px]"
               style={{
                 borderColor: `${accent}55`,
                 color: accent,
@@ -1504,11 +1518,13 @@ function GlareCard({ title, copy, accent, icon: Icon, outcome, metric }: GlareCa
             </div>
           </div>
           <div>
-            <h3 className="text-2xl font-bold text-white">{title}</h3>
-            <p className="mt-3 max-w-[26ch] text-sm leading-7 text-slate-400">{copy}</p>
+            <h3 className="text-[clamp(1.55rem,2.2vw,2rem)] font-bold text-white">{title}</h3>
+            <p className="mt-3 max-w-[30ch] text-[clamp(0.95rem,1.05vw,1rem)] leading-[1.85] text-slate-400">
+              {copy}
+            </p>
           </div>
         </div>
-        <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-slate-500">
+        <div className="mt-5 font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500 sm:text-[11px]">
           {outcome}
         </div>
       </div>
@@ -1521,159 +1537,163 @@ function ProofArchitectureSection() {
   const [tourStep, setTourStep] = useState(0);
 
   return (
-    <SectionShell id="how-it-works" className="bg-[#050505] px-8 py-18 lg:px-24">
-      <div className="mx-auto grid max-w-[1500px] gap-10 lg:grid-cols-[0.98fr_1.02fr]">
-        <div className="space-y-8">
-          <div className="max-w-3xl">
-            <SectionLabel tone="cyan">Three operating pillars</SectionLabel>
-            <h2 className="text-4xl font-bold tracking-tight text-white lg:text-5xl">
-              One control system. Three enterprise outcomes.
-            </h2>
-            <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-400">
-              The platform is organized intentionally: runtime policy contains the
-              model, incident operations contain the breach, and cryptographic
-              evidence contains the audit story.
-            </p>
-          </div>
-
-          <div className="grid gap-5 md:grid-cols-3">
-            {PILLARS.map((pillar, index) => {
-              const Icon = pillar.icon;
-              const accent =
-                index === 0 ? "#00FFD1" : index === 1 ? "#f59e0b" : "#a78bfa";
-              return (
-                <div
-                  key={pillar.id}
-                  className={`rounded-[28px] border-l-2 p-6 ${glassClass}`}
-                  style={{ borderLeftColor: accent }}
-                >
-                  <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-[#00FFD1]">
-                    <Icon className="h-5 w-5" style={{ color: accent }} />
-                  </div>
-                  <h3 className="mt-5 text-2xl font-bold text-white">{pillar.title}</h3>
-                  <p className="mt-4 text-sm leading-7 text-slate-400">{pillar.body}</p>
-                  <div className="mt-5 font-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: accent }}>
-                    {pillar.metric}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className={`rounded-[32px] p-7 ${glassClass}`}>
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <SectionLabel tone="emerald">Control flow map</SectionLabel>
-                <h3 className="text-2xl font-bold text-white">
-                  User to evidence vault, left to right.
-                </h3>
-              </div>
-              <SmartLink
-                href="#frameworks"
-                className="rounded-full border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300 transition-colors hover:border-[#00FFD1]/40 hover:text-[#00FFD1]"
-              >
-                Audit frameworks
-              </SmartLink>
+    <SectionShell id="how-it-works" className="bg-[#050505] px-[clamp(1.25rem,4vw,2rem)] py-[clamp(4rem,8vw,4.75rem)] lg:px-[clamp(2rem,6vw,6rem)]">
+      <div className="mx-auto max-w-[1500px] space-y-10">
+        <div className="grid gap-10 lg:grid-cols-[0.98fr_1.02fr]">
+          <div className="space-y-8">
+            <div className="max-w-3xl">
+              <SectionLabel tone="cyan">Three operating pillars</SectionLabel>
+              <h2 className="text-[clamp(2.25rem,5vw,3rem)] font-bold tracking-tight text-white">
+                One control system. Three enterprise outcomes.
+              </h2>
+              <p className="mt-5 max-w-2xl text-[clamp(1rem,1.6vw,1.125rem)] leading-8 text-slate-400">
+                The platform is organized intentionally: runtime policy contains the
+                model, incident operations contain the breach, and cryptographic
+                evidence contains the audit story.
+              </p>
             </div>
 
-            <div className="mt-8 grid gap-4 lg:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr]">
-              {FLOW_NODES.map((node, index) => (
-                <div key={node.id} className="contents">
-                  <motion.button
+            <div className="grid gap-5 md:grid-cols-3">
+              {PILLARS.map((pillar, index) => {
+                const Icon = pillar.icon;
+                const accent =
+                  index === 0 ? "#00FFD1" : index === 1 ? "#f59e0b" : "#a78bfa";
+                return (
+                  <div
+                    key={pillar.id}
+                    className={`rounded-[28px] border-l-2 p-6 ${glassClass}`}
+                    style={{ borderLeftColor: accent }}
+                  >
+                    <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-[#00FFD1]">
+                      <Icon className="h-5 w-5" style={{ color: accent }} />
+                    </div>
+                    <h3 className="mt-5 text-2xl font-bold text-white">{pillar.title}</h3>
+                    <p className="mt-4 text-sm leading-7 text-slate-400">{pillar.body}</p>
+                    <div className="mt-5 font-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: accent }}>
+                      {pillar.metric}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <div className={`rounded-[32px] p-[clamp(1.5rem,3vw,2rem)] ${glassClass}`}>
+              <SectionLabel tone="cyan">2-minute interactive tour</SectionLabel>
+              <h3 className="max-w-xl text-[clamp(1.5rem,3vw,2rem)] font-bold leading-tight text-white">
+                Feel the product before you talk to sales.
+              </h3>
+              <p className="mt-4 max-w-xl text-sm leading-7 text-slate-400">
+                Click through one concrete workflow and watch the control plane go
+                from preflight detection to incident escalation to sealed evidence.
+              </p>
+
+              <div className="mt-6 flex flex-wrap gap-2">
+                {TOUR_STEPS.map((step, index) => (
+                  <button
+                    key={step.title}
                     type="button"
-                    onMouseEnter={() => setActiveNode(node.id)}
-                    onFocus={() => setActiveNode(node.id)}
-                    whileHover={{ y: -4 }}
-                    className={`h-full min-h-[180px] rounded-[24px] border px-5 py-5 text-left transition-all ${
-                      node.id === "gateway"
-                        ? "border-[#00FFD1]/35 bg-[#00FFD1]/[0.04]"
-                        : activeNode === node.id
-                        ? "border-[#00FFD1]/40 bg-white/[0.05]"
-                        : "border-white/[0.08] bg-white/[0.02]"
+                    onClick={() => setTourStep(index)}
+                    className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors ${
+                      tourStep === index
+                        ? "bg-[#00FFD1] text-black"
+                        : "border border-white/10 bg-white/[0.02] text-slate-300"
                     }`}
                   >
-                    <div
-                      className="font-mono text-[11px] uppercase tracking-[0.22em]"
-                      style={{ color: node.color }}
-                    >
-                      {node.title}
-                    </div>
-                    <p className="mt-3 text-sm leading-7 text-slate-400">{node.detail}</p>
-                  </motion.button>
-                  {index < FLOW_NODES.length - 1 ? (
-                    <div className="hidden items-center justify-center lg:flex">
-                      <div className="relative flex items-center justify-center">
-                        <div className="h-[2px] w-14 bg-gradient-to-r from-[#00FFD1]/20 via-[#00FFD1]/60 to-[#00FA9A]/60" />
-                        <motion.span
-                          className="absolute right-0 text-[#00FFD1]"
-                          animate={{ x: [-6, 2, -6], opacity: [0.35, 1, 0.35] }}
-                          transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-                        >
-                          <ArrowRight className="h-4 w-4" />
-                        </motion.span>
-                      </div>
-                    </div>
-                  ) : null}
+                    {step.title}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-6 rounded-[24px] border border-white/[0.08] bg-black/30 p-5">
+                <div className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#00FFD1]">
+                  {TOUR_STEPS[tourStep].status}
                 </div>
-              ))}
+                <p className="mt-4 text-base leading-8 text-slate-300">
+                  {TOUR_STEPS[tourStep].body}
+                </p>
+              </div>
+            </div>
+
+            <div className={`max-w-full overflow-hidden rounded-[32px] p-[clamp(1.4rem,2.5vw,1.75rem)] ${glassClass}`}>
+              <SectionLabel tone="emerald">Audit-ready by design</SectionLabel>
+              <h3 className="max-w-[22rem] text-[clamp(1.45rem,2.8vw,2rem)] font-bold leading-tight text-white">
+                Framework linkage should be visible before procurement asks for it.
+              </h3>
+              <div className="mt-6 flex flex-wrap gap-3">
+                {FRAMEWORK_BADGES.map((badge) => (
+                  <SmartLink
+                    key={badge}
+                    href="#frameworks"
+                    className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 font-mono text-[11px] uppercase tracking-[0.22em] text-slate-300 transition-colors hover:border-[#00FFD1]/40 hover:text-[#00FFD1]"
+                  >
+                    {badge}
+                  </SmartLink>
+                ))}
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="space-y-6">
-          <div className={`rounded-[32px] p-8 ${glassClass}`}>
-            <SectionLabel tone="cyan">2-minute interactive tour</SectionLabel>
-            <h3 className="max-w-xl text-2xl font-bold leading-tight text-white">
-              Feel the product before you talk to sales.
-            </h3>
-            <p className="mt-4 max-w-xl text-sm leading-7 text-slate-400">
-              Click through one concrete workflow and watch the control plane go
-              from preflight detection to incident escalation to sealed evidence.
-            </p>
-
-            <div className="mt-6 flex flex-wrap gap-2">
-              {TOUR_STEPS.map((step, index) => (
-                <button
-                  key={step.title}
-                  type="button"
-                  onClick={() => setTourStep(index)}
-                  className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition-colors ${
-                    tourStep === index
-                      ? "bg-[#00FFD1] text-black"
-                      : "border border-white/10 bg-white/[0.02] text-slate-300"
-                  }`}
-                >
-                  {step.title}
-                </button>
-              ))}
+        <div className={`rounded-[32px] p-[clamp(1.4rem,2.5vw,1.75rem)] ${glassClass}`}>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <SectionLabel tone="emerald">Control flow map</SectionLabel>
+              <h3 className="text-[clamp(1.45rem,2.8vw,2rem)] font-bold text-white">
+                User to evidence vault, left to right.
+              </h3>
             </div>
-
-            <div className="mt-6 rounded-[24px] border border-white/[0.08] bg-black/30 p-5">
-              <div className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#00FFD1]">
-                {TOUR_STEPS[tourStep].status}
-              </div>
-              <p className="mt-4 text-base leading-8 text-slate-300">
-                {TOUR_STEPS[tourStep].body}
-              </p>
-            </div>
+            <SmartLink
+              href="#frameworks"
+              className="w-fit rounded-full border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300 transition-colors hover:border-[#00FFD1]/40 hover:text-[#00FFD1]"
+            >
+              Audit frameworks
+            </SmartLink>
           </div>
 
-          <div className={`max-w-full overflow-hidden rounded-[32px] p-7 ${glassClass}`}>
-            <SectionLabel tone="emerald">Audit-ready by design</SectionLabel>
-            <h3 className="max-w-[22rem] text-2xl font-bold leading-tight text-white">
-              Framework linkage should be visible before procurement asks for it.
-            </h3>
-            <div className="mt-6 flex flex-wrap gap-3">
-              {FRAMEWORK_BADGES.map((badge) => (
-                <SmartLink
-                  key={badge}
-                  href="#frameworks"
-                  className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 font-mono text-[11px] uppercase tracking-[0.22em] text-slate-300 transition-colors hover:border-[#00FFD1]/40 hover:text-[#00FFD1]"
+          <div className="mt-8 grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
+            {FLOW_NODES.map((node, index) => (
+              <div key={node.id} className="contents">
+                <motion.button
+                  type="button"
+                  onMouseEnter={() => setActiveNode(node.id)}
+                  onFocus={() => setActiveNode(node.id)}
+                  whileHover={{ y: -4 }}
+                  className={`h-full min-h-[168px] rounded-[24px] border px-6 py-6 text-left transition-all ${
+                    node.id === "gateway"
+                      ? "border-[#00FFD1]/35 bg-[#00FFD1]/[0.04]"
+                      : activeNode === node.id
+                      ? "border-[#00FFD1]/40 bg-white/[0.05]"
+                      : "border-white/[0.08] bg-white/[0.02]"
+                  }`}
                 >
-                  {badge}
-                </SmartLink>
-              ))}
-            </div>
+                  <div
+                    className="font-mono text-[11px] uppercase tracking-[0.22em]"
+                    style={{ color: node.color }}
+                  >
+                    {node.title}
+                  </div>
+                  <p className="mt-3 max-w-[28ch] text-base leading-8 text-slate-400">
+                    {node.detail}
+                  </p>
+                </motion.button>
+                {index < FLOW_NODES.length - 1 ? (
+                  <div className="hidden items-center justify-center xl:flex">
+                    <div className="relative flex items-center justify-center">
+                      <div className="h-[2px] w-16 bg-gradient-to-r from-[#00FFD1]/20 via-[#00FFD1]/60 to-[#00FA9A]/60" />
+                      <motion.span
+                        className="absolute right-0 text-[#00FFD1]"
+                        animate={{ x: [-6, 2, -6], opacity: [0.35, 1, 0.35] }}
+                        transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+                      >
+                        <ArrowRight className="h-4 w-4" />
+                      </motion.span>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -1683,11 +1703,11 @@ function ProofArchitectureSection() {
 
 function BuildVerifySection() {
   return (
-    <SectionShell className="bg-[#050505] px-8 py-18 lg:px-24">
+    <SectionShell className="bg-[#050505] px-[clamp(1.25rem,4vw,2rem)] py-[clamp(4rem,8vw,4.75rem)] lg:px-[clamp(2rem,6vw,6rem)]">
       <div className="mx-auto max-w-[1500px]">
         <div className="mb-10 max-w-3xl">
           <SectionLabel tone="cyan">Build and verify</SectionLabel>
-          <h2 className="text-4xl font-bold tracking-tight text-white lg:text-5xl">
+          <h2 className="text-[clamp(2.25rem,5vw,3rem)] font-bold tracking-tight text-white">
             Docs, trust posture, and role-specific paths in one ecosystem.
           </h2>
         </div>
@@ -1798,7 +1818,7 @@ function HeroSection({ velocity, isMobile }: { velocity: number; isMobile: boole
     <SectionShell id="top" className="min-h-screen">
       <section
         ref={sectionRef}
-        className="relative overflow-hidden bg-[#050505] px-8 pt-24 lg:px-16"
+        className="relative overflow-hidden bg-[#050505] px-8 pb-12 pt-24 lg:px-16"
         onMouseMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           setPointer({
@@ -1816,10 +1836,10 @@ function HeroSection({ velocity, isMobile }: { velocity: number; isMobile: boole
             <HeroScene progress={progress} velocity={velocity} pointer={pointer} />
         </SceneCanvas>
 
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(0,255,209,0.12),transparent_36%),radial-gradient(circle_at_center,rgba(0,255,180,0.05),transparent_26%),radial-gradient(circle_at_80%_20%,rgba(255,51,102,0.08),transparent_24%),linear-gradient(180deg,rgba(5,5,5,0.35),rgba(5,5,5,0.9))]" />
-        <div className="pointer-events-none absolute inset-0 opacity-[0.16] [background-image:radial-gradient(rgba(125,211,252,0.9)_0.8px,transparent_0.8px)] [background-size:24px_24px]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(0,255,209,0.1),transparent_34%),radial-gradient(circle_at_center,rgba(0,255,180,0.04),transparent_24%),radial-gradient(circle_at_80%_20%,rgba(255,51,102,0.06),transparent_22%),linear-gradient(180deg,rgba(5,5,5,0.3),rgba(5,5,5,0.88))]" />
+        <div className="pointer-events-none absolute inset-0 opacity-[0.11] [background-image:radial-gradient(rgba(125,211,252,0.9)_0.8px,transparent_0.8px)] [background-size:24px_24px]" />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-[radial-gradient(circle_at_bottom,rgba(0,255,209,0.18),transparent_45%)]" />
-        <div className="pointer-events-none absolute left-1/2 top-[38%] hidden h-[20rem] w-[20rem] -translate-x-1/2 -translate-y-1/2 lg:block">
+        <div className="pointer-events-none absolute left-1/2 top-[38%] hidden h-[20rem] w-[20rem] -translate-x-1/2 -translate-y-1/2 opacity-70 lg:block">
           <motion.div
             className="absolute inset-0 rounded-full border border-[#00FFD1]/20"
             animate={{ scale: [0.86, 1.04, 0.86], opacity: [0.18, 0.38, 0.18] }}
@@ -1851,19 +1871,19 @@ function HeroSection({ velocity, isMobile }: { velocity: number; isMobile: boole
 
         <motion.div
           style={{ y: headlineY, opacity: headlineOpacity }}
-          className="relative z-10 mx-auto grid min-h-[92vh] w-full max-w-[1500px] items-center gap-10 lg:grid-cols-[0.9fr_0.75fr]"
+          className="relative z-10 mx-auto grid min-h-[calc(100svh-5.5rem)] w-full max-w-[1500px] items-center gap-8 pt-4 md:grid-cols-[minmax(0,1fr)_minmax(260px,340px)] md:gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] lg:gap-10 xl:grid-cols-[minmax(0,1.02fr)_minmax(360px,420px)] xl:gap-14"
         >
-          <div className="max-w-3xl pt-8 text-center lg:pt-14 lg:text-left">
-            <div className={`mb-8 inline-flex items-center gap-3 rounded-full px-5 py-2 ${glassClass}`}>
+          <div className="max-w-3xl pt-4 text-center md:text-left xl:pt-8">
+            <div className={`mb-6 inline-flex items-center gap-3 rounded-full px-5 py-2 ${glassClass}`}>
               <span className="font-mono text-[11px] uppercase tracking-[0.3em] text-[#00FFD1]">
                 Runtime policy • incident operations • cryptographic evidence
               </span>
             </div>
 
-            <h1 className="max-w-4xl text-6xl font-extrabold tracking-tight text-white lg:text-8xl">
+            <h1 className="max-w-4xl text-[clamp(3rem,7vw,6.2rem)] font-extrabold leading-[0.92] tracking-tight text-white">
               Govern AI at Runtime. Protect Exit Valuations.
             </h1>
-            <p className="mt-6 max-w-2xl text-lg font-light leading-8 text-slate-400 lg:text-xl">
+            <p className="mt-5 max-w-2xl text-[clamp(1rem,1.8vw,1.125rem)] font-light leading-8 text-slate-400">
               Intercept prompts, enforce policy, and cryptographically seal every
               AI decision before it reaches production.
             </p>
@@ -1872,7 +1892,7 @@ function HeroSection({ velocity, isMobile }: { velocity: number; isMobile: boole
               guesswork.
             </p>
 
-            <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row lg:items-start">
+            <div className="mt-8 flex flex-col items-center gap-4 sm:flex-row md:items-start">
               <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
                 <SmartLink
                   href="/book-demo"
@@ -1902,8 +1922,8 @@ function HeroSection({ velocity, isMobile }: { velocity: number; isMobile: boole
             </div>
           </div>
 
-          <div className="relative grid gap-4 lg:justify-self-end lg:pt-10">
-            <div className="justify-self-start rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-5 backdrop-blur-xl lg:w-64">
+          <div className="relative mx-auto grid w-full max-w-[clamp(16rem,30vw,24rem)] gap-4 md:ml-auto md:pt-2 lg:pt-6 xl:max-w-[26rem] xl:pt-10">
+            <div className="justify-self-start rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl md:w-[13rem] lg:w-64">
               <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FA9A]">
                 Runtime seal
               </div>
@@ -1912,7 +1932,7 @@ function HeroSection({ velocity, isMobile }: { velocity: number; isMobile: boole
               </p>
             </div>
 
-            <div className="justify-self-end rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-5 backdrop-blur-xl lg:w-[22rem]">
+            <div className="justify-self-end rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl md:w-full lg:w-[22rem]">
               <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
                 Live command rail
               </div>
@@ -2044,20 +2064,20 @@ function ProblemSection({ velocity, isMobile }: { velocity: number; isMobile: bo
   useMotionValueEvent(scrollYProgress, "change", setProgress);
 
   return (
-    <SectionShell id="product" className="min-h-[92vh] bg-[#050505] px-8 py-12 lg:px-24">
+    <SectionShell id="product" className="min-h-[92vh] bg-[#050505] px-[clamp(1.25rem,4vw,2rem)] py-[clamp(3.5rem,7vw,4.5rem)] lg:px-[clamp(2rem,6vw,6rem)]">
       <section
         ref={sectionRef}
-        className="grid min-h-[100vh] grid-cols-1 items-center gap-12 lg:grid-cols-2"
+        className="grid min-h-[100vh] grid-cols-1 items-center gap-[clamp(2rem,4vw,3.5rem)] md:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]"
       >
         <motion.div
           style={{ y: lerp(0, -60, clamp(progress, 0, 1)) }}
-          className="relative z-10 max-w-xl"
+          className="relative z-10 mx-auto w-full max-w-[42rem] md:mx-0 md:max-w-[34rem] xl:max-w-xl"
         >
           <SectionLabel tone="red">The shadow AI problem</SectionLabel>
-          <h2 className="text-4xl font-bold tracking-tight text-white lg:text-5xl">
+          <h2 className="text-[clamp(2.1rem,4.8vw,3rem)] font-bold tracking-tight text-white">
             A claims adjuster asks for an SSN. Legacy controls notice after the fact.
           </h2>
-          <p className="mt-6 text-lg leading-8 text-slate-400">
+          <p className="mt-6 text-[clamp(1rem,1.6vw,1.125rem)] leading-8 text-slate-400">
             In a real workflow, the risk is not an abstract “silent exposure”.
             It is one employee prompt, one unsafe model route, and one response
             that should never leave production. The difference is whether the
@@ -2065,8 +2085,8 @@ function ProblemSection({ velocity, isMobile }: { velocity: number; isMobile: bo
           </p>
           <div className="mt-10 grid gap-4">
             <div className={`rounded-[28px] p-6 ${glassClass}`}>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="flex min-h-[220px] flex-col rounded-[22px] border border-[#FF3366]/20 bg-[#FF3366]/8 p-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="flex min-h-[clamp(13.5rem,24vw,15rem)] flex-col rounded-[22px] border border-[#FF3366]/20 bg-[#FF3366]/8 p-5">
                   <div className="flex items-center gap-3">
                     <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[#FF3366]/20 bg-[#FF3366]/10 text-[#FF3366]">
                       <TriangleAlert className="h-5 w-5" />
@@ -2080,7 +2100,7 @@ function ProblemSection({ velocity, isMobile }: { velocity: number; isMobile: bo
                     data. The provider call goes out and security learns about it later.
                   </p>
                 </div>
-                <div className="flex min-h-[220px] flex-col rounded-[22px] border border-[#00FA9A]/20 bg-[#00FA9A]/8 p-5">
+                <div className="flex min-h-[clamp(13.5rem,24vw,15rem)] flex-col rounded-[22px] border border-[#00FA9A]/20 bg-[#00FA9A]/8 p-5">
                   <div className="flex items-center gap-3">
                     <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[#00FA9A]/20 bg-[#00FA9A]/10 text-[#00FA9A]">
                       <Shield className="h-5 w-5" />
@@ -2099,7 +2119,7 @@ function ProblemSection({ velocity, isMobile }: { velocity: number; isMobile: bo
           </div>
         </motion.div>
 
-        <div className="relative h-[620px] overflow-hidden rounded-[32px] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] shadow-[0_0_80px_rgba(0,255,209,0.08)]">
+        <div className="relative mx-auto h-[clamp(24rem,54vw,38.75rem)] w-full max-w-[56rem] overflow-hidden rounded-[32px] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] shadow-[0_0_80px_rgba(0,255,209,0.08)] md:mx-0 md:max-w-none">
           <SceneCanvas
             label="shadow traffic scene"
             isMobile={isMobile}
@@ -2118,7 +2138,7 @@ function ProblemSection({ velocity, isMobile }: { velocity: number; isMobile: bo
           <div className="pointer-events-none absolute bottom-6 right-6 rounded-full border border-[#00FA9A]/30 bg-[#00FA9A]/10 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FA9A]">
             Gateway shield online
           </div>
-          <div className="pointer-events-none absolute left-6 bottom-6 hidden w-72 rounded-[24px] border border-white/[0.08] bg-black/30 p-4 backdrop-blur-xl lg:block">
+          <div className="pointer-events-none absolute left-6 bottom-6 hidden w-72 rounded-[24px] border border-white/[0.08] bg-black/30 p-4 backdrop-blur-xl md:block">
             <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#FF3366]">
               Prompt stream anomaly
             </div>
@@ -2128,7 +2148,7 @@ function ProblemSection({ velocity, isMobile }: { velocity: number; isMobile: bo
               <div className="text-[#00FA9A]">shield result: cleansed + re-routed</div>
             </div>
           </div>
-          <div className="pointer-events-none absolute right-6 top-20 hidden w-60 rounded-[24px] border border-white/[0.08] bg-black/30 p-4 backdrop-blur-xl lg:block">
+          <div className="pointer-events-none absolute right-6 top-20 hidden w-60 rounded-[24px] border border-white/[0.08] bg-black/30 p-4 backdrop-blur-xl md:block">
             <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
               Gateway telemetry
             </div>
@@ -2168,43 +2188,108 @@ function EnforcementSection({ velocity, isMobile }: { velocity: number; isMobile
   }, [progress]);
 
   const blockTriggered = visibleCode.includes("block()");
+  const runtimeSignals =
+    activeIndex === 0
+      ? [
+          { label: "Phase", value: "Preflight inspection", tone: "#00FFD1" },
+          { label: "Policy", value: "Restricted intent scan", tone: "#7dd3fc" },
+          { label: "Incident", value: "Standby", tone: "#94A3B8" },
+          { label: "Receipt", value: "Pending seal", tone: "#94A3B8" },
+        ]
+      : activeIndex === 1
+      ? [
+          { label: "Phase", value: "Tool route control", tone: "#00FFD1" },
+          { label: "Policy", value: "Default-deny enforced", tone: "#00FA9A" },
+          { label: "Incident", value: "Watch enabled", tone: "#f59e0b" },
+          { label: "Receipt", value: "Queued", tone: "#94A3B8" },
+        ]
+      : [
+          { label: "Phase", value: "Escalation commit", tone: "#00FFD1" },
+          { label: "Policy", value: "Execution frozen", tone: "#FF3366" },
+          { label: "Incident", value: "Opened + assigned", tone: "#00FA9A" },
+          { label: "Receipt", value: "Sealed immediately", tone: "#7dd3fc" },
+        ];
 
   return (
-    <SectionShell id="engine" className="relative h-[132vh] bg-[#050505]">
-      <section ref={sectionRef} className="sticky top-0 flex h-screen items-center px-8 lg:px-24">
-        <div className="grid w-full grid-cols-1 items-center gap-12 py-12 lg:grid-cols-[0.92fr_1.08fr]">
-          <div className="relative z-10 max-w-xl">
+    <SectionShell id="engine" className="relative h-[120vh] bg-[#050505] md:h-[126vh] xl:h-[132vh]">
+      <section
+        ref={sectionRef}
+        className="sticky top-[clamp(4.75rem,8vw,5.5rem)] flex h-[calc(100svh-clamp(4.75rem,8vw,5.5rem))] items-start px-[clamp(1.25rem,4vw,2rem)] lg:px-[clamp(2rem,6vw,6rem)] xl:items-center"
+      >
+        <div className="grid w-full grid-cols-1 items-start gap-[clamp(1rem,2.5vw,3.25rem)] py-[clamp(0.75rem,1.8vw,2rem)] md:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] xl:grid-cols-[0.92fr_1.08fr] xl:items-center xl:py-[clamp(2rem,5vw,3rem)]">
+          <div className="relative z-10 mx-auto w-full max-w-[42rem] md:mx-0 md:max-w-[30rem] xl:max-w-xl">
             <SectionLabel tone="emerald">Enforcement engine</SectionLabel>
-            <div className="space-y-6">
+            <div className="relative space-y-[clamp(0.7rem,1.25vw,1.25rem)]">
               {ENGINE_STEPS.map((step, index) => {
                 const distance = Math.abs(index - activeIndex);
-                const opacity = distance === 0 ? 1 : distance === 1 ? 0.38 : 0.18;
-                const translate = distance === 0 ? 0 : distance === 1 ? 14 : 24;
+                const opacity = distance === 0 ? 1 : distance === 1 ? 0.74 : 0.56;
+                const translate = distance === 0 ? 0 : distance === 1 ? 8 : 12;
+                const scale = distance === 0 ? 1 : distance === 1 ? 0.985 : 0.97;
+                const stageLabel =
+                  distance === 0 ? "active lane" : distance === 1 ? "monitoring" : "armed";
+                const surfaceClass =
+                  distance === 0
+                    ? "border border-[#00FFD1]/18 bg-[linear-gradient(180deg,rgba(0,255,209,0.08),rgba(255,255,255,0.03))] shadow-[0_0_44px_rgba(0,255,209,0.06)]"
+                    : distance === 1
+                    ? "border border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.02))]"
+                    : "border border-white/[0.06] bg-[linear-gradient(180deg,rgba(255,255,255,0.025),rgba(255,255,255,0.012))]";
 
                 return (
-                  <motion.div
-                    key={step.label}
-                    animate={{ opacity, y: translate }}
-                    transition={{ duration: 0.35, ease: "easeOut" }}
-                    className={`rounded-[28px] p-7 ${glassClass}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="h-10 w-px bg-gradient-to-b from-[#00FFD1]/0 via-[#00FFD1]/80 to-[#00FFD1]/0" />
-                      <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
-                        {`${String(index + 1).padStart(2, "0")} / ${step.label}`}
+                  <div key={step.label} className="relative pl-11 md:pl-12 xl:pl-14">
+                    {index < ENGINE_STEPS.length - 1 ? (
+                      <div className="pointer-events-none absolute left-[15px] top-8 bottom-[-16px] w-px bg-gradient-to-b from-[#00FFD1]/55 via-white/10 to-transparent md:left-[15px] md:bottom-[-18px] xl:left-[17px] xl:top-9 xl:bottom-[-24px]" />
+                    ) : null}
+                    <motion.span
+                      animate={{ opacity, y: translate, scale }}
+                      transition={{ duration: 0.35, ease: "easeOut" }}
+                      className={`absolute left-0 top-2.5 flex h-8 w-8 items-center justify-center rounded-full border font-mono text-[10px] uppercase tracking-[0.16em] md:h-8 md:w-8 xl:top-3 xl:h-9 xl:w-9 ${
+                        distance === 0
+                          ? "border-[#00FFD1]/45 bg-[#00FFD1]/12 text-[#00FFD1] shadow-[0_0_24px_rgba(0,255,209,0.2)]"
+                          : "border-white/[0.12] bg-white/[0.03] text-slate-400"
+                      }`}
+                    >
+                      {String(index + 1).padStart(2, "0")}
+                    </motion.span>
+                    <motion.div
+                      animate={{ opacity, y: translate, scale }}
+                      transition={{ duration: 0.35, ease: "easeOut" }}
+                      className={`relative min-h-[clamp(7.75rem,12.5vw,13.125rem)] overflow-hidden rounded-[26px] px-5 py-4 md:rounded-[28px] md:px-5 md:py-4 xl:rounded-[30px] xl:px-7 xl:py-6 ${surfaceClass}`}
+                    >
+                      {distance === 0 ? (
+                        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#00FFD1]/70 to-transparent" />
+                      ) : null}
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
+                          {step.label}
+                        </div>
+                        <div className={`rounded-full px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.16em] md:px-3 md:text-[10px] md:tracking-[0.18em] ${
+                          distance === 0
+                            ? "border border-[#00FFD1]/25 bg-[#00FFD1]/10 text-[#00FFD1]"
+                            : "border border-white/[0.08] bg-white/[0.03] text-slate-400"
+                        }`}>
+                          {stageLabel}
+                        </div>
                       </div>
-                    </div>
-                    <h3 className="mt-4 text-3xl font-bold text-white">{step.title}</h3>
-                    <p className="mt-4 text-base leading-8 text-slate-400">{step.body}</p>
-                  </motion.div>
+                      <h3 className={`mt-3 text-[clamp(1.45rem,2.2vw,2.2rem)] font-bold leading-[0.98] ${
+                        distance === 0 ? "text-white" : "text-white/90"
+                      }`}>
+                        {step.title}
+                      </h3>
+                      <p className={`mt-2.5 text-[clamp(0.88rem,0.98vw,1rem)] leading-[1.65] md:leading-[1.7] xl:mt-3 xl:leading-8 ${
+                        distance === 0 ? "text-slate-300" : "text-slate-400"
+                      }`}>
+                        {step.body}
+                      </p>
+                    </motion.div>
+                  </div>
                 );
               })}
             </div>
           </div>
 
-          <div className="relative z-10 h-[560px]">
+          <div className="relative z-10 mx-auto h-[clamp(26rem,50vw,35rem)] w-full max-w-[56rem] md:mx-0 md:max-w-none">
             <div
-              className={`absolute inset-0 overflow-hidden rounded-[32px] border border-white/[0.1] bg-white/[0.03] ${glassClass}`}
+              className="absolute inset-0 overflow-hidden rounded-[38px] border border-[#00FFD1]/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.016))] shadow-[0_0_88px_rgba(0,255,209,0.07)] backdrop-blur-xl"
               style={{
                 transform: "perspective(1600px) rotateY(-8deg) rotateX(2deg)",
               }}
@@ -2222,6 +2307,7 @@ function EnforcementSection({ velocity, isMobile }: { velocity: number; isMobile
                     blockTriggered={blockTriggered}
                   />
               </SceneCanvas>
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,rgba(0,255,209,0.1),transparent_18%),radial-gradient(circle_at_82%_24%,rgba(255,51,102,0.07),transparent_20%),linear-gradient(180deg,rgba(255,255,255,0.04),transparent_24%)]" />
 
               <div className="relative z-10 flex h-full flex-col">
                 <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
@@ -2239,8 +2325,29 @@ function EnforcementSection({ velocity, isMobile }: { velocity: number; isMobile
                   </div>
                 </div>
                 <div className="flex-1 p-8 font-mono text-sm leading-8 text-slate-300">
-                  <div className="mb-4 text-[11px] uppercase tracking-[0.28em] text-[#00FA9A]">
-                    Inline gateway &amp; SDK guard
+                  <div className="mb-4 flex flex-wrap items-center gap-2">
+                    <div className="rounded-full border border-[#00FA9A]/25 bg-[#00FA9A]/10 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-[#00FA9A]">
+                      Inline gateway
+                    </div>
+                    <div className="rounded-full border border-[#00FFD1]/25 bg-[#00FFD1]/10 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-[#00FFD1]">
+                      SDK guard
+                    </div>
+                  </div>
+                  <div className="mb-5 grid gap-3 md:grid-cols-2">
+                    {runtimeSignals.map((signal) => (
+                      <div
+                        key={signal.label}
+                        className="rounded-[16px] border border-white/[0.08] bg-black/25 px-4 py-3"
+                      >
+                        <div
+                          className="font-mono text-[10px] uppercase tracking-[0.2em]"
+                          style={{ color: signal.tone }}
+                        >
+                          {signal.label}
+                        </div>
+                        <div className="mt-2 text-sm text-slate-200">{signal.value}</div>
+                      </div>
+                    ))}
                   </div>
                   <pre className="overflow-hidden whitespace-pre-wrap text-[15px] text-slate-200">
                     {visibleCode}
@@ -2259,18 +2366,18 @@ function EnforcementSection({ velocity, isMobile }: { velocity: number; isMobile
                 </div>
               </div>
             </div>
-            <div className="pointer-events-none absolute -bottom-5 left-6 w-[20rem] rounded-[22px] border border-white/[0.08] bg-[#050505]/80 px-5 py-4 backdrop-blur-xl">
+            <div className="pointer-events-none absolute bottom-5 left-6 w-[18.5rem] rounded-[20px] border border-white/[0.1] bg-black/58 px-4 py-4 shadow-[0_0_28px_rgba(0,0,0,0.3)] backdrop-blur-xl">
               <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
                 Policy outcome
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-3 font-mono text-xs text-slate-300">
+              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 font-mono text-xs text-slate-300">
                 <div>pii: blocked inline</div>
                 <div>tools: deny by default</div>
                 <div>critical: incident opened</div>
                 <div className="text-[#00FA9A]">receipt: sealed immediately</div>
               </div>
             </div>
-            <div className="pointer-events-none absolute right-6 top-6 hidden w-[25rem] rounded-[24px] border border-white/[0.08] bg-black/35 px-5 py-5 backdrop-blur-xl lg:block">
+            <div className="pointer-events-none absolute right-5 top-5 hidden w-[21rem] rounded-[24px] border border-white/[0.1] bg-black/48 px-5 py-5 shadow-[0_0_36px_rgba(0,0,0,0.35)] backdrop-blur-xl xl:block">
               <div className="flex items-center justify-between gap-4">
                 <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FA9A]">
                   Auto-escalation path
@@ -2319,21 +2426,21 @@ function VaultSection({ velocity, isMobile }: { velocity: number; isMobile: bool
   useMotionValueEvent(scrollYProgress, "change", setProgress);
 
   return (
-    <SectionShell id="vault" className="bg-[#050505] px-8 py-14 lg:px-24">
+    <SectionShell id="vault" className="bg-[#050505] px-[clamp(1.25rem,4vw,2rem)] py-[clamp(3.75rem,7vw,4.5rem)] lg:px-[clamp(2rem,6vw,6rem)]">
       <section ref={sectionRef} className="mx-auto max-w-[1500px] overflow-hidden">
         <div className="mx-auto max-w-4xl text-center">
           <SectionLabel tone="cyan">Verifiable trust vault</SectionLabel>
-          <h2 className="text-5xl font-bold tracking-tight text-white">
+          <h2 className="text-[clamp(2.2rem,5vw,3rem)] font-bold tracking-tight text-white">
             Every decision cryptographically sealed.
           </h2>
-          <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-slate-400">
+          <p className="mx-auto mt-6 max-w-2xl text-[clamp(1rem,1.6vw,1.125rem)] leading-8 text-slate-400">
             Runtime evidence is not a screenshot or spreadsheet artifact. It is
             hash-linked, reviewable, and ready for LP due diligence, security
             review, and regulatory challenge.
           </p>
         </div>
 
-        <div className="relative mt-14 h-[390px] overflow-hidden rounded-[34px] border border-white/[0.08] bg-white/[0.02] shadow-[0_0_72px_rgba(0,255,209,0.08)]">
+        <div className="relative mt-14 h-[clamp(20rem,36vw,24.5rem)] overflow-hidden rounded-[34px] border border-white/[0.08] bg-white/[0.02] shadow-[0_0_72px_rgba(0,255,209,0.08)]">
           <SceneCanvas
             label="evidence vault"
             isMobile={isMobile}
@@ -2348,7 +2455,10 @@ function VaultSection({ velocity, isMobile }: { velocity: number; isMobile: bool
           <div className="pointer-events-none absolute bottom-6 right-6 rounded-full border border-[#00FA9A]/30 bg-[#00FA9A]/10 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FA9A]">
             Diligence ready evidence
           </div>
-          <div className="pointer-events-none absolute right-6 top-6 hidden w-72 rounded-[24px] border border-white/[0.08] bg-black/30 p-4 backdrop-blur-xl lg:block">
+          <div
+            className="pointer-events-none absolute right-4 top-4 hidden w-[18rem] rounded-[22px] border border-white/[0.08] bg-black/30 p-4 backdrop-blur-xl md:block lg:right-6 lg:top-6 lg:w-72"
+            style={{ transform: "scale(clamp(0.82, 0.9vw, 1))", transformOrigin: "top right" }}
+          >
             <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
               Evidence payload
             </div>
@@ -2359,12 +2469,15 @@ function VaultSection({ velocity, isMobile }: { velocity: number; isMobile: bool
               <div>framework: eu_ai_act</div>
             </div>
           </div>
-          <div className="pointer-events-none absolute inset-x-6 top-1/2 hidden -translate-y-1/2 lg:block">
+          <div
+            className="pointer-events-none absolute inset-x-3 top-1/2 hidden md:block lg:inset-x-6"
+            style={{ transform: "translateY(-50%) scale(clamp(0.72, 0.95vw, 1))", transformOrigin: "center" }}
+          >
             <div className="absolute left-[16.5%] right-[16.5%] top-1/2 h-px -translate-y-1/2 bg-gradient-to-r from-transparent via-[#00FFD1]/55 to-transparent" />
-            <div className="relative grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-4">
+            <div className="relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 lg:gap-4">
               {VAULT_RECEIPTS.map((receipt) => (
                 <div key={receipt.hash} className="contents">
-                  <div className="rounded-[22px] border border-white/[0.08] bg-black/35 px-4 py-4 backdrop-blur-xl">
+                  <div className="min-w-0 rounded-[22px] border border-white/[0.08] bg-black/35 px-4 py-4 backdrop-blur-xl">
                     <div className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#00FFD1]">
                       {receipt.hash}
                     </div>
@@ -2392,15 +2505,15 @@ function VaultSection({ velocity, isMobile }: { velocity: number; isMobile: bool
 
 function BentoSection() {
   return (
-    <SectionShell id="solutions" className="bg-[#050505] px-8 py-18 lg:px-24">
+    <SectionShell id="solutions" className="bg-[#050505] px-[clamp(1.25rem,4vw,2rem)] py-[clamp(4rem,8vw,4.75rem)] lg:px-[clamp(2rem,6vw,6rem)]">
       <div className="mx-auto max-w-[1500px]">
         <div className="mb-14 max-w-3xl">
           <SectionLabel tone="emerald">Runtime enforcement</SectionLabel>
-          <h2 className="text-4xl font-bold tracking-tight text-white lg:text-5xl">
+          <h2 className="text-[clamp(2.25rem,5vw,3rem)] font-bold tracking-tight text-white">
             Concrete outcomes, not just feature lists.
           </h2>
         </div>
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-[clamp(0.9rem,1.5vw,1.5rem)] sm:grid-cols-2 xl:grid-cols-3">
           {BENTO_CARDS.map((card) => (
             <GlareCard key={card.title} {...card} />
           ))}
@@ -2422,7 +2535,7 @@ function PortfolioSection({ velocity, isMobile }: { velocity: number; isMobile: 
 
   return (
     <SectionShell id="frameworks" className="relative h-[92vh] bg-[#050505]">
-      <section ref={sectionRef} className="relative flex h-[92vh] items-center justify-center overflow-hidden px-8 lg:px-24">
+      <section ref={sectionRef} className="relative flex h-[92vh] items-center justify-center overflow-hidden px-[clamp(1.25rem,4vw,2rem)] lg:px-[clamp(2rem,6vw,6rem)]">
         <SceneCanvas
           label="portfolio network"
           isMobile={isMobile}
@@ -2444,33 +2557,34 @@ function PortfolioSection({ velocity, isMobile }: { velocity: number; isMobile: 
           <div className="absolute left-[55%] top-[64%] h-px w-[21%] rotate-[18deg] bg-gradient-to-r from-transparent via-[#7dd3fc]/55 to-transparent" />
         </div>
 
-        <div className="relative z-20 mx-auto max-w-5xl rounded-[36px] bg-[#050505]/58 px-8 py-8 text-center backdrop-blur-md">
-          <SectionLabel tone="cyan">Portfolio-scale roll-up</SectionLabel>
-          <h2 className="text-4xl font-bold tracking-tight text-white lg:text-6xl">
-            Built for multi-org private equity. Manage 50 portfolio companies from one control plane.
-          </h2>
-          <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-400">
-            Standardize runtime governance centrally, preserve tenant isolation
-            locally, and inspect the complete AI operating posture across the
-            investment perimeter.
-          </p>
-        </div>
-
-        <div className="pointer-events-none absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 lg:block">
-          <div className="rounded-[24px] border border-[#00FFD1]/25 bg-black/45 px-5 py-4 text-center backdrop-blur-xl shadow-[0_0_44px_rgba(0,255,209,0.12)]">
-            <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
-              Control plane
+        <div className="relative z-20 mx-auto w-full max-w-[1500px] px-4">
+          <div className="mx-auto max-w-4xl px-[clamp(1.25rem,3vw,2rem)] py-[clamp(1.5rem,3vw,2.5rem)] text-center">
+            <SectionLabel tone="cyan">Portfolio-scale roll-up</SectionLabel>
+            <h2 className="text-[clamp(2.25rem,5vw,3.75rem)] font-bold tracking-tight text-transparent [text-shadow:0_0_26px_rgba(255,255,255,0.08)] [-webkit-text-stroke:1.5px_rgba(255,255,255,0.94)]">
+              Built for multi-org private equity. Manage 50 portfolio companies from one control plane.
+            </h2>
+            <div className="mt-5 hidden justify-center lg:flex">
+              <div className="rounded-[20px] border border-[#00FFD1]/25 bg-black/35 px-5 py-3 text-center backdrop-blur-xl shadow-[0_0_32px_rgba(0,255,209,0.1)]">
+                <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
+                  Control plane
+                </div>
+                <div className="mt-2 text-sm font-medium text-slate-200">
+                  policy, incidents, evidence
+                </div>
+              </div>
             </div>
-            <div className="mt-2 text-sm font-medium text-slate-200">
-              policy, incidents, evidence
-            </div>
+            <p className="mx-auto mt-6 max-w-3xl text-[clamp(1rem,1.6vw,1.125rem)] leading-8 text-slate-300 [text-shadow:0_0_18px_rgba(0,0,0,0.55)]">
+              Standardize runtime governance centrally, preserve tenant isolation
+              locally, and inspect the complete AI operating posture across the
+              investment perimeter.
+            </p>
           </div>
         </div>
 
         {PORTFOLIO_COMPANIES.map((company) => (
           <div
             key={company.name}
-            className={`pointer-events-none absolute hidden w-64 rounded-[24px] border border-white/[0.08] bg-black/30 p-4 backdrop-blur-xl lg:block ${company.className}`}
+            className={`pointer-events-none absolute z-30 hidden w-64 rounded-[24px] border border-white/[0.08] bg-black/40 p-4 shadow-[0_0_32px_rgba(0,0,0,0.35)] backdrop-blur-xl xl:block ${company.className}`}
           >
             <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
               Portfolio node
@@ -2486,7 +2600,7 @@ function PortfolioSection({ velocity, isMobile }: { velocity: number; isMobile: 
 
 function FinalCTASection() {
   return (
-    <SectionShell id="cta" className="bg-[#020202] px-8 py-18 lg:px-24">
+    <SectionShell id="cta" className="bg-[#020202] px-[clamp(1.25rem,4vw,2rem)] py-[clamp(4rem,8vw,4.75rem)] lg:px-[clamp(2rem,6vw,6rem)]">
       <div className="relative flex min-h-[56vh] flex-col items-center justify-center overflow-hidden text-center">
         <div className="pointer-events-none absolute inset-0 hidden lg:block">
           <div className="absolute left-1/2 top-12 h-px w-[32rem] -translate-x-[78%] rotate-[18deg] bg-gradient-to-r from-transparent via-[#00FFD1]/70 to-transparent" />
@@ -2495,10 +2609,10 @@ function FinalCTASection() {
           <div className="absolute left-1/2 top-28 h-32 w-32 -translate-x-1/2 rounded-full bg-[#00FFD1]/10 blur-[90px]" />
         </div>
         <SectionLabel tone="emerald">Enterprise activation</SectionLabel>
-        <h2 className="max-w-4xl text-5xl font-extrabold tracking-tight text-white">
+        <h2 className="max-w-4xl text-[clamp(2.4rem,5.5vw,3rem)] font-extrabold tracking-tight text-white">
           Bring your AI systems into one control tower.
         </h2>
-        <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-400">
+        <p className="mt-6 max-w-2xl text-[clamp(1rem,1.6vw,1.125rem)] leading-8 text-slate-400">
           Bring runtime policy, incident response, cryptographic evidence, and
           portfolio oversight into one institutional-grade operating layer.
         </p>
@@ -2514,7 +2628,7 @@ function FinalCTASection() {
 
 function Footer() {
   return (
-    <footer className="border-t border-white/10 bg-[#050505] px-8 pb-8 pt-16 lg:px-24" id="footer">
+    <footer className="border-t border-white/10 bg-[#050505] px-[clamp(1.25rem,4vw,2rem)] pb-8 pt-[clamp(3.5rem,7vw,4rem)] lg:px-[clamp(2rem,6vw,6rem)]" id="footer">
       <div className="mx-auto grid max-w-[1500px] grid-cols-1 gap-10 md:grid-cols-2 xl:grid-cols-5">
         <div className="xl:col-span-1">
           <div className="flex items-center gap-3">

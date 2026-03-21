@@ -26,14 +26,17 @@ Required backend environment variables:
 - `PORT=5000`
 - `DATABASE_URL=<postgres-connection-string>`
 - `SESSION_SECRET=<long-random-secret>`
+- `PASSWORD_RESET_SECRET=<dedicated-long-random-secret>`
+- `CONTROL_TOWER_VAULT_SECRET=<dedicated-long-random-secret>`
 - `TRUST_PROXY=true`
+- `PUBLIC_APP_URL=https://<your-netlify-site>.netlify.app`
 - `CORS_ALLOWED_ORIGINS=https://<your-netlify-site>.netlify.app`
 - `SESSION_COOKIE_SAME_SITE=none`
 - `SESSION_COOKIE_SECURE=true`
+- `CSRF_ENFORCED=true`
 
 Optional (if used in your flows):
 - `LEAD_WEBHOOK_URL=<webhook-url>`
-- `PUBLIC_APP_URL=https://<your-netlify-site>.netlify.app`
 - `SMTP_HOST=<smtp-host>`
 - `SMTP_PORT=<smtp-port>`
 - `SMTP_SECURE=<true|false>`
@@ -43,7 +46,6 @@ Optional (if used in your flows):
 - `INVITE_WEBHOOK_URL=<delivery-webhook-url>`
 - `EXPOSE_INVITE_TOKENS=false`
 - `ALLOW_SELF_SIGNUP=false`
-- `CSRF_ENFORCED=true`
 - `SEED_TEST_USERS=true`
 - `TEST_USER_PASSWORD=<strong-temp-password>`
 
@@ -84,3 +86,9 @@ After deploy, verify:
     - `SESSION_COOKIE_SAME_SITE=none`
     - `SESSION_COOKIE_SECURE=true`
     - `TRUST_PROXY=true`
+- Backend fails immediately on boot:
+  - Runtime validation rejected missing or placeholder production settings. Recheck:
+    - `PUBLIC_APP_URL`
+    - `PASSWORD_RESET_SECRET`
+    - `CONTROL_TOWER_VAULT_SECRET`
+    - `CSRF_ENFORCED=true`

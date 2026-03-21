@@ -14,7 +14,11 @@ This repo is prepared for Vercel as:
 
 - `DATABASE_URL`
 - `SESSION_SECRET`
+- `PASSWORD_RESET_SECRET`
+- `CONTROL_TOWER_VAULT_SECRET`
 - `CRON_SECRET`
+- `PUBLIC_APP_URL`
+- `CORS_ALLOWED_ORIGINS`
 
 Recommended:
 

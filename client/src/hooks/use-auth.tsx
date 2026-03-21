@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, type ReactNode } from "react";
 import { useQuery, useMutation, type UseMutationResult } from "@tanstack/react-query";
 import { apiRequest, captureCsrfTokenFromResponse, queryClient } from "@/lib/queryClient";
+import { resolveApiUrl } from "@/lib/api-url";
 import { useToast } from "@/hooks/use-toast";
 
 export interface AuthOrganization {
@@ -66,7 +67,9 @@ const PUBLIC_SESSION_PATHS = new Set([
   "/welcome",
   "/auth",
   "/auth/login",
+  "/auth/reset-password",
   "/login",
+  "/reset-password",
   "/auth/invite",
   "/invite/accept",
   "/book-demo",
@@ -89,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const res = await fetch("/api/auth/user", { credentials: "include", cache: "no-store" });
+      const res = await fetch(resolveApiUrl("/api/auth/user"), { credentials: "include", cache: "no-store" });
       captureCsrfTokenFromResponse(res);
 
       if (res.status === 401) {
@@ -119,7 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { data: user, isLoading } = useQuery<AuthUser | null>({
     queryKey: ["/api/auth/user"],
     queryFn: async () => {
-      const res = await fetch("/api/auth/user", { credentials: "include", cache: "no-store" });
+      const res = await fetch(resolveApiUrl("/api/auth/user"), { credentials: "include", cache: "no-store" });
       captureCsrfTokenFromResponse(res);
       if (res.status === 401) return null;
       if (!res.ok) throw new Error("Failed to fetch user");
@@ -163,7 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const timeout = window.setTimeout(() => controller.abort(), 20000);
       let res: Response;
       try {
-        res = await fetch("/api/auth/login", {
+        res = await fetch(resolveApiUrl("/api/auth/login"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data),
@@ -214,7 +217,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const switchOrganizationMutation = useMutation({
     mutationFn: async (organizationId: string) => {
       await apiRequest("POST", "/api/auth/switch-organization", { organizationId });
-      const res = await fetch("/api/auth/user", { credentials: "include" });
+      const res = await fetch(resolveApiUrl("/api/auth/user"), { credentials: "include" });
       captureCsrfTokenFromResponse(res);
       if (!res.ok) throw new Error("Failed to refresh user after organization switch");
       return res.json();

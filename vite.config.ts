@@ -44,6 +44,7 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    chunkSizeWarningLimit: 750,
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -65,10 +66,44 @@ export default defineConfig({
           ) {
             return "capture-vendor";
           }
+          if (id.includes("@react-three/drei")) {
+            return "three-drei-vendor";
+          }
+          if (id.includes("@react-three/fiber")) {
+            return "three-fiber-vendor";
+          }
+          if (id.includes("three-stdlib") || id.includes("stats-gl")) {
+            return "three-stdlib-vendor";
+          }
+          if (
+            id.includes("camera-controls") ||
+            id.includes("maath") ||
+            id.includes("meshline") ||
+            id.includes("@monogrid/gainmap-js") ||
+            id.includes("postprocessing") ||
+            id.includes("three-mesh-bvh") ||
+            id.includes("troika-three-text") ||
+            id.includes("troika-three-utils")
+          ) {
+            return "three-core-vendor";
+          }
+          if (isPackage("three")) {
+            return "three-core-vendor";
+          }
+          if (id.includes("framer-motion")) {
+            return "motion-vendor";
+          }
+          if (
+            id.includes("react-hook-form") ||
+            id.includes("@hookform/resolvers") ||
+            id.includes("qrcode.react") ||
+            isPackage("zod")
+          ) {
+            return "form-vendor";
+          }
           if (
             id.includes("@radix-ui") ||
             id.includes("lucide-react") ||
-            id.includes("framer-motion") ||
             id.includes("react-day-picker") ||
             id.includes("embla-carousel-react")
           ) {

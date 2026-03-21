@@ -29,12 +29,14 @@ Check:
 - `/api-docs`
 - `/api-docs/identity.html`
 - `/api-docs/platform.html`
+- `/auth/reset-password`
 - `/book-demo/thank-you`
 - `/start-pilot/thank-you`
 
 Expected:
 - trust-center page loads and shows buyer diligence posture
 - Redoc pages render instead of a blank screen
+- reset-password page renders without a client crash
 - thank-you aliases render without auth redirect
 
 ### 2. Admin commercialization surfaces
@@ -42,6 +44,7 @@ Expected:
 Sign in as `admin_test`.
 
 Check:
+- `/account-security`
 - `/settings`
 - `/integrations`
 - `/billing`
@@ -50,6 +53,7 @@ Check:
 
 Expected:
 - routes load without router errors
+- account security loads and MFA/password actions render
 - sidebar links exist for Decision Trace, Incidents, Integrations, Billing
 
 ### 3. Jira connector
@@ -126,8 +130,11 @@ Expected:
 ### Render
 - `DATABASE_URL`
 - `SESSION_SECRET`
+- `PASSWORD_RESET_SECRET`
+- `CONTROL_TOWER_VAULT_SECRET`
 - `CORS_ALLOWED_ORIGINS`
 - `PUBLIC_APP_URL`
+- `CSRF_ENFORCED=true`
 - Jira, if testing integration live:
   - org-specific values entered in app UI
 
@@ -148,4 +155,6 @@ Only sign off when all of these are true:
 - decision trace create path works
 - incident create/contain/resolve path works
 - billing save path works
+- reset-password page loads publicly
+- account-security page loads after login
 - trust center and API docs load publicly

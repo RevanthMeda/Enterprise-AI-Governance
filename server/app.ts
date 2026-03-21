@@ -9,6 +9,12 @@ import { applySecurityHeaders, createCsrfMiddleware } from "./security";
 import { monitoringService } from "./services/monitoringService";
 import { backgroundJobService } from "./services/backgroundJobService";
 import { retentionService } from "./services/retentionService";
+import {
+  isProductionEnvironment,
+  isVercelRuntime,
+  parseBooleanEnv,
+  validateRuntimeEnvironment,
+} from "./env";
 
 declare module "http" {
   interface IncomingMessage {
@@ -39,40 +45,22 @@ export interface AppRuntime {
 let processHandlersRegistered = false;
 let vercelRuntimePromise: Promise<AppRuntime> | null = null;
 
-function parseAllowedOrigins(origins: string | undefined): Set<string> {
-  if (!origins) return new Set();
-  return new Set(
-    origins
-      .split(",")
-      .map((origin) => origin.trim())
-      .filter((origin) => origin.length > 0),
-  );
-}
-
 function shouldStartProcessWorkers() {
-  if (process.env.VERCEL === "1") {
-    return false;
-  }
-
-  return true;
+  return !isVercelRuntime();
 }
 
 function shouldSeedOnStartup() {
-  if (process.env.AUTO_SEED_ON_STARTUP === "true") {
-    return true;
+  if (process.env.AUTO_SEED_ON_STARTUP !== undefined) {
+    return parseBooleanEnv(process.env.AUTO_SEED_ON_STARTUP, false);
   }
 
-  if (process.env.AUTO_SEED_ON_STARTUP === "false") {
-    return false;
-  }
-
-  return process.env.NODE_ENV !== "production" && process.env.VERCEL !== "1";
+  return !isProductionEnvironment() && !isVercelRuntime();
 }
 
 function verifyCronSecret(req: Request): boolean {
   const configuredSecret = process.env.CRON_SECRET;
   if (!configuredSecret) {
-    return process.env.NODE_ENV !== "production";
+    return !isProductionEnvironment();
   }
 
   return req.get("authorization") === `Bearer ${configuredSecret}`;
@@ -124,6 +112,7 @@ export function log(message: string, source = "express") {
 export async function bootstrapApp(
   options: AppBootstrapOptions = {},
 ): Promise<AppRuntime> {
+  const runtimeConfig = validateRuntimeEnvironment();
   const serveStaticClient = options.serveStaticClient ?? false;
   const startProcessWorkers =
     options.startProcessWorkers ?? shouldStartProcessWorkers();
@@ -133,14 +122,9 @@ export async function bootstrapApp(
   const app = express();
   const httpServer = createServer(app);
 
-  const allowedCorsOrigins = parseAllowedOrigins(
-    process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_ORIGINS,
-  );
+  const allowedCorsOrigins = new Set(runtimeConfig.allowedCorsOrigins);
 
-  if (
-    process.env.TRUST_PROXY === "true" ||
-    process.env.NODE_ENV === "production"
-  ) {
+  if (runtimeConfig.trustProxy) {
     app.set("trust proxy", 1);
   }
 
@@ -235,13 +219,14 @@ export async function bootstrapApp(
 
   app.use(
     createCsrfMiddleware({
-      enforced: process.env.CSRF_ENFORCED === "true",
+      enforced: runtimeConfig.csrfEnforced,
       exemptPaths: [
         "/api/track",
         "/api/leads",
         "/api/monitoring/client-errors",
         "/api/telemetry/sdk-ingest",
         "/api/telemetry/sdk-evaluate",
+        "/api/gateway/*",
       ],
     }),
   );

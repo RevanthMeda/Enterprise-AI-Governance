@@ -8,6 +8,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import type { User } from "@shared/schema";
 import { getPgPoolConfig } from "./db-config";
+import { getRuntimeConfig } from "./env";
 
 declare global {
   namespace Express {
@@ -397,18 +398,7 @@ export function setupAuth(app: Express) {
     createTableIfMissing: true,
   });
 
-  const isProduction = process.env.NODE_ENV === "production";
-  const envSameSite = process.env.SESSION_COOKIE_SAME_SITE?.toLowerCase();
-  const cookieSameSite: "lax" | "strict" | "none" =
-    envSameSite === "lax" || envSameSite === "strict" || envSameSite === "none"
-      ? envSameSite
-      : isProduction
-        ? "strict"
-        : "lax";
-  const configuredSecure = process.env.SESSION_COOKIE_SECURE
-    ? process.env.SESSION_COOKIE_SECURE === "true"
-    : isProduction;
-  const cookieSecure = cookieSameSite === "none" ? true : configuredSecure;
+  const runtimeConfig = getRuntimeConfig();
 
   app.use(
     session({
@@ -420,8 +410,8 @@ export function setupAuth(app: Express) {
       cookie: {
         maxAge: IDLE_TIMEOUT_MS,
         httpOnly: true,
-        secure: cookieSecure,
-        sameSite: cookieSameSite,
+        secure: runtimeConfig.sessionCookieSecure,
+        sameSite: runtimeConfig.sessionCookieSameSite,
       },
     })
   );
@@ -471,7 +461,7 @@ export function setupAuth(app: Express) {
           });
         }
 
-        const user = await storage.getUserByUsername(normalizedUsername);
+        const user = await storage.getUserByUsernameOrEmail(normalizedUsername);
         if (!user) {
           trackFailedLogin(clientIp, normalizedUsername);
           return done(null, false, { message: "Invalid username or password" });

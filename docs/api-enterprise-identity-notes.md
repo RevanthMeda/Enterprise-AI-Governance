@@ -48,6 +48,7 @@ Callback:
 Mock callback for regression coverage:
 
 - `POST /api/auth/sso/mock-callback`
+- available only outside production, or when `ENABLE_TEST_AUTH_ROUTES=true`
 
 Behavior notes:
 
@@ -66,6 +67,7 @@ OIDC callback:
 OIDC mock callback for regression coverage:
 
 - `POST /api/auth/oidc/mock-callback`
+- available only outside production, or when `ENABLE_TEST_AUTH_ROUTES=true`
 
 OIDC config currently uses explicit provider endpoints:
 

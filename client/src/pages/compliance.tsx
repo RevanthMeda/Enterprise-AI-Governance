@@ -334,18 +334,22 @@ export default function Compliance() {
                                   <Select
                                     value={selectedRow.systemControl.status}
                                     onValueChange={(val) => {
+                                      const systemControl = selectedRow.systemControl;
+                                      if (!systemControl) {
+                                        return;
+                                      }
                                       const requiresEvidenceNote = val === "implemented" || val === "verified";
                                       const promptedNotes = requiresEvidenceNote
                                         ? window.prompt(
                                             `Add evidence notes or reviewer rationale before marking this control as ${val.replace("_", " ")}. Leave blank only if you already attached evidence files.`,
-                                            selectedRow.systemControl?.notes || "",
+                                            systemControl.notes || "",
                                           )
                                         : "";
                                       if (requiresEvidenceNote && promptedNotes === null) {
                                         return;
                                       }
                                       const notes = typeof promptedNotes === "string" ? promptedNotes.trim() : "";
-                                      updateStatusMutation.mutate({ id: selectedRow.systemControl.id, status: val, notes });
+                                      updateStatusMutation.mutate({ id: systemControl.id, status: val, notes });
                                     }}
                                   >
                                     <SelectTrigger className="max-w-[220px]" data-testid={`select-status-${selectedRow.control.id}`}>

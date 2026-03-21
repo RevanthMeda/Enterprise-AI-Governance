@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trackMarketingEvent, readAttribution } from "@/lib/marketing";
+import { resolveApiUrl } from "@/lib/api-url";
+import { captureCsrfTokenFromResponse } from "@/lib/queryClient";
 import { PublicSiteHeader } from "@/components/public-site-header";
 
 type LeadFormData = {
@@ -68,7 +70,7 @@ function LeadCapturePage({ formType, title, subtitle, ctaLabel }: LeadCapturePag
     });
 
     try {
-      const res = await fetch("/api/leads", {
+      const res = await fetch(resolveApiUrl("/api/leads"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -80,6 +82,7 @@ function LeadCapturePage({ formType, title, subtitle, ctaLabel }: LeadCapturePag
           ctaSource: attribution.ctaSource,
         }),
       });
+      captureCsrfTokenFromResponse(res);
 
       const payload = await res.json().catch(() => null);
       if (!res.ok) {

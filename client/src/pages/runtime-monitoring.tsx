@@ -19,6 +19,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { resolveApiUrl } from "@/lib/api-url";
+import { captureCsrfTokenFromResponse } from "@/lib/queryClient";
 import type { AiSystem } from "@shared/schema";
 
 type RuntimeDecision = "allow" | "warn" | "escalate" | "block";
@@ -174,7 +176,8 @@ export default function RuntimeMonitoringPage() {
     refetchInterval: 30_000,
     staleTime: 10_000,
     queryFn: async () => {
-      const response = await fetch("/api/ai-systems", { credentials: "include" });
+      const response = await fetch(resolveApiUrl("/api/ai-systems"), { credentials: "include" });
+      captureCsrfTokenFromResponse(response);
       if (!response.ok) {
         throw new Error("Failed to load AI systems");
       }
@@ -187,7 +190,8 @@ export default function RuntimeMonitoringPage() {
     refetchInterval: 10_000,
     staleTime: 5_000,
     queryFn: async () => {
-      const response = await fetch("/api/telemetry/summary", { credentials: "include" });
+      const response = await fetch(resolveApiUrl("/api/telemetry/summary"), { credentials: "include" });
+      captureCsrfTokenFromResponse(response);
       if (!response.ok) {
         throw new Error("Failed to load telemetry summary");
       }
@@ -200,7 +204,8 @@ export default function RuntimeMonitoringPage() {
     refetchInterval: 10_000,
     staleTime: 5_000,
     queryFn: async () => {
-      const response = await fetch("/api/incidents/summary", { credentials: "include" });
+      const response = await fetch(resolveApiUrl("/api/incidents/summary"), { credentials: "include" });
+      captureCsrfTokenFromResponse(response);
       if (!response.ok) {
         throw new Error("Failed to load incident summary");
       }
@@ -213,7 +218,8 @@ export default function RuntimeMonitoringPage() {
     refetchInterval: 30_000,
     staleTime: 10_000,
     queryFn: async () => {
-      const response = await fetch("/api/organization/telemetry-adapter", { credentials: "include" });
+      const response = await fetch(resolveApiUrl("/api/organization/telemetry-adapter"), { credentials: "include" });
+      captureCsrfTokenFromResponse(response);
       if (!response.ok) {
         throw new Error("Failed to load telemetry adapter");
       }
@@ -307,7 +313,7 @@ export default function RuntimeMonitoringPage() {
 
     setIsEvaluating(true);
     try {
-      const response = await fetch("/api/telemetry/sdk-evaluate", {
+      const response = await fetch(resolveApiUrl("/api/telemetry/sdk-evaluate"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -315,6 +321,7 @@ export default function RuntimeMonitoringPage() {
         },
         body: JSON.stringify(parsedPayload),
       });
+      captureCsrfTokenFromResponse(response);
 
       setStatusCode(response.status);
       const data = (await response.json()) as RuntimeResponse;

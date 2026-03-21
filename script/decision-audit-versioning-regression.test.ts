@@ -9,6 +9,7 @@ import { registerRoutes } from "../server/routes";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
 import {
+  aiSystems,
   decisionAudits,
   decisionAuditVersions,
   memberships,
@@ -127,6 +128,22 @@ test("sealed decision traces create version snapshots on edit", async () => {
     });
     tracker.membershipIds.push(membership.id);
 
+    const system = await storage.createAiSystemForOrg(org.id, {
+      name: `Decision Trace System ${suffix}`,
+      description: "Regression test system for decision trace versioning.",
+      owner: "Decision Audit QA",
+      department: "Risk",
+      vendor: "Internal",
+      modelType: "Rules Engine",
+      riskLevel: "high",
+      status: "active",
+      deploymentContext: "Regression test",
+      dataSensitivity: "confidential",
+      geography: "EU",
+      purpose: "Decision trace regression coverage",
+      usersImpacted: 1000,
+    });
+
     ({ server } = await startTestServer());
     const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
@@ -143,7 +160,7 @@ test("sealed decision traces create version snapshots on edit", async () => {
       cookie,
       body: {
         title: "Credit decision trace",
-        systemId: "system-1",
+        systemId: system.id,
         documentationStatus: "sealed",
         decisionContext: "Approve a financing request.",
         aiOutput: "Approve under standard terms.",
@@ -200,6 +217,7 @@ test("sealed decision traces create version snapshots on edit", async () => {
       await db.delete(users).where(inArray(users.id, tracker.userIds));
     }
     if (tracker.organizationIds.length > 0) {
+      await db.delete(aiSystems).where(inArray(aiSystems.organizationId, tracker.organizationIds));
       await db.delete(organizations).where(inArray(organizations.id, tracker.organizationIds));
     }
   }

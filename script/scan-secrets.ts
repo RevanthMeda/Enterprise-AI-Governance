@@ -39,6 +39,24 @@ type SecretPattern = {
   regex: RegExp;
 };
 
+const secretEnvKeys = new Set([
+  "API_KEY",
+  "OPENAI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "SUPABASE_PUBLISHABLE_KEY",
+  "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY",
+  "SMTP_PASSWORD",
+  "DATABASE_URL",
+  "SESSION_SECRET",
+  "CONTROL_TOWER_VAULT_SECRET",
+  "SECRET_KEY",
+  "JWT_SECRET",
+  "TOKEN",
+  "ACCESS_KEY_ID",
+  "SECRET_ACCESS_KEY",
+]);
+
 const secretPatterns: SecretPattern[] = [
   { name: "AWS access key", regex: /AKIA[0-9A-Z]{16}/g },
   { name: "AWS secret key pattern", regex: /aws(.{0,20})?(secret|access).{0,20}[A-Za-z0-9/+]{40}/gi },
@@ -102,7 +120,38 @@ function formatSnippet(line: string): string {
   return line.trim().slice(0, 160);
 }
 
+function looksLikePlaceholder(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized.length === 0 ||
+    normalized.startsWith("<") ||
+    normalized.includes("example.com") ||
+    normalized.includes("your-project") ||
+    normalized.includes("set-your") ||
+    normalized.includes("changeme") ||
+    normalized.includes("replace-me") ||
+    normalized === "true" ||
+    normalized === "false" ||
+    normalized === "postgresql://postgres:postgres@localhost:5432/enterprise_ai_governance" ||
+    normalized === "http://localhost:5000"
+  );
+}
+
+function looksLikeEnvFile(filePath: string): boolean {
+  const fileName = path.basename(filePath);
+  return fileName === ".env" || fileName.startsWith(".env.") || fileName.endsWith(".env");
+}
+
+function looksLikeLocalOverrideEnvFile(filePath: string): boolean {
+  const fileName = path.basename(filePath).toLowerCase();
+  return fileName === ".env.local" || fileName.startsWith(".env.") && fileName.endsWith(".local");
+}
+
 async function scanFile(filePath: string): Promise<Finding[]> {
+  if (looksLikeLocalOverrideEnvFile(filePath)) {
+    return [];
+  }
+
   let content = "";
   try {
     content = await readFile(filePath, "utf8");
@@ -138,6 +187,29 @@ async function scanFile(filePath: string): Promise<Finding[]> {
       });
       match = regex.exec(content);
     }
+  }
+
+  if (looksLikeEnvFile(filePath)) {
+    lines.forEach((line, index) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) return;
+
+      const separator = trimmed.indexOf("=");
+      if (separator <= 0) return;
+
+      const key = trimmed.slice(0, separator).trim().toUpperCase();
+      const value = trimmed.slice(separator + 1).trim();
+      if (!secretEnvKeys.has(key) || looksLikePlaceholder(value)) {
+        return;
+      }
+
+      findings.push({
+        filePath,
+        line: index + 1,
+        pattern: `Sensitive env var ${key}`,
+        snippet: formatSnippet(line),
+      });
+    });
   }
 
   return findings;

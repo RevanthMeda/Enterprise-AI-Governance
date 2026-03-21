@@ -225,11 +225,11 @@ This creates a stronger record-management posture than a normal mutable CRUD wor
 - deploy/readiness/ops instrumentation
 
 ### Important remaining gap
-- full self-service forgot-password and reset-token workflow is still not implemented
+- a final hosted-browser acceptance pass is still worth doing after deployment with production SMTP/SSO wiring
 
 ### Secondary polish gaps
 - some low-priority UI polish remains
-- a final hosted-browser acceptance pass is still worth doing after deployment
+- dependency and bundle trimming should continue as the product surface grows
 
 ## 12. Suggested first-time usage path
 

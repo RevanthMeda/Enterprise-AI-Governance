@@ -143,7 +143,7 @@ test("core API smoke across all role personas", async () => {
       path: "/api/auth/mfa/enroll",
       method: "POST",
       body: {},
-      allowedRoles: ["admin"] as RoleName[],
+      allowedRoles: ["admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"] as RoleName[],
     },
     {
       path: "/api/settings",

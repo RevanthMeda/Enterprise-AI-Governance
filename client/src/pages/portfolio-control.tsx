@@ -116,6 +116,7 @@ export default function PortfolioControlPage() {
 
   const data = controlPlaneQuery.data;
   const selectedPortfolio = data?.selectedPortfolio ?? null;
+  const canManageSelectedPortfolio = selectedPortfolio?.role === "portfolio_admin";
   const organizations = useMemo(() => data?.organizations ?? [], [data?.organizations]);
 
   useEffect(() => {
@@ -126,6 +127,9 @@ export default function PortfolioControlPage() {
     mutationFn: async () => {
       if (!selectedPortfolio || !draftPolicy) {
         throw new Error("Portfolio policy is not loaded");
+      }
+      if (selectedPortfolio.role !== "portfolio_admin") {
+        throw new Error("Portfolio admin access required");
       }
       const response = await apiRequest(
         "PATCH",
@@ -294,114 +298,125 @@ export default function PortfolioControlPage() {
         <CardHeader>
           <CardTitle className="text-sm font-semibold">Portfolio telemetry defaults</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-6 xl:grid-cols-[1fr_360px]">
-          <div className="grid gap-4 md:grid-cols-2">
-            <ThresholdField
-              label="Drift warning threshold (%)"
-              value={draftPolicy?.driftAlertThreshold ?? 5}
-              onChange={(value) => setDraftPolicy((current) => current ? { ...current, driftAlertThreshold: value } : current)}
-            />
-            <ThresholdField
-              label="Drift critical threshold (%)"
-              value={draftPolicy?.driftCriticalThreshold ?? 10}
-              onChange={(value) => setDraftPolicy((current) => current ? { ...current, driftCriticalThreshold: value } : current)}
-            />
-            <ThresholdField
-              label="Bias flag threshold"
-              value={draftPolicy?.biasFlagThreshold ?? 1}
-              onChange={(value) => setDraftPolicy((current) => current ? { ...current, biasFlagThreshold: value } : current)}
-            />
-            <ThresholdField
-              label="Safety flag threshold"
-              value={draftPolicy?.safetyFlagThreshold ?? 1}
-              onChange={(value) => setDraftPolicy((current) => current ? { ...current, safetyFlagThreshold: value } : current)}
-            />
-            <ThresholdField
-              label="Toxicity warning threshold"
-              value={draftPolicy?.toxicityWarningThreshold ?? 60}
-              onChange={(value) => setDraftPolicy((current) => current ? { ...current, toxicityWarningThreshold: value } : current)}
-            />
-            <ThresholdField
-              label="Toxicity critical threshold"
-              value={draftPolicy?.toxicityCriticalThreshold ?? 80}
-              onChange={(value) => setDraftPolicy((current) => current ? { ...current, toxicityCriticalThreshold: value } : current)}
-            />
-            <ThresholdField
-              label="PII flag threshold"
-              value={draftPolicy?.piiFlagThreshold ?? 1}
-              onChange={(value) => setDraftPolicy((current) => current ? { ...current, piiFlagThreshold: value } : current)}
-            />
-            <ThresholdField
-              label="Override warning threshold (%)"
-              value={draftPolicy?.overrideRateWarningThreshold ?? 40}
-              onChange={(value) => setDraftPolicy((current) => current ? { ...current, overrideRateWarningThreshold: value } : current)}
-            />
-            <ThresholdField
-              label="Override critical threshold (%)"
-              value={draftPolicy?.overrideRateCriticalThreshold ?? 60}
-              onChange={(value) => setDraftPolicy((current) => current ? { ...current, overrideRateCriticalThreshold: value } : current)}
-            />
-            <ThresholdField
-              label="Error-rate warning threshold (%)"
-              value={draftPolicy?.errorRateWarningThreshold ?? 5}
-              onChange={(value) => setDraftPolicy((current) => current ? { ...current, errorRateWarningThreshold: value } : current)}
-            />
-            <ThresholdField
-              label="Error-rate critical threshold (%)"
-              value={draftPolicy?.errorRateCriticalThreshold ?? 10}
-              onChange={(value) => setDraftPolicy((current) => current ? { ...current, errorRateCriticalThreshold: value } : current)}
-            />
-            <ToggleField
-              label="Auto-escalate critical"
-              checked={draftPolicy?.autoEscalateCritical ?? true}
-              onChange={(checked) => setDraftPolicy((current) => current ? { ...current, autoEscalateCritical: checked } : current)}
-            />
-            <ToggleField
-              label="Notify on warnings"
-              checked={draftPolicy?.notifyOnWarning ?? true}
-              onChange={(checked) => setDraftPolicy((current) => current ? { ...current, notifyOnWarning: checked } : current)}
-            />
-            <ToggleField
-              label="Enable runtime blocking"
-              checked={draftPolicy?.enforceBlocking ?? false}
-              onChange={(checked) => setDraftPolicy((current) => current ? { ...current, enforceBlocking: checked } : current)}
-            />
-            <ToggleField
-              label="Block on PII"
-              checked={draftPolicy?.blockOnPii ?? true}
-              onChange={(checked) => setDraftPolicy((current) => current ? { ...current, blockOnPii: checked } : current)}
-            />
-            <ToggleField
-              label="Block on safety-critical signals"
-              checked={draftPolicy?.blockOnSafetyCritical ?? true}
-              onChange={(checked) => setDraftPolicy((current) => current ? { ...current, blockOnSafetyCritical: checked } : current)}
-            />
-            <ToggleField
-              label="Block on restricted prompts"
-              checked={draftPolicy?.blockOnRestrictedPrompt ?? true}
-              onChange={(checked) => setDraftPolicy((current) => current ? { ...current, blockOnRestrictedPrompt: checked } : current)}
-            />
-            <label className="space-y-1 text-sm md:col-span-2">
-              <span className="font-medium">Restricted prompt patterns</span>
-              <Input
-                value={draftPolicy?.restrictedPromptPatterns.join(", ") ?? ""}
-                onChange={(event) =>
-                  setDraftPolicy((current) => current ? { ...current, restrictedPromptPatterns: parseCsv(event.target.value) } : current)
-                }
-                placeholder="social security number, bypass policy, dump all customers"
+        <CardContent className="space-y-4">
+          {selectedPortfolio && !canManageSelectedPortfolio ? (
+            <div className="rounded-md border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">
+              This portfolio is read-only for your current membership. Only `portfolio_admin` can change portfolio defaults.
+            </div>
+          ) : null}
+          <fieldset disabled={!canManageSelectedPortfolio} className="grid gap-6 xl:grid-cols-[1fr_360px]">
+            <div className="grid gap-4 md:grid-cols-2">
+              <ThresholdField
+                label="Drift warning threshold (%)"
+                value={draftPolicy?.driftAlertThreshold ?? 5}
+                onChange={(value) => setDraftPolicy((current) => current ? { ...current, driftAlertThreshold: value } : current)}
               />
-            </label>
-          </div>
-          <div className="space-y-3 rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
-            <p>Portfolio defaults apply to all linked operating companies unless that company has an explicit telemetry override.</p>
-            <p>These defaults now control both passive evidence capture and active runtime allow-or-block decisions for inherited organizations.</p>
-            <p>Organization overrides: {data?.summary?.telemetryPolicySources.organization ?? 0}</p>
-            <p>Inherited from portfolio: {data?.summary?.telemetryPolicySources.portfolio ?? 0}</p>
-            <p>Falling back to platform defaults: {data?.summary?.telemetryPolicySources.default ?? 0}</p>
-            <Button className="w-full" onClick={() => savePolicyMutation.mutate()} disabled={savePolicyMutation.isPending || !draftPolicy}>
-              {savePolicyMutation.isPending ? "Saving..." : "Save portfolio defaults"}
-            </Button>
-          </div>
+              <ThresholdField
+                label="Drift critical threshold (%)"
+                value={draftPolicy?.driftCriticalThreshold ?? 10}
+                onChange={(value) => setDraftPolicy((current) => current ? { ...current, driftCriticalThreshold: value } : current)}
+              />
+              <ThresholdField
+                label="Bias flag threshold"
+                value={draftPolicy?.biasFlagThreshold ?? 1}
+                onChange={(value) => setDraftPolicy((current) => current ? { ...current, biasFlagThreshold: value } : current)}
+              />
+              <ThresholdField
+                label="Safety flag threshold"
+                value={draftPolicy?.safetyFlagThreshold ?? 1}
+                onChange={(value) => setDraftPolicy((current) => current ? { ...current, safetyFlagThreshold: value } : current)}
+              />
+              <ThresholdField
+                label="Toxicity warning threshold"
+                value={draftPolicy?.toxicityWarningThreshold ?? 60}
+                onChange={(value) => setDraftPolicy((current) => current ? { ...current, toxicityWarningThreshold: value } : current)}
+              />
+              <ThresholdField
+                label="Toxicity critical threshold"
+                value={draftPolicy?.toxicityCriticalThreshold ?? 80}
+                onChange={(value) => setDraftPolicy((current) => current ? { ...current, toxicityCriticalThreshold: value } : current)}
+              />
+              <ThresholdField
+                label="PII flag threshold"
+                value={draftPolicy?.piiFlagThreshold ?? 1}
+                onChange={(value) => setDraftPolicy((current) => current ? { ...current, piiFlagThreshold: value } : current)}
+              />
+              <ThresholdField
+                label="Override warning threshold (%)"
+                value={draftPolicy?.overrideRateWarningThreshold ?? 40}
+                onChange={(value) => setDraftPolicy((current) => current ? { ...current, overrideRateWarningThreshold: value } : current)}
+              />
+              <ThresholdField
+                label="Override critical threshold (%)"
+                value={draftPolicy?.overrideRateCriticalThreshold ?? 60}
+                onChange={(value) => setDraftPolicy((current) => current ? { ...current, overrideRateCriticalThreshold: value } : current)}
+              />
+              <ThresholdField
+                label="Error-rate warning threshold (%)"
+                value={draftPolicy?.errorRateWarningThreshold ?? 5}
+                onChange={(value) => setDraftPolicy((current) => current ? { ...current, errorRateWarningThreshold: value } : current)}
+              />
+              <ThresholdField
+                label="Error-rate critical threshold (%)"
+                value={draftPolicy?.errorRateCriticalThreshold ?? 10}
+                onChange={(value) => setDraftPolicy((current) => current ? { ...current, errorRateCriticalThreshold: value } : current)}
+              />
+              <ToggleField
+                label="Auto-escalate critical"
+                checked={draftPolicy?.autoEscalateCritical ?? true}
+                onChange={(checked) => setDraftPolicy((current) => current ? { ...current, autoEscalateCritical: checked } : current)}
+              />
+              <ToggleField
+                label="Notify on warnings"
+                checked={draftPolicy?.notifyOnWarning ?? true}
+                onChange={(checked) => setDraftPolicy((current) => current ? { ...current, notifyOnWarning: checked } : current)}
+              />
+              <ToggleField
+                label="Enable runtime blocking"
+                checked={draftPolicy?.enforceBlocking ?? false}
+                onChange={(checked) => setDraftPolicy((current) => current ? { ...current, enforceBlocking: checked } : current)}
+              />
+              <ToggleField
+                label="Block on PII"
+                checked={draftPolicy?.blockOnPii ?? true}
+                onChange={(checked) => setDraftPolicy((current) => current ? { ...current, blockOnPii: checked } : current)}
+              />
+              <ToggleField
+                label="Block on safety-critical signals"
+                checked={draftPolicy?.blockOnSafetyCritical ?? true}
+                onChange={(checked) => setDraftPolicy((current) => current ? { ...current, blockOnSafetyCritical: checked } : current)}
+              />
+              <ToggleField
+                label="Block on restricted prompts"
+                checked={draftPolicy?.blockOnRestrictedPrompt ?? true}
+                onChange={(checked) => setDraftPolicy((current) => current ? { ...current, blockOnRestrictedPrompt: checked } : current)}
+              />
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span className="font-medium">Restricted prompt patterns</span>
+                <Input
+                  value={draftPolicy?.restrictedPromptPatterns.join(", ") ?? ""}
+                  onChange={(event) =>
+                    setDraftPolicy((current) => current ? { ...current, restrictedPromptPatterns: parseCsv(event.target.value) } : current)
+                  }
+                  placeholder="social security number, bypass policy, dump all customers"
+                />
+              </label>
+            </div>
+            <div className="space-y-3 rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
+              <p>Portfolio defaults apply to all linked operating companies unless that company has an explicit telemetry override.</p>
+              <p>These defaults now control both passive evidence capture and active runtime allow-or-block decisions for inherited organizations.</p>
+              <p>Organization overrides: {data?.summary?.telemetryPolicySources.organization ?? 0}</p>
+              <p>Inherited from portfolio: {data?.summary?.telemetryPolicySources.portfolio ?? 0}</p>
+              <p>Falling back to platform defaults: {data?.summary?.telemetryPolicySources.default ?? 0}</p>
+              <Button
+                className="w-full"
+                onClick={() => savePolicyMutation.mutate()}
+                disabled={savePolicyMutation.isPending || !draftPolicy || !canManageSelectedPortfolio}
+              >
+                {savePolicyMutation.isPending ? "Saving..." : "Save portfolio defaults"}
+              </Button>
+            </div>
+          </fieldset>
         </CardContent>
       </Card>
 

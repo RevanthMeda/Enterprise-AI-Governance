@@ -13,6 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { exportAuditTrailCsv } from "@/lib/export-utils";
+import { resolveApiUrl } from "@/lib/api-url";
+import { captureCsrfTokenFromResponse } from "@/lib/queryClient";
 import type { AuditLog } from "@shared/schema";
 
 const entityIcons: Record<string, any> = {
@@ -54,7 +56,8 @@ export default function AuditLogPage() {
     refetchInterval: 15_000,
     staleTime: 5_000,
     queryFn: async () => {
-      const res = await fetch(`/api/audit-logs?${queryParams.toString()}`, { credentials: "include" });
+      const res = await fetch(resolveApiUrl(`/api/audit-logs?${queryParams.toString()}`), { credentials: "include" });
+      captureCsrfTokenFromResponse(res);
       if (!res.ok) throw new Error("Failed to fetch logs");
       return res.json();
     },

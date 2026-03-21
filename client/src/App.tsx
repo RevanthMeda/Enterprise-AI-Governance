@@ -11,6 +11,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { NotificationBell } from "@/components/notification-bell";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getAppAccess, getDisplayRole } from "@/lib/permissions";
 import NotFound from "@/pages/not-found";
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const Registry = lazy(() => import("@/pages/registry"));
@@ -33,8 +34,10 @@ const BillingPage = lazy(() => import("@/pages/billing"));
 const SystemDetail = lazy(() => import("@/pages/system-detail"));
 const BulkControls = lazy(() => import("@/pages/bulk-controls"));
 const MyActivity = lazy(() => import("@/pages/my-activity"));
+const AccountSecurityPage = lazy(() => import("@/pages/account-security"));
 const ComplianceCalendar = lazy(() => import("@/pages/compliance-calendar"));
 const AuthPage = lazy(() => import("@/pages/auth-page"));
+const ResetPasswordPage = lazy(() => import("@/pages/reset-password"));
 const InviteAcceptPage = lazy(() => import("@/pages/invite-accept-page"));
 const LandingPage = lazy(() => import("@/pages/landing-page"));
 const BookDemoPage = lazy(() => import("@/pages/lead-capture"));
@@ -51,7 +54,9 @@ const PUBLIC_PATHS = new Set([
   "/welcome",
   "/auth",
   "/auth/login",
+  "/auth/reset-password",
   "/login",
+  "/reset-password",
   "/auth/invite",
   "/invite/accept",
   "/book-demo",
@@ -74,7 +79,9 @@ const STANDALONE_PUBLIC_PATHS = new Set([
   "/welcome",
   "/auth",
   "/auth/login",
+  "/auth/reset-password",
   "/login",
+  "/reset-password",
   "/auth/invite",
   "/invite/accept",
   "/book-demo",
@@ -108,7 +115,11 @@ function RouteLoadingFallback() {
   );
 }
 
-function AuthenticatedRouter({ isAdmin }: { isAdmin: boolean }) {
+function AuthenticatedRouter({
+  access,
+}: {
+  access: ReturnType<typeof getAppAccess>;
+}) {
   return (
     <Suspense fallback={<RouteLoadingFallback />}>
       <Switch>
@@ -116,6 +127,7 @@ function AuthenticatedRouter({ isAdmin }: { isAdmin: boolean }) {
         <Route path="/welcome" component={LandingPage} />
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/activity" component={MyActivity} />
+        <Route path="/account-security" component={AccountSecurityPage} />
         <Route path="/my-activity" component={ActivityAliasRedirect} />
         <Route path="/registry" component={Registry} />
         <Route path="/registry/connect" component={ConnectAiApplicationPage} />
@@ -127,24 +139,26 @@ function AuthenticatedRouter({ isAdmin }: { isAdmin: boolean }) {
         <Route path="/approvals" component={Approvals} />
         <Route path="/audit" component={AuditLogPage} />
         <Route path="/decision-trace" component={DecisionTracePage} />
-        <Route path="/runtime-monitoring" component={isAdmin ? RuntimeMonitoringPage : Dashboard} />
-        <Route path="/exit-readiness" component={isAdmin ? ExitReadinessPage : Dashboard} />
-        <Route path="/portfolio-control" component={isAdmin ? PortfolioControlPage : Dashboard} />
-        <Route path="/telemetry-policy" component={isAdmin ? TelemetryPolicyPage : Dashboard} />
-        <Route path="/telemetry-adapter" component={isAdmin ? TelemetryAdapterPage : Dashboard} />
-        <Route path="/retention-control" component={isAdmin ? RetentionControlPage : Dashboard} />
+        <Route path="/runtime-monitoring" component={access.canAccessRuntimeMonitoring ? RuntimeMonitoringPage : Dashboard} />
+        <Route path="/exit-readiness" component={access.canAccessExitReadiness ? ExitReadinessPage : Dashboard} />
+        <Route path="/portfolio-control" component={access.canAccessPortfolioControl ? PortfolioControlPage : Dashboard} />
+        <Route path="/telemetry-policy" component={access.canAccessTelemetryPolicy ? TelemetryPolicyPage : Dashboard} />
+        <Route path="/telemetry-adapter" component={access.canAccessTelemetryAdapter ? TelemetryAdapterPage : Dashboard} />
+        <Route path="/retention-control" component={access.canAccessRetentionControl ? RetentionControlPage : Dashboard} />
         <Route path="/incidents" component={IncidentsPage} />
         <Route path="/bulk-controls" component={BulkControls} />
-        <Route path="/settings" component={isAdmin ? SettingsPage : Dashboard} />
-        <Route path="/integrations" component={isAdmin ? IntegrationsPage : Dashboard} />
-        <Route path="/billing" component={isAdmin ? BillingPage : Dashboard} />
+        <Route path="/settings" component={access.canAccessSettings ? SettingsPage : Dashboard} />
+        <Route path="/integrations" component={access.canAccessIntegrations ? IntegrationsPage : Dashboard} />
+        <Route path="/billing" component={access.canAccessBilling ? BillingPage : Dashboard} />
         <Route path="/thank-you" component={ThankYouPage} />
         <Route path="/book-demo/thank-you" component={ThankYouPage} />
         <Route path="/start-pilot/thank-you" component={ThankYouPage} />
         <Route path="/trust-center" component={TrustCenterPage} />
         <Route path="/auth" component={Dashboard} />
         <Route path="/auth/login" component={Dashboard} />
+        <Route path="/auth/reset-password" component={ResetPasswordPage} />
         <Route path="/login" component={Dashboard} />
+        <Route path="/reset-password" component={ResetPasswordPage} />
         <Route path="/auth/invite" component={Dashboard} />
         <Route path="/invite/accept" component={Dashboard} />
         <Route path="/api-docs" component={ApiDocsPage} />
@@ -222,7 +236,9 @@ function PublicRouter() {
         <Route path="/welcome" component={LandingPage} />
         <Route path="/auth" component={AuthPage} />
         <Route path="/auth/login" component={AuthPage} />
+        <Route path="/auth/reset-password" component={ResetPasswordPage} />
         <Route path="/login" component={LoginAliasRedirect} />
+        <Route path="/reset-password" component={ResetPasswordPage} />
         <Route path="/risk-assessment" component={RiskAliasRedirect} />
         <Route path="/my-activity" component={ActivityAliasRedirect} />
         <Route path="/auth/invite" component={InviteAcceptPage} />
@@ -247,7 +263,8 @@ function AuthenticatedApp() {
   const { user, isLoading, logout } = useAuth();
   const [location] = useLocation();
   const isPublic = isPublicPath(location);
-  const isAdmin = user?.role === "admin";
+  const access = getAppAccess(user);
+  const displayRole = getDisplayRole(user);
 
   useEffect(() => {
     const routeTitles: Array<[string, string]> = [
@@ -255,6 +272,7 @@ function AuthenticatedApp() {
       ["/welcome", "Welcome"],
       ["/dashboard", "Dashboard"],
       ["/activity", "My Activity"],
+      ["/account-security", "Account Security"],
       ["/registry", "AI Registry"],
       ["/registry/connect", "Connect AI Application"],
       ["/risk", "Risk"],
@@ -275,6 +293,8 @@ function AuthenticatedApp() {
       ["/billing", "Billing"],
       ["/auth", "Sign In"],
       ["/auth/login", "Sign In"],
+      ["/auth/reset-password", "Reset Password"],
+      ["/reset-password", "Reset Password"],
       ["/invite/accept", "Accept Invite"],
       ["/book-demo", "Book Demo"],
       ["/start-pilot", "Start Pilot"],
@@ -332,7 +352,7 @@ function AuthenticatedApp() {
               <NotificationBell />
               <div className="text-right hidden sm:block">
                 <p className="text-xs font-medium" data-testid="text-user-name">{user.fullName}</p>
-                <p className="text-[10px] text-muted-foreground capitalize" data-testid="text-user-role">{user.role.replace("_", " ")}</p>
+                <p className="text-[10px] text-muted-foreground capitalize" data-testid="text-user-role">{displayRole?.replace("_", " ") ?? "member"}</p>
               </div>
               <button
                 onClick={() => logout()}
@@ -345,7 +365,7 @@ function AuthenticatedApp() {
             </div>
           </header>
           <main className="flex-1 overflow-auto">
-            <AuthenticatedRouter isAdmin={isAdmin} />
+            <AuthenticatedRouter access={access} />
           </main>
         </div>
       </div>

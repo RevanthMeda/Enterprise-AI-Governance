@@ -6,6 +6,7 @@ import type { Organization, User } from "@shared/schema";
 import { adminAuditEvents, memberships, users } from "@shared/schema";
 import { hashPassword } from "../auth";
 import { db } from "../db";
+import { fetchWithTimeout } from "../http";
 import { storage } from "../storage";
 import { domainService } from "./domainService";
 
@@ -65,6 +66,8 @@ type CompleteSsoResult = {
   organization: SsoOrganization;
   next: string;
 };
+
+const OIDC_TOKEN_TIMEOUT_MS = 10_000;
 
 function createSsoError(message: string, status = 400): Error & { status: number } {
   return Object.assign(new Error(message), { status });
@@ -615,8 +618,10 @@ async function buildPrincipalFromOidcCallback(
     tokenBody.set("client_secret", authSettings.oidcClientSecret);
   }
 
-  const tokenResponse = await fetch(authSettings.oidcTokenUrl, {
+  const tokenResponse = await fetchWithTimeout(authSettings.oidcTokenUrl, {
     method: "POST",
+    timeoutMs: OIDC_TOKEN_TIMEOUT_MS,
+    timeoutMessage: "OIDC token exchange timed out",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
     },

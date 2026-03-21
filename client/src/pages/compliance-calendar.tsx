@@ -25,6 +25,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { resolveApiUrl } from "@/lib/api-url";
+import { captureCsrfTokenFromResponse } from "@/lib/queryClient";
 
 interface CalendarEvent {
   id: string;
@@ -101,7 +103,8 @@ export default function ComplianceCalendar() {
     queryFn: async () => {
       const params = new URLSearchParams({ month: monthParam });
       if (typeFilter !== "all") params.set("type", typeFilter);
-      const res = await fetch(`/api/calendar-events?${params}`, { credentials: "include" });
+      const res = await fetch(resolveApiUrl(`/api/calendar-events?${params.toString()}`), { credentials: "include" });
+      captureCsrfTokenFromResponse(res);
       if (!res.ok) throw new Error("Failed to load calendar events");
       return res.json();
     },

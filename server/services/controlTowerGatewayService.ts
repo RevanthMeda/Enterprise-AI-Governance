@@ -1,5 +1,6 @@
 import { createHash, createHmac } from "crypto";
 import type { AiTelemetryEvent } from "@shared/schema";
+import { fetchWithTimeout } from "../http";
 import { telemetryService } from "./telemetryService";
 import type { ResolvedProviderConfig } from "./upstreamProviderVaultService";
 
@@ -60,6 +61,8 @@ type GatewayBlockedResult = {
 
 export type GatewayProxyResult = GatewaySuccessResult | GatewayBlockedResult;
 
+const DEFAULT_UPSTREAM_REQUEST_TIMEOUT_MS = 120_000;
+
 function getRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -78,10 +81,22 @@ function getNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function getUpstreamRequestTimeoutMs() {
+  const parsed = Number(process.env.CONTROL_TOWER_UPSTREAM_TIMEOUT_MS);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_UPSTREAM_REQUEST_TIMEOUT_MS;
+  }
+  return Math.max(5_000, parsed);
+}
+
 function getObjectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function isDefined<T>(value: T | null | undefined): value is T {
+  return value !== null && value !== undefined;
 }
 
 function getGuardVerdict(event: AiTelemetryEvent) {
@@ -119,6 +134,17 @@ function createCorrelationId() {
     return globalThis.crypto.randomUUID();
   }
   return `corr_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function normalizeDetectedAt(value: string | Date | null | undefined): Date | undefined {
+  if (value instanceof Date) {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
 function extractTextSegments(value: unknown): string[] {
@@ -312,7 +338,7 @@ function extractReturnedToolCallsFromAnthropic(responseBody: unknown): ToolCallP
         argumentsText: JSON.stringify(getRecord(item.input)),
       };
     })
-    .filter((call): call is ToolCallPayload => Boolean(call));
+    .filter(isDefined);
 }
 
 function extractGeminiPrompt(requestBody: Record<string, unknown>) {
@@ -387,7 +413,7 @@ function extractReturnedToolCallsFromGemini(responseBody: unknown): ToolCallPayl
         argumentsText: JSON.stringify(getRecord(functionCall.args)),
       };
     })
-    .filter((call): call is ToolCallPayload => Boolean(call));
+    .filter(isDefined);
 }
 
 function extractBedrockPrompt(requestBody: Record<string, unknown>) {
@@ -461,7 +487,7 @@ function extractReturnedToolCallsFromBedrock(responseBody: unknown): ToolCallPay
         argumentsText: JSON.stringify(getRecord(toolUse.input)),
       };
     })
-    .filter((call): call is ToolCallPayload => Boolean(call));
+    .filter(isDefined);
 }
 
 type ToolCallPayload = {
@@ -718,7 +744,10 @@ function decisionFromEvent(event: AiTelemetryEvent): ProxyDecision {
   const metadata = getRecord(event.metadata);
   return {
     id: event.id,
-    decision: event.actionTaken,
+    decision:
+      event.actionTaken === "allow" || event.actionTaken === "warn" || event.actionTaken === "escalate" || event.actionTaken === "block"
+        ? event.actionTaken
+        : "allow",
     blocked: Boolean(event.blocked),
     thresholdBreaches: getStringArray(metadata.thresholdBreaches),
     escalatedIncidentId: getString(metadata.escalatedIncidentId),
@@ -791,8 +820,10 @@ async function postProviderJson(
   body: Record<string, unknown>,
 ) {
   const targetUrl = pathOrUrl.startsWith("http") ? pathOrUrl : `${config.baseUrl}${pathOrUrl}`;
-  const response = await fetch(targetUrl, {
+  const response = await fetchWithTimeout(targetUrl, {
     method: "POST",
+    timeoutMs: getUpstreamRequestTimeoutMs(),
+    timeoutMessage: `${config.provider} upstream request timed out`,
     headers: buildProviderHeaders(config),
     body: JSON.stringify(body),
   });
@@ -940,8 +971,10 @@ async function postProviderBufferedStream(
   parser: (rawText: string) => Omit<StreamReplayResult, "status" | "bodyText" | "contentType">,
 ): Promise<StreamReplayResult> {
   const targetUrl = pathOrUrl.startsWith("http") ? pathOrUrl : `${config.baseUrl}${pathOrUrl}`;
-  const response = await fetch(targetUrl, {
+  const response = await fetchWithTimeout(targetUrl, {
     method: "POST",
+    timeoutMs: getUpstreamRequestTimeoutMs(),
+    timeoutMessage: `${config.provider} upstream request timed out`,
     headers: buildProviderHeaders(config),
     body: JSON.stringify(body),
   });
@@ -1036,8 +1069,10 @@ async function postBedrockJson(
   headers.authorization =
     `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithTimeout(url.toString(), {
     method: "POST",
+    timeoutMs: getUpstreamRequestTimeoutMs(),
+    timeoutMessage: `${config.provider} upstream request timed out`,
     headers,
     body: bodyText,
   });
@@ -1114,7 +1149,7 @@ export class ControlTowerGatewayService {
           guardStage: "input",
           adapterKeyPrefix: adapter.keyPrefix ?? null,
         },
-        detectedAt: control.detectedAt ?? new Date(),
+        detectedAt: normalizeDetectedAt(control.detectedAt) ?? new Date(),
       },
       {
         collectionProfile: adapter.collectionProfile ?? "full_evidence",
@@ -1176,7 +1211,7 @@ export class ControlTowerGatewayService {
           guardStage: "output",
           adapterKeyPrefix: adapter.keyPrefix ?? null,
         },
-        detectedAt: control.detectedAt ?? new Date(),
+        detectedAt: normalizeDetectedAt(control.detectedAt) ?? new Date(),
       },
       {
         collectionProfile: adapter.collectionProfile ?? "full_evidence",
@@ -1240,17 +1275,39 @@ export class ControlTowerGatewayService {
     }
 
     const streamMode = forwardBody.stream === true;
-    const upstream = streamMode
-      ? await postProviderBufferedStream(
-          upstreamConfig,
-          options?.upstreamPath ?? "/v1/chat/completions",
-          forwardBody,
-          parseOpenAiChatStream,
-        )
-      : await postProviderJson(upstreamConfig, options?.upstreamPath ?? "/v1/chat/completions", forwardBody);
-    const modelOutput = streamMode ? upstream.modelOutput : extractChatOutput(upstream.json);
-    const returnedToolNames = streamMode ? upstream.returnedToolNames : extractReturnedToolNamesFromChat(upstream.json);
-    const returnedToolCalls = streamMode ? upstream.returnedToolCalls : extractReturnedToolCallsFromChat(upstream.json);
+    let upstreamStatus = 200;
+    let upstreamJson: unknown = null;
+    let upstreamContentType: string | null = null;
+    let upstreamText: string | null = null;
+    let modelOutput = "";
+    let returnedToolNames: string[] = [];
+    let returnedToolCalls: ToolCallPayload[] = [];
+
+    if (streamMode) {
+      const upstream = await postProviderBufferedStream(
+        upstreamConfig,
+        options?.upstreamPath ?? "/v1/chat/completions",
+        forwardBody,
+        parseOpenAiChatStream,
+      );
+      upstreamStatus = upstream.status;
+      upstreamContentType = upstream.contentType;
+      upstreamText = upstream.bodyText;
+      modelOutput = upstream.modelOutput;
+      returnedToolNames = upstream.returnedToolNames;
+      returnedToolCalls = upstream.returnedToolCalls;
+    } else {
+      const upstream = await postProviderJson(
+        upstreamConfig,
+        options?.upstreamPath ?? "/v1/chat/completions",
+        forwardBody,
+      );
+      upstreamStatus = upstream.status;
+      upstreamJson = upstream.json;
+      modelOutput = extractChatOutput(upstream.json);
+      returnedToolNames = extractReturnedToolNamesFromChat(upstream.json);
+      returnedToolCalls = extractReturnedToolCallsFromChat(upstream.json);
+    }
     const toolArgumentValidation = validateToolArguments(adapter, returnedToolCalls);
     const postflight = await this.recordPostflight(adapter, postflightControl, {
       modelName: effectiveModelName,
@@ -1280,10 +1337,10 @@ export class ControlTowerGatewayService {
       correlationId: postflight.correlationId ?? preflight.correlationId ?? createCorrelationId(),
       preflight,
       postflight,
-      upstreamStatus: upstream.status,
-      upstreamJson: streamMode ? null : upstream.json,
-      upstreamContentType: streamMode ? upstream.contentType : null,
-      upstreamText: streamMode ? upstream.bodyText : null,
+      upstreamStatus,
+      upstreamJson,
+      upstreamContentType,
+      upstreamText,
     };
   }
 
@@ -1325,18 +1382,57 @@ export class ControlTowerGatewayService {
       };
     }
 
+    let effectiveModelName = modelName;
+    let postflightControl = control;
+    const safeModelName = resolveSafeModelName(preflight, modelName, upstreamConfig);
+    if (safeModelName) {
+      effectiveModelName = safeModelName;
+      forwardBody.model = safeModelName;
+      postflightControl = {
+        ...control,
+        metadata: {
+          ...(control.metadata ?? {}),
+          guardSafeModelUsed: true,
+          guardSafeModelName: safeModelName,
+          guardSafeModelReason: "prompt_injection_suspected",
+        },
+      };
+    }
+
     const streamMode = forwardBody.stream === true;
-    const upstream = streamMode
-      ? await postProviderBufferedStream(
-          upstreamConfig,
-          options?.upstreamPath ?? "/v1/responses",
-          forwardBody,
-          parseOpenAiResponsesStream,
-        )
-      : await postProviderJson(upstreamConfig, options?.upstreamPath ?? "/v1/responses", forwardBody);
-    const modelOutput = streamMode ? upstream.modelOutput : extractResponsesOutput(upstream.json);
-    const returnedToolNames = streamMode ? upstream.returnedToolNames : extractReturnedToolNamesFromResponses(upstream.json);
-    const returnedToolCalls = streamMode ? upstream.returnedToolCalls : extractReturnedToolCallsFromResponses(upstream.json);
+    let upstreamStatus = 200;
+    let upstreamJson: unknown = null;
+    let upstreamContentType: string | null = null;
+    let upstreamText: string | null = null;
+    let modelOutput = "";
+    let returnedToolNames: string[] = [];
+    let returnedToolCalls: ToolCallPayload[] = [];
+
+    if (streamMode) {
+      const upstream = await postProviderBufferedStream(
+        upstreamConfig,
+        options?.upstreamPath ?? "/v1/responses",
+        forwardBody,
+        parseOpenAiResponsesStream,
+      );
+      upstreamStatus = upstream.status;
+      upstreamContentType = upstream.contentType;
+      upstreamText = upstream.bodyText;
+      modelOutput = upstream.modelOutput;
+      returnedToolNames = upstream.returnedToolNames;
+      returnedToolCalls = upstream.returnedToolCalls;
+    } else {
+      const upstream = await postProviderJson(
+        upstreamConfig,
+        options?.upstreamPath ?? "/v1/responses",
+        forwardBody,
+      );
+      upstreamStatus = upstream.status;
+      upstreamJson = upstream.json;
+      modelOutput = extractResponsesOutput(upstream.json);
+      returnedToolNames = extractReturnedToolNamesFromResponses(upstream.json);
+      returnedToolCalls = extractReturnedToolCallsFromResponses(upstream.json);
+    }
     const toolArgumentValidation = validateToolArguments(adapter, returnedToolCalls);
     const postflight = await this.recordPostflight(adapter, postflightControl, {
       modelName: effectiveModelName,
@@ -1366,10 +1462,10 @@ export class ControlTowerGatewayService {
       correlationId: postflight.correlationId ?? preflight.correlationId ?? createCorrelationId(),
       preflight,
       postflight,
-      upstreamStatus: upstream.status,
-      upstreamJson: streamMode ? null : upstream.json,
-      upstreamContentType: streamMode ? upstream.contentType : null,
-      upstreamText: streamMode ? upstream.bodyText : null,
+      upstreamStatus,
+      upstreamJson,
+      upstreamContentType,
+      upstreamText,
     };
   }
 

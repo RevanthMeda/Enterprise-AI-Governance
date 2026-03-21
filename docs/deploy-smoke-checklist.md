@@ -29,6 +29,7 @@ The script checks:
 - backend `/api/health`
 - backend `/api/ready`
 - backend authenticated admin APIs, when admin credentials are provided:
+  - `/api/auth/user`
   - `/api/organization/subscription`
   - `/api/organization/jira-integration`
   - `/api/decision-audits/summary`
@@ -37,6 +38,7 @@ The script checks:
   - `/api/audit-logs/verify-chain`
 - frontend `/`
 - frontend `/auth/login`
+- frontend `/auth/reset-password`
 - frontend `/api-docs`
 - frontend `/trust-center`
 - frontend `/api-docs/identity.html`
@@ -58,7 +60,7 @@ and runs the same smoke script after triggering the Render and Netlify deploy ho
 Manual spot checks after the script passes:
 
 1. Sign in with `admin_test`
-2. Open `/settings`, `/integrations`, and `/billing`
+2. Open `/account-security`, `/settings`, `/integrations`, and `/billing`
 3. Open `/decision-trace` and record a trace
 4. Open `/incidents` and confirm a playbook can be opened
 5. Open `/trust-center`

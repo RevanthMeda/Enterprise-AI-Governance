@@ -2,11 +2,18 @@ import { randomUUID } from "crypto";
 import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
 import { backgroundJobs, type BackgroundJob, type InsertBackgroundJob } from "@shared/schema";
 import { db } from "../db";
+import { isVercelRuntime, parseBooleanEnv } from "../env";
+import { fetchWithTimeout } from "../http";
 import { deliverInvite, type InviteDeliveryResult } from "./inviteDeliveryService";
 
 const POLL_MS = Number(process.env.BACKGROUND_JOB_POLL_MS || 5000);
 const BATCH_SIZE = Math.max(1, Number(process.env.BACKGROUND_JOB_BATCH_SIZE || 5));
+const MONITORING_WEBHOOK_TIMEOUT_MS = 2500;
 const workerId = `${process.env.MONITORING_SERVICE_NAME || "ai-control-tower"}-${process.pid}-${randomUUID().slice(0, 8)}`;
+
+function isWorkerEnabled() {
+  return !parseBooleanEnv(process.env.BACKGROUND_JOBS_DISABLED, false) && !isVercelRuntime();
+}
 
 interface InviteDeliveryJobPayload {
   email: string;
@@ -37,28 +44,22 @@ async function runInviteDelivery(payload: InviteDeliveryJobPayload): Promise<Inv
 }
 
 async function runMonitoringWebhook(payload: MonitoringWebhookJobPayload): Promise<{ delivered: true }> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2500);
+  const response = await fetchWithTimeout(payload.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(payload.token ? { Authorization: `Bearer ${payload.token}` } : {}),
+    },
+    body: JSON.stringify(payload.body),
+    timeoutMs: MONITORING_WEBHOOK_TIMEOUT_MS,
+    timeoutMessage: "Monitoring webhook timed out",
+  });
 
-  try {
-    const response = await fetch(payload.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(payload.token ? { Authorization: `Bearer ${payload.token}` } : {}),
-      },
-      body: JSON.stringify(payload.body),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Monitoring webhook failed with ${response.status}`);
-    }
-
-    return { delivered: true };
-  } finally {
-    clearTimeout(timeout);
+  if (!response.ok) {
+    throw new Error(`Monitoring webhook failed with ${response.status}`);
   }
+
+  return { delivered: true };
 }
 
 async function processJob(job: BackgroundJob) {
@@ -160,11 +161,7 @@ class BackgroundJobService {
   }
 
   start() {
-    if (
-      process.env.BACKGROUND_JOBS_DISABLED === "true" ||
-      process.env.VERCEL === "1" ||
-      this.timer
-    ) {
+    if (!isWorkerEnabled() || this.timer) {
       return;
     }
 
@@ -282,9 +279,7 @@ class BackgroundJobService {
       .groupBy(backgroundJobs.status);
 
     return {
-      workerEnabled:
-        process.env.BACKGROUND_JOBS_DISABLED !== "true" &&
-        process.env.VERCEL !== "1",
+      workerEnabled: isWorkerEnabled(),
       pending: rows.find((row) => row.status === "pending")?.count ?? 0,
       processing: rows.find((row) => row.status === "processing")?.count ?? 0,
       succeeded: rows.find((row) => row.status === "succeeded")?.count ?? 0,

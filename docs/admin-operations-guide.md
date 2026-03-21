@@ -273,6 +273,6 @@ This is administrative and commercial, not a full payments UI.
 9. configure telemetry if needed
 10. review `/exit-readiness`
 
-## 13. Known current limitation
+## 13. Account Recovery
 
-The login page now has visible recovery guidance, but there is still no full self-service reset-token/email password reset flow.
+Local accounts can now request password reset links from the sign-in page. SSO-managed identities must still be recovered through the external identity provider.

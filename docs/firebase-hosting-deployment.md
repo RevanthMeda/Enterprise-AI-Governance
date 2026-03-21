@@ -51,7 +51,11 @@ Because Firebase Hosting and your API are on different origins, your backend mus
 Set these backend env vars:
 
 ```env
+PUBLIC_APP_URL=https://ai-control-tower-d9854.web.app
 CORS_ALLOWED_ORIGINS=https://ai-control-tower-d9854.web.app,https://ai-control-tower-d9854.firebaseapp.com
+PASSWORD_RESET_SECRET=<dedicated-long-random-secret>
+CONTROL_TOWER_VAULT_SECRET=<dedicated-long-random-secret>
+CSRF_ENFORCED=true
 SESSION_COOKIE_SAME_SITE=none
 SESSION_COOKIE_SECURE=true
 TRUST_PROXY=true
@@ -62,6 +66,9 @@ If you later add a custom domain, add that origin too.
 ## Why these backend settings are required
 
 - `CORS_ALLOWED_ORIGINS` allows browser requests with credentials
+- `PUBLIC_APP_URL` keeps invite and password-reset links pointing at the hosted frontend
+- `PASSWORD_RESET_SECRET` and `CONTROL_TOWER_VAULT_SECRET` are now required in production startup validation
+- `CSRF_ENFORCED=true` is the secure production default
 - `SESSION_COOKIE_SAME_SITE=none` allows session cookies to be sent cross-site
 - `SESSION_COOKIE_SECURE=true` is required when `SameSite=None`
 - `TRUST_PROXY=true` helps secure-cookie behavior behind the hosting/proxy chain

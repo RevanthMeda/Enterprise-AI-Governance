@@ -65,12 +65,35 @@ User sign-in page.
 
 ### Notes
 - SSO login is initiated from the same page using an organization slug
-- visible recovery/help exists, but a full token-based reset-password workflow is not yet implemented
+- local accounts can request a reset link directly from this page
+- SSO-managed identities should be recovered with the external identity provider
 
 ### Linked routes and flows
 - `/`
+- `/auth/reset-password`
 - SSO backend start route
 - post-login redirect to requested route or `/dashboard`
+
+## `/auth/reset-password`
+### Purpose
+Reset a local-account password using a signed reset token.
+
+### What is on the page
+- new password field
+- confirm password field
+- reset submit action
+- success path back to login
+
+### How to use it
+1. Open the reset link delivered by email or webhook
+2. Enter a new password
+3. Confirm the password
+4. Submit the reset
+5. Return to `/auth/login`
+
+### Notes
+- this route is intended for local accounts only
+- SSO-managed users should reset credentials with their identity provider
 
 ## `/invite/accept`
 ### Purpose
@@ -191,6 +214,25 @@ Personal activity page.
 
 ### What it is used for
 Shows work relevant to the current user.
+
+## `/account-security`
+### Purpose
+Personal credential and MFA management page.
+
+### What is on the page
+- MFA enrollment and verification
+- recovery-code regeneration
+- MFA disable flow
+- password change flow
+
+### What it is used for
+- enable or disable personal MFA
+- rotate recovery codes
+- change a local password without using admin settings
+
+### Notes
+- available to all authenticated users
+- separate from `/settings`, which remains organization-admin configuration
 
 ## `/registry`
 ### Purpose

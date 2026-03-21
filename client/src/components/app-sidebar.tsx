@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   Fingerprint,
   Gauge,
+  KeyRound,
   Building2,
   SlidersHorizontal,
   Cable,
@@ -36,6 +37,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
+import { getAppAccess, getDisplayRole } from "@/lib/permissions";
 import { BrandMark } from "@/components/brand-mark";
 import {
   Select,
@@ -45,37 +47,48 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const mainNav = [
+type AccessKey = keyof ReturnType<typeof getAppAccess>;
+
+type NavItem = {
+  title: string;
+  url: string;
+  icon: typeof LayoutDashboard;
+  accessKey?: AccessKey;
+};
+
+const mainNav: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "AI Registry", url: "/registry", icon: Server },
   { title: "Risk", url: "/risk", icon: ShieldCheck },
   { title: "Compliance", url: "/compliance", icon: ClipboardCheck },
-  { title: "Runtime", url: "/runtime-monitoring", icon: Radio },
+  { title: "Runtime", url: "/runtime-monitoring", icon: Radio, accessKey: "canAccessRuntimeMonitoring" },
   { title: "Incidents", url: "/incidents", icon: AlertTriangle },
   { title: "Approvals", url: "/approvals", icon: FileText },
   { title: "Decision Traces", url: "/decision-trace", icon: Fingerprint },
   { title: "Audit Log", url: "/audit", icon: Activity },
   { title: "My Activity", url: "/activity", icon: UserCircle },
-  { title: "Evidence", url: "/exit-readiness", icon: Gauge },
-  { title: "Portfolio", url: "/portfolio-control", icon: Building2 },
+  { title: "Account Security", url: "/account-security", icon: KeyRound },
+  { title: "Evidence", url: "/exit-readiness", icon: Gauge, accessKey: "canAccessExitReadiness" },
+  { title: "Portfolio", url: "/portfolio-control", icon: Building2, accessKey: "canAccessPortfolioControl" },
   { title: "Calendar", url: "/calendar", icon: CalendarDays },
   { title: "Bulk Controls", url: "/bulk-controls", icon: Layers },
 ];
 
-const settingsNav = [
-  { title: "Telemetry Adapter", url: "/telemetry-adapter", icon: Cable },
-  { title: "Telemetry Policy", url: "/telemetry-policy", icon: SlidersHorizontal },
-  { title: "Integrations", url: "/integrations", icon: PlugZap },
-  { title: "Settings", url: "/settings", icon: Settings },
-  { title: "Retention Control", url: "/retention-control", icon: Archive },
-  { title: "Billing", url: "/billing", icon: CreditCard },
-  { title: "API Docs", url: "/api-docs", icon: FileText },
+const settingsNav: NavItem[] = [
+  { title: "Telemetry Adapter", url: "/telemetry-adapter", icon: Cable, accessKey: "canAccessTelemetryAdapter" },
+  { title: "Telemetry Policy", url: "/telemetry-policy", icon: SlidersHorizontal, accessKey: "canAccessTelemetryPolicy" },
+  { title: "Integrations", url: "/integrations", icon: PlugZap, accessKey: "canAccessIntegrations" },
+  { title: "Settings", url: "/settings", icon: Settings, accessKey: "canAccessSettings" },
+  { title: "Retention Control", url: "/retention-control", icon: Archive, accessKey: "canAccessRetentionControl" },
+  { title: "Billing", url: "/billing", icon: CreditCard, accessKey: "canAccessBilling" },
+  { title: "API Docs", url: "/api-docs", icon: FileText, accessKey: "canAccessSettings" },
 ];
 
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, switchOrganization, switchOrganizationMutation } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const access = getAppAccess(user);
+  const displayRole = getDisplayRole(user);
   const sortedOrganizations = [...(user?.organizations ?? [])].sort((a, b) => {
     const aIsDemo = a.slug.includes("-demo");
     const bIsDemo = b.slug.includes("-demo");
@@ -86,6 +99,8 @@ export function AppSidebar() {
 
     return a.name.localeCompare(b.name);
   });
+  const visibleMainNav = mainNav.filter((item) => !item.accessKey || access[item.accessKey]);
+  const visibleSettingsNav = settingsNav.filter((item) => !item.accessKey || access[item.accessKey]);
 
   return (
     <Sidebar>
@@ -140,12 +155,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>Platform</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainNav
-                .filter(
-                  (item) =>
-                    !["/exit-readiness", "/portfolio-control"].includes(item.url) || isAdmin,
-                )
-                .map((item) => (
+              {visibleMainNav.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
@@ -162,12 +172,12 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        {isAdmin && (
+        {visibleSettingsNav.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel>Configuration</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {settingsNav.map((item) => (
+                {visibleSettingsNav.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild
@@ -194,7 +204,7 @@ export function AppSidebar() {
             </div>
             <div className="flex flex-col min-w-0">
               <span className="text-xs font-medium truncate">{user.fullName}</span>
-              <span className="text-[10px] text-muted-foreground capitalize">{user.role.replace("_", " ")}</span>
+              <span className="text-[10px] text-muted-foreground capitalize">{displayRole?.replace("_", " ") ?? "member"}</span>
             </div>
           </div>
         )}

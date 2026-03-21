@@ -76,7 +76,7 @@ export class TelemetryReviewerExceptionService {
     exceptionId: string,
     input: Partial<Omit<InsertTelemetryReviewerException, "organizationId" | "normalizedPromptPattern">>,
   ) {
-    const patch: Partial<InsertTelemetryReviewerException> & { normalizedPromptPattern?: string } = {
+    const patch: Partial<Omit<typeof telemetryReviewerExceptions.$inferInsert, "organizationId">> = {
       ...input,
       updatedAt: new Date(),
     };

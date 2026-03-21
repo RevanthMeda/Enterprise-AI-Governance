@@ -6,9 +6,7 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { QRCodeSVG } from "qrcode.react";
 import {
-  Settings as SettingsIcon,
   Shield,
   Globe,
   Building2,
@@ -22,8 +20,10 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { resolveApiUrl } from "@/lib/api-url";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { AccountSecurityPanel } from "@/components/account-security-panel";
 
 type OrganizationMember = {
   membershipId: string;
@@ -115,14 +115,6 @@ export default function SettingsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [isWorking, setIsWorking] = useState(false);
-  const [enrollment, setEnrollment] = useState<{ secret: string; otpauthUrl: string } | null>(null);
-  const [verifyCode, setVerifyCode] = useState("");
-  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
-  const [disablePassword, setDisablePassword] = useState("");
-  const [disableMfaCode, setDisableMfaCode] = useState("");
-  const [disableRecoveryCode, setDisableRecoveryCode] = useState("");
-  const [regenMfaCode, setRegenMfaCode] = useState("");
-  const [regenRecoveryCode, setRegenRecoveryCode] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<(typeof INVITE_ROLES)[number]>("reviewer");
   const [authMode, setAuthMode] = useState<"local" | "saml" | "oidc">("local");
@@ -238,10 +230,6 @@ export default function SettingsPage() {
     failed: 0,
   };
   const failedBackgroundJobs = backgroundJobsData?.jobs ?? [];
-
-  const refreshAuthUser = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-  };
 
   const refreshOrgAdminData = async () => {
     await queryClient.invalidateQueries({ queryKey: ["/api/organization/members"] });
@@ -441,78 +429,6 @@ export default function SettingsPage() {
     }
   };
 
-  const startMfaEnrollment = async () => {
-    setIsWorking(true);
-    try {
-      const res = await apiRequest("POST", "/api/auth/mfa/enroll", {});
-      const body = await res.json();
-      setEnrollment({ secret: body.secret, otpauthUrl: body.otpauthUrl });
-      setRecoveryCodes([]);
-      toast({ title: "MFA enrollment started" });
-    } catch (error: any) {
-      toast({ title: "Failed to start MFA enrollment", description: error.message, variant: "destructive" });
-    } finally {
-      setIsWorking(false);
-    }
-  };
-
-  const verifyMfaEnrollment = async () => {
-    setIsWorking(true);
-    try {
-      const res = await apiRequest("POST", "/api/auth/mfa/verify-enroll", { code: verifyCode });
-      const body = await res.json();
-      setRecoveryCodes(body.recoveryCodes ?? []);
-      setEnrollment(null);
-      setVerifyCode("");
-      await refreshAuthUser();
-      toast({ title: "MFA enabled successfully" });
-    } catch (error: any) {
-      toast({ title: "MFA verification failed", description: error.message, variant: "destructive" });
-    } finally {
-      setIsWorking(false);
-    }
-  };
-
-  const disableMfa = async () => {
-    setIsWorking(true);
-    try {
-      await apiRequest("POST", "/api/auth/mfa/disable", {
-        password: disablePassword,
-        mfaCode: disableMfaCode || undefined,
-        recoveryCode: disableRecoveryCode || undefined,
-      });
-      setDisablePassword("");
-      setDisableMfaCode("");
-      setDisableRecoveryCode("");
-      setRecoveryCodes([]);
-      await refreshAuthUser();
-      toast({ title: "MFA disabled" });
-    } catch (error: any) {
-      toast({ title: "Failed to disable MFA", description: error.message, variant: "destructive" });
-    } finally {
-      setIsWorking(false);
-    }
-  };
-
-  const regenerateRecoveryCodes = async () => {
-    setIsWorking(true);
-    try {
-      const res = await apiRequest("POST", "/api/auth/mfa/recovery-codes/regenerate", {
-        mfaCode: regenMfaCode || undefined,
-        recoveryCode: regenRecoveryCode || undefined,
-      });
-      const body = await res.json();
-      setRecoveryCodes(body.recoveryCodes ?? []);
-      setRegenMfaCode("");
-      setRegenRecoveryCode("");
-      toast({ title: "Recovery codes regenerated" });
-    } catch (error: any) {
-      toast({ title: "Failed to regenerate recovery codes", description: error.message, variant: "destructive" });
-    } finally {
-      setIsWorking(false);
-    }
-  };
-
   const createInvite = async () => {
     setIsWorking(true);
     try {
@@ -661,9 +577,11 @@ export default function SettingsPage() {
     user?.organizations?.find((organization) => organization.id === user.currentOrganizationId) ??
     user?.organizations?.[0] ??
     null;
-  const ssoStartUrl = `${
-    authMode === "oidc" ? "/api/auth/oidc/start" : "/api/auth/sso/start"
-  }?org=${currentOrg?.slug || "your-org-slug"}&next=/`;
+  const ssoStartUrl = resolveApiUrl(
+    `${
+      authMode === "oidc" ? "/api/auth/oidc/start" : "/api/auth/sso/start"
+    }?org=${encodeURIComponent(currentOrg?.slug || "your-org-slug")}&next=${encodeURIComponent("/")}`,
+  );
 
   return (
     <div className="page-shell" data-testid="page-settings">
@@ -684,155 +602,12 @@ export default function SettingsPage() {
         </TabsList>
 
         <TabsContent value="security" className="mt-4">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <Card data-testid="panel-background-job-health">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <SettingsIcon className="h-4 w-4 text-muted-foreground" />
-              Authentication Security
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <p className="text-xs font-medium">Multi-factor authentication (TOTP)</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Add an authenticator app code requirement for every login.
-                </p>
-              </div>
-              <Badge variant={user?.mfaEnabled ? "default" : "secondary"} className="text-[10px]">
-                {user?.mfaEnabled ? "Enabled" : "Disabled"}
-              </Badge>
-            </div>
-
-            {!user?.mfaEnabled && !enrollment && (
-              <Button size="sm" onClick={startMfaEnrollment} disabled={isWorking} data-testid="button-mfa-start">
-                Start MFA setup
-              </Button>
-            )}
-
-            {!user?.mfaEnabled && enrollment && (
-              <div className="space-y-3 rounded-md border p-3">
-                <p className="text-xs font-medium">Scan QR code in your authenticator app</p>
-                <div className="inline-flex rounded-md bg-white p-2">
-                  <QRCodeSVG value={enrollment.otpauthUrl} size={160} />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[11px] text-muted-foreground">Manual setup secret</p>
-                  <Input value={enrollment.secret} readOnly data-testid="input-mfa-secret" />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[11px] text-muted-foreground">Enter 6-digit code to verify</p>
-                  <Input
-                    value={verifyCode}
-                    onChange={(e) => setVerifyCode(e.target.value)}
-                    placeholder="Enter 6-digit code"
-                    data-testid="input-mfa-verify-code"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={verifyMfaEnrollment} disabled={isWorking || !verifyCode} data-testid="button-mfa-verify">
-                    Verify and enable MFA
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setEnrollment(null);
-                      setVerifyCode("");
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {user?.mfaEnabled && (
-              <div className="space-y-3">
-                <div className="space-y-2 rounded-md border p-3">
-                  <p className="text-xs font-medium">Regenerate recovery codes</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Verify with a current authenticator code or existing recovery code.
-                  </p>
-                  <Input
-                    value={regenMfaCode}
-                    onChange={(e) => setRegenMfaCode(e.target.value)}
-                    placeholder="Authenticator code (optional)"
-                    data-testid="input-mfa-regen-code"
-                  />
-                  <Input
-                    value={regenRecoveryCode}
-                    onChange={(e) => setRegenRecoveryCode(e.target.value)}
-                    placeholder="Recovery code (optional)"
-                    data-testid="input-mfa-regen-recovery"
-                  />
-                  <Button size="sm" onClick={regenerateRecoveryCodes} disabled={isWorking} data-testid="button-mfa-regen">
-                    Regenerate recovery codes
-                  </Button>
-                </div>
-
-                <div className="space-y-2 rounded-md border border-destructive/30 p-3">
-                  <p className="text-xs font-medium">Disable MFA</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Requires password plus current authenticator code or recovery code.
-                  </p>
-                  <Input
-                    type="password"
-                    value={disablePassword}
-                    onChange={(e) => setDisablePassword(e.target.value)}
-                    placeholder="Current password"
-                    data-testid="input-mfa-disable-password"
-                  />
-                  <Input
-                    value={disableMfaCode}
-                    onChange={(e) => setDisableMfaCode(e.target.value)}
-                    placeholder="Authenticator code (optional)"
-                    data-testid="input-mfa-disable-code"
-                  />
-                  <Input
-                    value={disableRecoveryCode}
-                    onChange={(e) => setDisableRecoveryCode(e.target.value)}
-                    placeholder="Recovery code (optional)"
-                    data-testid="input-mfa-disable-recovery"
-                  />
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={disableMfa}
-                    disabled={isWorking || !disablePassword}
-                    data-testid="button-mfa-disable"
-                  >
-                    Disable MFA
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {recoveryCodes.length > 0 && (
-              <div className="rounded-md border p-3 space-y-2" data-testid="mfa-recovery-codes">
-                <p className="text-xs font-medium">Recovery codes (store securely)</p>
-                <div className="grid grid-cols-1 gap-1">
-                  {recoveryCodes.map((code) => (
-                    <code key={code} className="text-[11px] rounded bg-muted px-2 py-1">{code}</code>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div className="rounded-md border bg-muted/10 p-3">
-              <p className="text-xs font-medium">Enterprise security controls</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                This tab currently focuses on MFA. IP allow-listing, session governance, and telemetry adapter key management are handled through infrastructure controls and dedicated admin pages.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-          </div>
+          <AccountSecurityPanel showInfrastructureNote />
         </TabsContent>
 
         <TabsContent value="access" className="mt-4">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <Card>
+            <Card data-testid="panel-background-job-health">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <Building2 className="h-4 w-4 text-muted-foreground" />

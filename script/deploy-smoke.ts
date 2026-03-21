@@ -126,6 +126,7 @@ async function main() {
 
     if (adminUsername && adminPassword) {
       const authenticatedApiChecks = [
+        "/api/auth/user",
         "/api/organization/subscription",
         "/api/organization/jira-integration",
         "/api/decision-audits/summary",
@@ -171,6 +172,18 @@ async function main() {
         }
         if (!text.includes("Sign In")) {
           throw new Error("login response missing Sign In marker");
+        }
+      }),
+    );
+
+    checks.push(
+      runCheckWithRetry("frontend reset password", async () => {
+        const { response, text } = await fetchText(`${frontend}/auth/reset-password`);
+        if (!response.ok) {
+          throw new Error(`expected 200, received ${response.status}`);
+        }
+        if (!text.includes("Reset password")) {
+          throw new Error("reset-password response missing expected marker");
         }
       }),
     );

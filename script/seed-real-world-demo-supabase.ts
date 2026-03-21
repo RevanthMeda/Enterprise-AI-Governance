@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "../server/load-env";
 import { createHash, randomUUID } from "crypto";
 import { hashPassword } from "../server/auth";
 

@@ -9,6 +9,7 @@ import {
 } from "@shared/schema";
 import { incidentService } from "./incidentService";
 import { notificationService } from "./notificationService";
+import { fetchWithTimeout } from "../http";
 import { storage } from "../storage";
 import { telemetryPolicyService } from "./telemetryPolicyService";
 import { riskAssessmentService } from "./riskAssessmentService";
@@ -34,6 +35,8 @@ type ThresholdEvaluation = {
 };
 
 type TelemetryCollectionProfile = "minimal" | "redacted" | "full_evidence";
+type TelemetrySeverity = "info" | "warning" | "critical";
+type TelemetryDecision = "allow" | "warn" | "escalate" | "block";
 type GuardVerdict = "benign" | "suspicious" | "malicious";
 type GuardClassifierResult = {
   verdict: GuardVerdict;
@@ -57,6 +60,10 @@ function getStringArray(value: unknown) {
 
 function getStringValue(value: unknown) {
   return typeof value === "string" ? value : null;
+}
+
+function normalizeTelemetrySeverity(value: unknown): TelemetrySeverity | undefined {
+  return value === "info" || value === "warning" || value === "critical" ? value : undefined;
 }
 
 function normalizeText(value: string) {
@@ -220,8 +227,8 @@ function sanitizeTelemetryForStorage(
 
 function deriveSeverityFromBreaches(
   thresholdBreaches: string[],
-  _fallbackSeverity: "info" | "warning" | "critical" | undefined,
-): "info" | "warning" | "critical" {
+  _fallbackSeverity: TelemetrySeverity | undefined,
+): TelemetrySeverity {
   if (thresholdBreaches.length === 0) {
     return "info";
   }
@@ -296,11 +303,21 @@ function deriveIncidentCategoryFromBreaches(thresholdBreaches: string[]) {
   return "reliability" as const;
 }
 
+type ThresholdOutcome = {
+  severity: TelemetrySeverity;
+  shouldBlock: boolean;
+  shouldEscalateIncident: boolean;
+  shouldNotify: boolean;
+  notificationRoles: string[];
+  incidentCategory: ThresholdEvaluation["incidentCategory"];
+  decision: TelemetryDecision;
+};
+
 function buildThresholdOutcome(params: {
-  inputSeverity: "info" | "warning" | "critical" | undefined;
+  inputSeverity: TelemetrySeverity | undefined;
   thresholdBreaches: string[];
   policy: Awaited<ReturnType<typeof telemetryPolicyService.getEffectiveForOrg>>;
-}) {
+}): ThresholdOutcome {
   const severity = deriveSeverityFromBreaches(params.thresholdBreaches, params.inputSeverity);
   const hardBlockBreaches = new Set([
     "pii_detected",
@@ -351,11 +368,11 @@ function buildThresholdOutcome(params: {
     params.thresholdBreaches.length > 0 && severity === "critical" && params.policy.autoEscalateCritical;
   const shouldNotify =
     params.thresholdBreaches.length > 0 && (severity === "critical" || params.policy.notifyOnWarning);
-  const notificationRoles =
+  const notificationRoles: string[] =
     severity === "critical"
       ? ["system_owner", "compliance_lead", "owner", "admin", "cro", "ciso"]
       : ["system_owner", "compliance_lead"];
-  const decision =
+  const decision: TelemetryDecision =
     shouldBlock
       ? "block"
       : shouldEscalateIncident
@@ -546,7 +563,7 @@ function evaluateThresholds(
   }
 
   const thresholdOutcome = buildThresholdOutcome({
-    inputSeverity: input.severity,
+    inputSeverity: normalizeTelemetrySeverity(input.severity),
     thresholdBreaches: Array.from(new Set(thresholdBreaches)),
     policy,
   });
@@ -696,7 +713,7 @@ export class TelemetryService {
       ? []
       : evaluation.restrictedPromptMatches;
     const thresholdOutcome = buildThresholdOutcome({
-      inputSeverity: input.severity,
+      inputSeverity: normalizeTelemetrySeverity(input.severity),
       thresholdBreaches,
       policy,
     });
@@ -720,7 +737,7 @@ export class TelemetryService {
   }
 
   private recomputeEvaluation(
-    inputSeverity: "info" | "warning" | "critical" | undefined,
+    inputSeverity: TelemetrySeverity | undefined,
     thresholdBreaches: string[],
     policy: Awaited<ReturnType<typeof telemetryPolicyService.getEffectiveForOrg>>,
     evaluation: ThresholdEvaluation,
@@ -753,6 +770,7 @@ export class TelemetryService {
     const guardMetadata: Record<string, unknown> = {};
     let updated = { ...evaluation };
     const systemId = input.systemId ?? null;
+    const inputSeverity = normalizeTelemetrySeverity(input.severity);
 
     const quarantineSystems = parseCsvList(process.env.AICT_GUARD_QUARANTINE_SYSTEMS);
     const quarantineOrgs = parseCsvList(process.env.AICT_GUARD_QUARANTINE_ORGS);
@@ -761,7 +779,7 @@ export class TelemetryService {
       quarantineOrgs.includes(organizationId)
     ) {
       const nextBreaches = Array.from(new Set([...updated.thresholdBreaches, "quarantine_active"]));
-      updated = this.recomputeEvaluation(input.severity, nextBreaches, policy, updated);
+      updated = this.recomputeEvaluation(inputSeverity, nextBreaches, policy, updated);
       updated.shouldEscalateIncident = true;
       updated.decision = "block";
       updated.shouldBlock = true;
@@ -799,10 +817,10 @@ export class TelemetryService {
         guardMetadata.classifier = classifier;
         if (classifier.verdict === "malicious") {
           const nextBreaches = Array.from(new Set([...updated.thresholdBreaches, "prompt_injection_detected"]));
-          updated = this.recomputeEvaluation(input.severity, nextBreaches, policy, updated);
+          updated = this.recomputeEvaluation(inputSeverity, nextBreaches, policy, updated);
         } else if (classifier.verdict === "suspicious") {
           const nextBreaches = Array.from(new Set([...updated.thresholdBreaches, "prompt_injection_suspected"]));
-          updated = this.recomputeEvaluation(input.severity, nextBreaches, policy, updated);
+          updated = this.recomputeEvaluation(inputSeverity, nextBreaches, policy, updated);
         }
       }
     }
@@ -826,7 +844,7 @@ export class TelemetryService {
       guardMetadata.repeatCount = repeatCount;
       if (repeatCount >= repeatThreshold) {
         const nextBreaches = Array.from(new Set([...updated.thresholdBreaches, "repeat_attack_detected"]));
-        updated = this.recomputeEvaluation(input.severity, nextBreaches, policy, updated);
+        updated = this.recomputeEvaluation(inputSeverity, nextBreaches, policy, updated);
         updated.shouldEscalateIncident = true;
         guardMetadata.forceHumanReview = true;
       }
@@ -839,7 +857,7 @@ export class TelemetryService {
       forceReviewOrgs.includes(organizationId)
     ) {
       const nextBreaches = Array.from(new Set([...updated.thresholdBreaches, "human_review_required"]));
-      updated = this.recomputeEvaluation(input.severity, nextBreaches, policy, updated);
+      updated = this.recomputeEvaluation(inputSeverity, nextBreaches, policy, updated);
       updated.shouldEscalateIncident = true;
       if (!updated.shouldBlock) {
         updated.decision = "escalate";
@@ -868,11 +886,13 @@ export class TelemetryService {
       "disallowed_tool_requested",
       "disallowed_tool_returned",
     ];
-    const breachArraySql = sql.join(breachList.map((breach) => sql`${breach}`), sql`, `);
+    const breachArraySql = sql.raw(
+      `array[${breachList.map((breach) => `'${breach}'`).join(", ")}]`,
+    );
     const conditions = [
       eq(aiTelemetryEvents.organizationId, organizationId),
-      sql`${aiTelemetryEvents.detectedAt} >= now() - interval '${windowMinutes} minutes'`,
-      sql`${aiTelemetryEvents.metadata} -> 'thresholdBreaches' ?| array[${breachArraySql}]`,
+      sql`${aiTelemetryEvents.detectedAt} >= now() - (${windowMinutes} * interval '1 minute')`,
+      sql`${aiTelemetryEvents.metadata} -> 'thresholdBreaches' ?| ${breachArraySql}`,
     ];
     if (systemId) {
       conditions.push(eq(aiTelemetryEvents.systemId, systemId));
@@ -902,14 +922,8 @@ export class TelemetryService {
     const promptSnippet = (promptText ?? "").slice(0, 2000);
     const outputSnippet = (modelOutput ?? "").slice(0, 2000);
 
-    const controller = typeof AbortController !== "undefined" ? new AbortController() : undefined;
-    const timeout =
-      controller && Number.isFinite(timeoutMs)
-        ? setTimeout(() => controller.abort(), timeoutMs)
-        : null;
-
     try {
-      const response = await fetch(baseUrl, {
+      const response = await fetchWithTimeout(baseUrl, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -933,7 +947,8 @@ export class TelemetryService {
             },
           ],
         }),
-        signal: controller?.signal,
+        timeoutMs,
+        timeoutMessage: "Prompt guard classifier timed out",
       });
       const body = (await response.json()) as {
         choices?: Array<{ message?: { content?: string | null } }>;
@@ -943,10 +958,6 @@ export class TelemetryService {
       return this.parseGuardClassifierResponse(content);
     } catch {
       return null;
-    } finally {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
     }
   }
 
@@ -1132,11 +1143,11 @@ export class TelemetryService {
       gateway: (event as { gateway?: string | null }).gateway,
       eventType: event.eventType,
       summary: event.summary,
-      severity: event.severity,
+      severity: normalizeTelemetrySeverity(event.severity) ?? "info",
       driftScore: event.driftScore,
-      biasFlags: event.biasFlags,
-      safetySignals: event.safetySignals,
-      piiFlags: event.piiFlags,
+      biasFlags: getStringArray(event.biasFlags),
+      safetySignals: getStringArray(event.safetySignals),
+      piiFlags: getStringArray(event.piiFlags),
       metadata: {
         ...(getMetadataRecord(event.metadata)),
         autoReassessmentTriggeredBy: "runtime_telemetry",

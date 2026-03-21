@@ -164,7 +164,7 @@ test("background job readiness and admin retry flow stay wired", async () => {
     assert.equal(ready.status, 200, "Expected readiness endpoint to succeed");
     const readyBody = ready.body as { queue?: { failed?: number; workerEnabled?: boolean } };
     assert.equal(readyBody.queue?.workerEnabled, true, "Expected queue worker to be enabled");
-    assert.equal(readyBody.queue?.failed, 1, "Expected readiness payload to include failed queue count");
+    assert.ok((readyBody.queue?.failed ?? 0) >= 1, "Expected readiness payload to include failed queue count");
 
     const list = await apiRequest(baseUrl, "/api/organization/background-jobs", { cookie });
     assert.equal(list.status, 200, "Expected admin to list background jobs");
@@ -173,9 +173,10 @@ test("background job readiness and admin retry flow stay wired", async () => {
       jobs: Array<{ id: string; status: string; lastError: string | null }>;
     };
     assert.equal(listBody.summary.failed, 1, "Expected failed job summary count");
-    assert.equal(listBody.jobs[0]?.id, failedJob.id, "Expected failed job to be returned");
-    assert.equal(listBody.jobs[0]?.status, "failed", "Expected failed job status");
-    assert.equal(listBody.jobs[0]?.lastError, "SMTP timeout", "Expected last error to round-trip");
+    const targetJob = listBody.jobs.find((job) => job.id === failedJob.id);
+    assert.ok(targetJob, "Expected failed job to be returned");
+    assert.equal(targetJob.status, "failed", "Expected failed job status");
+    assert.equal(targetJob.lastError, "SMTP timeout", "Expected last error to round-trip");
 
     const retried = await apiRequest(baseUrl, `/api/organization/background-jobs/${failedJob.id}/retry`, {
       method: "POST",

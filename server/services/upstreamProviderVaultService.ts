@@ -136,10 +136,11 @@ function getStoredVault(value: unknown) {
 }
 
 function defaultHeaders(protocol: UpstreamProviderProtocol) {
+  const headers: Record<string, string> = {};
   if (protocol === "anthropic") {
-    return { "anthropic-version": "2023-06-01" };
+    headers["anthropic-version"] = "2023-06-01";
   }
-  return {};
+  return headers;
 }
 
 function envApiKey(protocol: UpstreamProviderProtocol) {

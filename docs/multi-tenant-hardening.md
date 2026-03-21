@@ -83,7 +83,7 @@ Implemented identity controls:
 - SSO metadata endpoint: `GET /api/auth/sso/metadata`
 - SSO start endpoint: `GET /api/auth/sso/start`
 - SSO callback endpoint: `POST /api/auth/sso/callback`
-- SSO mock callback endpoint: `POST /api/auth/sso/mock-callback`
+- SSO mock callback endpoint: `POST /api/auth/sso/mock-callback` (regression-only, disabled in production unless `ENABLE_TEST_AUTH_ROUTES=true`)
 - provider identity linking on `users`
 - JIT provisioning with `provisioningSource = "jit"`
 - invite acceptance with `provisioningSource = "invite"`

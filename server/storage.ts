@@ -41,6 +41,8 @@ export interface UserMembershipContext {
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByUsernameOrEmail(identifier: string): Promise<User | undefined>;
   findUserByProviderSubject(
     authProvider: NonNullable<User["authProvider"]>,
     authProviderSubject: string,
@@ -253,6 +255,14 @@ export interface EvidenceFileFilters {
   workflowId?: string;
 }
 
+function normalizeUsernameInput(username: string): string {
+  return username.trim().toLowerCase();
+}
+
+function normalizeEmailInput(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 export class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -260,7 +270,28 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
+    const normalizedUsername = normalizeUsernameInput(username);
+    const [user] = await db.select().from(users).where(ilike(users.username, normalizedUsername));
+    return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const normalizedEmail = normalizeEmailInput(email);
+    const [user] = await db.select().from(users).where(ilike(users.email, normalizedEmail));
+    return user;
+  }
+
+  async getUserByUsernameOrEmail(identifier: string): Promise<User | undefined> {
+    const normalizedIdentifier = identifier.trim().toLowerCase();
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(
+        or(
+          ilike(users.username, normalizedIdentifier),
+          ilike(users.email, normalizedIdentifier),
+        )!,
+      );
     return user;
   }
 
@@ -281,7 +312,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
+    const [user] = await db
+      .insert(users)
+      .values({
+        ...insertUser,
+        username: normalizeUsernameInput(insertUser.username),
+        email: insertUser.email ? normalizeEmailInput(insertUser.email) : null,
+      })
+      .returning();
     return user;
   }
 

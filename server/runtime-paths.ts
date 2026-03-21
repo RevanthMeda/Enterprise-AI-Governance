@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { isVercelRuntime } from "./env";
 
 function ensureDir(dirPath: string): string {
   if (!fs.existsSync(dirPath)) {
@@ -10,7 +11,7 @@ function ensureDir(dirPath: string): string {
 }
 
 function getWritableRoot(): string {
-  if (process.env.VERCEL === "1") {
+  if (isVercelRuntime()) {
     return "/tmp/ai-control-tower";
   }
 

@@ -1,13 +1,15 @@
 import { bootstrapApp, log } from "./app";
+import { isProductionEnvironment } from "./env";
 
 (async () => {
   const { app, httpServer } = await bootstrapApp({
-    serveStaticClient: process.env.NODE_ENV === "production",
+    serveStaticClient: isProductionEnvironment(),
     enableCronRoutes: false,
   });
 
-  if (process.env.NODE_ENV !== "production") {
-    const { setupVite } = await import("./vite");
+  if (!isProductionEnvironment()) {
+    const viteModulePath = "./vite";
+    const { setupVite } = await import(viteModulePath);
     await setupVite(httpServer, app);
   }
 

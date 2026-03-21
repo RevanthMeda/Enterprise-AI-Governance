@@ -60,6 +60,24 @@ export function createCsrfMiddleware(options?: {
     ...(options?.exemptPaths ?? []),
   ]);
 
+  function isExemptPath(requestPath: string) {
+    for (const exemptPath of Array.from(exemptPaths)) {
+      if (exemptPath.endsWith("*")) {
+        const prefix = exemptPath.slice(0, -1);
+        if (requestPath.startsWith(prefix)) {
+          return true;
+        }
+        continue;
+      }
+
+      if (requestPath === exemptPath) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.path.startsWith("/api")) {
       return next();
@@ -77,7 +95,7 @@ export function createCsrfMiddleware(options?: {
     }
 
     const requestMethod = req.method.toUpperCase();
-    if (CSRF_SAFE_METHODS.has(requestMethod) || exemptPaths.has(req.path)) {
+    if (CSRF_SAFE_METHODS.has(requestMethod) || isExemptPath(req.path)) {
       return next();
     }
 

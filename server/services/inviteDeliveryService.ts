@@ -1,4 +1,11 @@
 import * as nodemailer from "nodemailer";
+import {
+  getPublicAppBaseUrl,
+  isProductionEnvironment,
+  normalizeOptionalString,
+  parseBooleanEnv,
+} from "../env";
+import { fetchWithTimeout } from "../http";
 
 export type InviteDeliveryStatus = "queued" | "sent" | "webhook_sent" | "preview" | "failed";
 
@@ -19,38 +26,32 @@ type InviteDeliveryInput = {
   mode: "created" | "resent";
 };
 
-function getPublicAppBaseUrl(): string {
-  const configured =
-    process.env.PUBLIC_APP_URL ||
-    process.env.APP_BASE_URL ||
-    process.env.FRONTEND_URL ||
-    process.env.CORS_ALLOWED_ORIGINS?.split(",")[0]?.trim() ||
-    "http://localhost:5000";
-
-  return configured.replace(/\/+$/, "");
-}
+const DELIVERY_WEBHOOK_TIMEOUT_MS = 5_000;
 
 export function buildInviteAcceptUrl(token: string): string {
   return `${getPublicAppBaseUrl()}/invite/accept?token=${encodeURIComponent(token)}`;
 }
 
 export function shouldExposeInviteSecrets(): boolean {
-  if (process.env.EXPOSE_INVITE_TOKENS === "true") {
+  if (parseBooleanEnv(process.env.EXPOSE_INVITE_TOKENS, false)) {
     return true;
   }
 
-  return process.env.NODE_ENV !== "production";
+  return !isProductionEnvironment();
 }
 
 function getSmtpConfig() {
-  const host = process.env.SMTP_HOST;
+  const host = normalizeOptionalString(process.env.SMTP_HOST);
   const port = Number(process.env.SMTP_PORT || 587);
-  const secure = process.env.SMTP_SECURE === "true";
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASSWORD;
-  const from = process.env.SMTP_FROM;
+  const secure = parseBooleanEnv(process.env.SMTP_SECURE, false);
+  const user = normalizeOptionalString(process.env.SMTP_USER);
+  const pass = normalizeOptionalString(process.env.SMTP_PASSWORD);
+  const from = normalizeOptionalString(process.env.SMTP_FROM);
 
-  if (!host || !from) {
+  const hostLooksPlaceholder = !host || host.includes("example.com") || host.includes("<");
+  const fromLooksPlaceholder = !from || from.includes("example.com") || from.includes("<");
+
+  if (hostLooksPlaceholder || fromLooksPlaceholder) {
     return null;
   }
 
@@ -145,8 +146,10 @@ export async function deliverInvite(input: InviteDeliveryInput): Promise<InviteD
   const webhookUrl = process.env.INVITE_WEBHOOK_URL;
   if (webhookUrl) {
     try {
-      const response = await fetch(webhookUrl, {
+      const response = await fetchWithTimeout(webhookUrl, {
         method: "POST",
+        timeoutMs: DELIVERY_WEBHOOK_TIMEOUT_MS,
+        timeoutMessage: "Invite delivery webhook timed out",
         headers: {
           "Content-Type": "application/json",
         },

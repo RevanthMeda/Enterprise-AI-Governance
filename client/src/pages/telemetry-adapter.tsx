@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, captureCsrfTokenFromResponse, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { resolveApiUrl } from "@/lib/api-url";
 import { Badge } from "@/components/ui/badge";
@@ -178,7 +178,8 @@ export default function TelemetryAdapterPage() {
     refetchInterval: 30_000,
     staleTime: 10_000,
     queryFn: async () => {
-      const response = await fetch("/api/ai-systems", { credentials: "include" });
+      const response = await fetch(resolveApiUrl("/api/ai-systems"), { credentials: "include" });
+      captureCsrfTokenFromResponse(response);
       if (!response.ok) {
         throw new Error("Failed to load AI systems");
       }
@@ -285,6 +286,7 @@ export default function TelemetryAdapterPage() {
         },
         body: JSON.stringify(parsedPayload),
       });
+      captureCsrfTokenFromResponse(response);
 
       const rawText = await response.text();
       let body: unknown = null;

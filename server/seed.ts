@@ -9,6 +9,7 @@ import {
   users,
 } from "@shared/schema";
 import { getPasswordExpiryDate, hashPassword } from "./auth";
+import { isProductionEnvironment, parseBooleanEnv } from "./env";
 import { backfillTenantBoundRows, ensureTenantBootstrap } from "./tenant-bootstrap";
 
 type BaselineTestUser = {
@@ -65,11 +66,11 @@ const BASELINE_TEST_USERS: BaselineTestUser[] = [
 
 async function ensureBaselineTestUsers() {
   const shouldSeedTestUsers =
-    process.env.SEED_TEST_USERS === "true" || process.env.NODE_ENV !== "production";
+    parseBooleanEnv(process.env.SEED_TEST_USERS, false) || !isProductionEnvironment();
   if (!shouldSeedTestUsers) {
     return;
   }
-  const resetTestUserPasswords = process.env.RESET_TEST_USER_PASSWORDS === "true";
+  const resetTestUserPasswords = parseBooleanEnv(process.env.RESET_TEST_USER_PASSWORDS, false);
 
   const usernames = BASELINE_TEST_USERS.map((user) => user.username);
   const existingUsers = await db

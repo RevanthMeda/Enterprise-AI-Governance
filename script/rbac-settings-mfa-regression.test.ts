@@ -92,13 +92,15 @@ async function startTestServer(): Promise<{ server: Server; baseUrl: string }> {
   return { server, baseUrl: `http://127.0.0.1:${address.port}` };
 }
 
-test("settings route/nav remain admin-gated in app router and sidebar", async () => {
+test("settings route/nav follow active organization access gates", async () => {
   const appPath = new URL("../client/src/App.tsx", import.meta.url);
   const sidebarPath = new URL("../client/src/components/app-sidebar.tsx", import.meta.url);
+  const permissionsPath = new URL("../client/src/lib/permissions.ts", import.meta.url);
 
-  const [appSource, sidebarSource] = await Promise.all([
+  const [appSource, sidebarSource, permissionsSource] = await Promise.all([
     fs.readFile(appPath, "utf8"),
     fs.readFile(sidebarPath, "utf8"),
+    fs.readFile(permissionsPath, "utf8"),
   ]);
 
   assert.match(
@@ -108,23 +110,28 @@ test("settings route/nav remain admin-gated in app router and sidebar", async ()
   );
   assert.match(
     appSource,
-    /isAdmin\s*\?\s*SettingsPage\s*:\s*Dashboard/,
-    "Expected /settings route to keep non-admin users away from SettingsPage",
+    /access\.canAccessSettings\s*\?\s*SettingsPage\s*:\s*Dashboard/,
+    "Expected /settings route to use active-organization access gating",
   );
 
   assert.match(
     sidebarSource,
-    /const isAdmin = user\?\.role === "admin";/,
-    "Expected sidebar to compute admin role gate",
+    /const access = getAppAccess\(user\);/,
+    "Expected sidebar to compute route access from the authenticated user",
   );
   assert.match(
     sidebarSource,
-    /\{isAdmin && \(/,
-    "Expected Settings sidebar section to render only for admins",
+    /\{visibleSettingsNav\.length > 0 && \(/,
+    "Expected settings sidebar section to render only when the active org grants access",
+  );
+  assert.match(
+    permissionsSource,
+    /canAccessSettings:\s*hasActiveOrganizationRole\(user,\s*ORG_ADMIN_ROLES\)/,
+    "Expected settings access to be based on active organization admin roles",
   );
 });
 
-test("mfa endpoints are admin-only", async () => {
+test("mfa endpoints are self-service while settings stay admin-only", async () => {
   const suffix = makeSuffix();
   const tracker: Tracker = {
     organizationIds: [],
@@ -191,21 +198,15 @@ test("mfa endpoints are admin-only", async () => {
     const reviewerCookie = cookieFromSetCookie(reviewerLogin.setCookie);
     assert.ok(reviewerCookie, "Expected reviewer auth cookie");
 
-    const blockedRequests = [
-      { path: "/api/auth/mfa/enroll", body: {} },
-      { path: "/api/auth/mfa/verify-enroll", body: { code: "000000" } },
-      { path: "/api/auth/mfa/disable", body: { password: "ignored", mfaCode: "000000" } },
-      { path: "/api/auth/mfa/recovery-codes/regenerate", body: { mfaCode: "000000" } },
-    ] as const;
-
-    for (const request of blockedRequests) {
-      const res = await apiRequest(baseUrl, request.path, {
-        method: "POST",
-        body: request.body,
-        cookie: reviewerCookie,
-      });
-      assert.equal(res.status, 403, `Expected reviewer to be denied ${request.path}`);
-    }
+    const reviewerEnroll = await apiRequest(baseUrl, "/api/auth/mfa/enroll", {
+      method: "POST",
+      body: {},
+      cookie: reviewerCookie,
+    });
+    assert.equal(reviewerEnroll.status, 200, "Expected reviewer to self-enroll in MFA");
+    const reviewerEnrollBody = reviewerEnroll.body as { secret?: string; otpauthUrl?: string };
+    assert.ok(reviewerEnrollBody.secret, "Expected MFA enroll secret for reviewer");
+    assert.ok(reviewerEnrollBody.otpauthUrl?.startsWith("otpauth://"), "Expected otpauth URL for reviewer");
 
     const reviewerSettings = await apiRequest(baseUrl, "/api/settings", {
       method: "GET",

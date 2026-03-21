@@ -50,7 +50,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { resolveApiUrl } from "@/lib/api-url";
+import { apiRequest, captureCsrfTokenFromResponse, queryClient } from "@/lib/queryClient";
 import { exportSystemRegistryCsv } from "@/lib/export-utils";
 import type { AiSystem } from "@shared/schema";
 
@@ -112,7 +113,8 @@ export default function Registry() {
     refetchInterval: 30_000,
     staleTime: 10_000,
     queryFn: async () => {
-      const res = await fetch(`/api/ai-systems?${queryParams.toString()}`, { credentials: "include" });
+      const res = await fetch(resolveApiUrl(`/api/ai-systems?${queryParams.toString()}`), { credentials: "include" });
+      captureCsrfTokenFromResponse(res);
       if (!res.ok) throw new Error("Failed to fetch systems");
       return res.json();
     },

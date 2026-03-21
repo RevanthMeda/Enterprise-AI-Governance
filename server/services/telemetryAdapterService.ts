@@ -4,6 +4,19 @@ import { db } from "../db";
 import { organizationTelemetryAdapters } from "@shared/schema";
 import { upstreamProviderVaultService } from "./upstreamProviderVaultService";
 
+type TelemetryCollectionProfile = "minimal" | "redacted" | "full_evidence";
+
+export type ResolvedTelemetryAdapter = Omit<
+  typeof organizationTelemetryAdapters.$inferSelect,
+  "collectionProfile" | "allowedGateways" | "allowedToolNames" | "toolArgumentPolicy" | "upstreamProviders"
+> & {
+  collectionProfile: TelemetryCollectionProfile;
+  allowedGateways: string[];
+  allowedToolNames: string[];
+  toolArgumentPolicy: Record<string, unknown>;
+  upstreamProviders: Record<string, unknown>;
+};
+
 function hashKey(rawKey: string) {
   return createHash("sha256").update(rawKey).digest("hex");
 }
@@ -19,31 +32,58 @@ type AdapterPatch = {
   toolArgumentPolicy?: Record<string, unknown>;
   upstreamProviders?: Record<string, unknown>;
   defaultSystemId?: string | null;
-  collectionProfile?: "minimal" | "redacted" | "full_evidence";
+  collectionProfile?: TelemetryCollectionProfile;
 };
 
+function getObjectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function normalizeCollectionProfile(value: unknown): TelemetryCollectionProfile {
+  if (value === "minimal" || value === "redacted" || value === "full_evidence") {
+    return value;
+  }
+  return "full_evidence";
+}
+
 export class TelemetryAdapterService {
-  private sanitize(adapter: typeof organizationTelemetryAdapters.$inferSelect) {
+  private normalizeAdapter(adapter: typeof organizationTelemetryAdapters.$inferSelect): ResolvedTelemetryAdapter {
     return {
-      id: adapter.id,
-      organizationId: adapter.organizationId,
-      enabled: adapter.enabled,
-      hasActiveKey: Boolean(adapter.ingestKeyHash),
-      keyPrefix: adapter.keyPrefix,
-      defaultSystemId: adapter.defaultSystemId,
-      collectionProfile: adapter.collectionProfile,
-      allowedGateways: Array.isArray(adapter.allowedGateways) ? adapter.allowedGateways : [],
-      allowedToolNames: Array.isArray(adapter.allowedToolNames) ? adapter.allowedToolNames : [],
-      toolArgumentPolicy:
-        adapter.toolArgumentPolicy && typeof adapter.toolArgumentPolicy === "object" && !Array.isArray(adapter.toolArgumentPolicy)
-          ? adapter.toolArgumentPolicy
-          : {},
+      ...adapter,
+      collectionProfile: normalizeCollectionProfile(adapter.collectionProfile),
+      allowedGateways: Array.isArray(adapter.allowedGateways)
+        ? adapter.allowedGateways.filter((entry): entry is string => typeof entry === "string")
+        : [],
+      allowedToolNames: Array.isArray(adapter.allowedToolNames)
+        ? adapter.allowedToolNames.filter((entry): entry is string => typeof entry === "string")
+        : [],
+      toolArgumentPolicy: getObjectRecord(adapter.toolArgumentPolicy),
+      upstreamProviders: getObjectRecord(adapter.upstreamProviders),
+    };
+  }
+
+  private sanitize(adapter: typeof organizationTelemetryAdapters.$inferSelect) {
+    const normalized = this.normalizeAdapter(adapter);
+
+    return {
+      id: normalized.id,
+      organizationId: normalized.organizationId,
+      enabled: normalized.enabled,
+      hasActiveKey: Boolean(normalized.ingestKeyHash),
+      keyPrefix: normalized.keyPrefix,
+      defaultSystemId: normalized.defaultSystemId,
+      collectionProfile: normalized.collectionProfile,
+      allowedGateways: normalized.allowedGateways,
+      allowedToolNames: normalized.allowedToolNames,
+      toolArgumentPolicy: normalized.toolArgumentPolicy,
       upstreamProviders:
-        upstreamProviderVaultService.sanitizeForClient(adapter.upstreamProviders),
-      lastUsedAt: adapter.lastUsedAt,
-      lastRotatedAt: adapter.lastRotatedAt,
-      createdAt: adapter.createdAt,
-      updatedAt: adapter.updatedAt,
+        upstreamProviderVaultService.sanitizeForClient(normalized.upstreamProviders),
+      lastUsedAt: normalized.lastUsedAt,
+      lastRotatedAt: normalized.lastRotatedAt,
+      createdAt: normalized.createdAt,
+      updatedAt: normalized.updatedAt,
       ingestPath: "/api/telemetry/sdk-ingest",
       evaluatePath: "/api/telemetry/sdk-evaluate",
       headerName: "x-telemetry-key",
@@ -151,7 +191,7 @@ export class TelemetryAdapterService {
       return null;
     }
 
-    return adapter;
+    return this.normalizeAdapter(adapter);
   }
 
   async markUsed(adapterId: string) {

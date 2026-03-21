@@ -44,7 +44,7 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
   const { data: files = [], isLoading } = useQuery<EvidenceFile[]>({
     queryKey,
     queryFn: async () => {
-      const res = await fetch(`/api/evidence?${queryParams.toString()}`, { credentials: "include" });
+      const res = await fetch(resolveApiUrl(`/api/evidence?${queryParams.toString()}`), { credentials: "include" });
       captureCsrfTokenFromResponse(res);
       if (!res.ok) throw new Error("Failed to fetch evidence");
       return res.json();
@@ -59,7 +59,7 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
       if (controlId) formData.append("controlId", controlId);
       if (workflowId) formData.append("workflowId", workflowId);
       const csrfToken = getCsrfToken();
-      const res = await fetch("/api/evidence", {
+      const res = await fetch(resolveApiUrl("/api/evidence"), {
         method: "POST",
         headers: csrfToken ? { "X-CSRF-Token": csrfToken } : undefined,
         body: formData,
@@ -84,7 +84,7 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const csrfToken = getCsrfToken();
-      const res = await fetch(`/api/evidence/${id}`, {
+      const res = await fetch(resolveApiUrl(`/api/evidence/${id}`), {
         method: "DELETE",
         headers: csrfToken ? { "X-CSRF-Token": csrfToken } : undefined,
         credentials: "include",
@@ -254,7 +254,7 @@ export function EvidenceCount({ systemId }: { systemId: string }) {
   const { data: files = [] } = useQuery<EvidenceFile[]>({
     queryKey: ["/api/evidence", `systemId=${systemId}`],
     queryFn: async () => {
-      const res = await fetch(`/api/evidence?systemId=${systemId}`, { credentials: "include" });
+      const res = await fetch(resolveApiUrl(`/api/evidence?systemId=${encodeURIComponent(systemId)}`), { credentials: "include" });
       captureCsrfTokenFromResponse(res);
       if (!res.ok) throw new Error("Failed to fetch evidence");
       return res.json();

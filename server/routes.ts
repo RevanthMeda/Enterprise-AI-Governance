@@ -6,6 +6,7 @@ import { randomBytes } from "crypto";
 import path from "path";
 import fs from "fs";
 import { storage } from "./storage";
+import { fetchWithTimeout } from "./http";
 import {
   adminAuditEvents,
   incidentCategories,
@@ -73,7 +74,15 @@ import { telemetryReviewerExceptionService } from "./services/telemetryReviewerE
 import { upstreamProviderVaultService } from "./services/upstreamProviderVaultService";
 import { workflowService } from "./services/workflowService";
 import { autoDiscoveryService } from "./services/autoDiscoveryService";
+import {
+  buildPasswordResetUrl,
+  createPasswordResetToken,
+  deliverPasswordReset,
+  isPasswordResetTokenValidForUser,
+  verifyPasswordResetToken,
+} from "./services/passwordResetService";
 import { getUploadsRoot } from "./runtime-paths";
+import { areMockAuthRoutesEnabled, parseBooleanEnv } from "./env";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -265,6 +274,66 @@ function getOptionalString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function getErrorStatus(error: unknown, fallback = 400): number {
+  if (
+    error &&
+    typeof error === "object" &&
+    "status" in error &&
+    typeof (error as { status?: unknown }).status === "number"
+  ) {
+    return (error as { status: number }).status;
+  }
+  if (
+    error &&
+    typeof error === "object" &&
+    "statusCode" in error &&
+    typeof (error as { statusCode?: unknown }).statusCode === "number"
+  ) {
+    return (error as { statusCode: number }).statusCode;
+  }
+  return fallback;
+}
+
+type RequestWindowState = {
+  count: number;
+  windowStart: number;
+};
+
+const PASSWORD_RESET_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const PASSWORD_RESET_RATE_LIMIT_ATTEMPTS = 5;
+const passwordResetAttemptsByIp = new Map<string, RequestWindowState>();
+
+function getClientIp(req: Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (Array.isArray(forwarded) && forwarded.length > 0) {
+    return forwarded[0].split(",")[0].trim();
+  }
+  if (typeof forwarded === "string") {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.ip || "unknown";
+}
+
+function getRequestWindowState(map: Map<string, RequestWindowState>, key: string, now: number): RequestWindowState {
+  const current = map.get(key);
+  if (!current || now - current.windowStart > PASSWORD_RESET_RATE_LIMIT_WINDOW_MS) {
+    const fresh = { count: 0, windowStart: now };
+    map.set(key, fresh);
+    return fresh;
+  }
+  return current;
+}
+
+function isPasswordResetRateLimited(ip: string): boolean {
+  const windowState = getRequestWindowState(passwordResetAttemptsByIp, ip, Date.now());
+  return windowState.count >= PASSWORD_RESET_RATE_LIMIT_ATTEMPTS;
+}
+
+function trackPasswordResetRequest(ip: string) {
+  const windowState = getRequestWindowState(passwordResetAttemptsByIp, ip, Date.now());
+  windowState.count += 1;
+}
+
 const leadCaptureSchema = z.object({
   name: z.string().trim().min(1).max(120),
   workEmail: z.string().trim().email().max(255),
@@ -322,6 +391,15 @@ const acceptInviteSchema = z.object({
   password: z.string().min(12),
   fullName: z.string().trim().min(1).max(200),
   email: z.string().trim().email().optional(),
+});
+
+const forgotPasswordSchema = z.object({
+  identifier: z.string().trim().min(1).max(255),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().trim().min(20),
+  newPassword: z.string().min(12, "New password must be at least 12 characters long"),
 });
 
 const authModeValues = ["local", "saml", "oidc"] as const;
@@ -1049,22 +1127,16 @@ export async function registerRoutes(
     return res.status(202).json({ ok: true });
   });
 
-  app.get("/api/settings", requireAuth, async (req, res) => {
-    if (req.user!.role !== "admin") {
-      return res.status(403).json({ message: "Forbidden" });
-    }
+  app.get("/api/settings", requireAuth, requireTenant, requireOrgRole("owner", "admin"), async (req, res) => {
     const user = await storage.getUser(req.user!.id);
     return res.json({
-      allowSelfSignup: process.env.ALLOW_SELF_SIGNUP === "true",
+      allowSelfSignup: parseBooleanEnv(process.env.ALLOW_SELF_SIGNUP, false),
       mfaEnabled: Boolean(user?.mfaEnabled),
       currentOrganizationId: req.session.currentOrganizationId ?? null,
     });
   });
 
-  app.patch("/api/settings", requireAuth, async (req, res) => {
-    if (req.user!.role !== "admin") {
-      return res.status(403).json({ message: "Forbidden" });
-    }
+  app.patch("/api/settings", requireAuth, requireTenant, requireOrgRole("owner", "admin"), async (req, res) => {
     return res.json({
       ok: true,
       message: "Settings update accepted",
@@ -1809,6 +1881,10 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/sso/mock-callback", async (req, res) => {
+    if (!areMockAuthRoutesEnabled()) {
+      return res.status(404).json({ message: "Not found" });
+    }
+
     try {
       const parsed = ssoMockCallbackSchema.parse(req.body ?? {});
       const pending = (req.session as any).ssoPending as import("./services/ssoService").SsoPendingState | undefined;
@@ -1945,6 +2021,10 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/oidc/mock-callback", async (req, res) => {
+    if (!areMockAuthRoutesEnabled()) {
+      return res.status(404).json({ message: "Not found" });
+    }
+
     try {
       const parsed = oidcMockCallbackSchema.parse(req.body ?? {});
       const pending = (req.session as any).ssoPending as import("./services/ssoService").SsoPendingState | undefined;
@@ -2542,7 +2622,7 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/register", async (req, res) => {
-    if (process.env.ALLOW_SELF_SIGNUP !== "true") {
+    if (!parseBooleanEnv(process.env.ALLOW_SELF_SIGNUP, false)) {
       return res.status(403).json({ message: "Self-service registration is disabled" });
     }
     try {
@@ -2557,6 +2637,12 @@ export async function registerRoutes(
       const existing = await storage.getUserByUsername(username);
       if (existing) {
         return res.status(400).json({ message: "Username already exists" });
+      }
+      if (email) {
+        const existingByEmail = await storage.getUserByEmail(email);
+        if (existingByEmail) {
+          return res.status(400).json({ message: "Email already exists" });
+        }
       }
       const allUsers = await storage.getAllUsers();
       const assignedRole = allUsers.length === 0 ? "admin" : "reviewer";
@@ -2584,6 +2670,87 @@ export async function registerRoutes(
       }
     } catch (err: any) {
       res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { identifier } = forgotPasswordSchema.parse(req.body ?? {});
+      const clientIp = getClientIp(req);
+
+      if (isPasswordResetRateLimited(clientIp)) {
+        return res.status(429).json({ message: "Too many password reset requests. Try again later." });
+      }
+      trackPasswordResetRequest(clientIp);
+
+      const genericResponse = {
+        ok: true,
+        message: "If an eligible local account exists, a password reset link has been sent.",
+      };
+
+      const user = await storage.getUserByUsernameOrEmail(identifier);
+      if (!user || (user.authProvider ?? "local") !== "local" || !user.email) {
+        return res.status(202).json(genericResponse);
+      }
+
+      const { token, expiresAt } = createPasswordResetToken(user);
+      const resetUrl = buildPasswordResetUrl(token);
+      const delivery = await deliverPasswordReset({
+        email: user.email,
+        fullName: user.fullName || user.username,
+        resetUrl,
+        expiresAt,
+      });
+
+      return res.status(202).json({
+        ...genericResponse,
+        ...(process.env.NODE_ENV !== "production" ? { previewUrl: delivery.previewUrl ?? resetUrl } : {}),
+      });
+    } catch (err: any) {
+      return res.status(400).json({ message: err.message || "Password reset request failed" });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, newPassword } = resetPasswordSchema.parse(req.body ?? {});
+      const payload = verifyPasswordResetToken(token);
+      if (!payload) {
+        return res.status(400).json({ message: "Password reset token is invalid or expired" });
+      }
+
+      const user = await storage.getUser(payload.sub);
+      if (!user || !isPasswordResetTokenValidForUser(payload, user)) {
+        return res.status(400).json({ message: "Password reset token is invalid or expired" });
+      }
+
+      const passwordValidation = validatePasswordStrength(newPassword);
+      if (!passwordValidation.valid) {
+        return res.status(400).json({ message: passwordValidation.message });
+      }
+
+      const reused = await isPasswordReused(newPassword, user.password, user.passwordHistory);
+      if (reused) {
+        return res.status(400).json({ message: "New password must not reuse recent passwords" });
+      }
+
+      const hashed = await hashPassword(newPassword);
+      const updated = await storage.updateUserPassword(user.id, {
+        password: hashed,
+        passwordChangedAt: new Date(),
+        passwordExpiresAt: getPasswordExpiryDate(),
+        passwordHistory: buildNextPasswordHistory(user.password, user.passwordHistory),
+      });
+      if (!updated) {
+        return res.status(500).json({ message: "Failed to update password" });
+      }
+
+      return res.json({
+        ok: true,
+        message: "Password reset successful. You can now sign in with your new password.",
+      });
+    } catch (err: any) {
+      return res.status(400).json({ message: err.message || "Password reset failed" });
     }
   });
 
@@ -2765,8 +2932,10 @@ export async function registerRoutes(
 
       const webhookUrl = process.env.LEAD_WEBHOOK_URL;
       if (webhookUrl) {
-        fetch(webhookUrl, {
+        void fetchWithTimeout(webhookUrl, {
           method: "POST",
+          timeoutMs: 5_000,
+          timeoutMessage: "Lead webhook timed out",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             event: "lead.created",
@@ -2852,9 +3021,6 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/mfa/enroll", requireAuth, async (req, res) => {
-    if (req.user!.role !== "admin") {
-      return res.status(403).json({ message: "Forbidden" });
-    }
     const user = await storage.getUser(req.user!.id);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -2881,9 +3047,6 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/mfa/verify-enroll", requireAuth, async (req, res) => {
-    if (req.user!.role !== "admin") {
-      return res.status(403).json({ message: "Forbidden" });
-    }
     const code = getOptionalString(req.body?.code);
     if (!code) {
       return res.status(400).json({ message: "MFA code is required" });
@@ -2917,9 +3080,6 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/mfa/disable", requireAuth, async (req, res) => {
-    if (req.user!.role !== "admin") {
-      return res.status(403).json({ message: "Forbidden" });
-    }
     const password = getOptionalString(req.body?.password);
     if (!password) {
       return res.status(400).json({ message: "Password is required" });
@@ -2966,9 +3126,6 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/mfa/recovery-codes/regenerate", requireAuth, async (req, res) => {
-    if (req.user!.role !== "admin") {
-      return res.status(403).json({ message: "Forbidden" });
-    }
     const user = await storage.getUser(req.user!.id);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -3783,7 +3940,7 @@ export async function registerRoutes(
         });
         res.status(201).json(created);
       } catch (err: any) {
-        res.status(400).json({ message: err.message || "Failed to create decision trace" });
+        res.status(getErrorStatus(err)).json({ message: err.message || "Failed to create decision trace" });
       }
     },
   );
@@ -3837,7 +3994,7 @@ export async function registerRoutes(
         });
         res.json(updated);
       } catch (err: any) {
-        res.status(400).json({ message: err.message || "Failed to update decision trace" });
+        res.status(getErrorStatus(err)).json({ message: err.message || "Failed to update decision trace" });
       }
     },
   );
@@ -4059,7 +4216,7 @@ export async function registerRoutes(
         });
         res.status(201).json(created);
       } catch (err: any) {
-        res.status(400).json({ message: err.message || "Failed to record telemetry event" });
+        res.status(getErrorStatus(err)).json({ message: err.message || "Failed to record telemetry event" });
       }
     },
   );
@@ -4150,9 +4307,9 @@ export async function registerRoutes(
           ? (metadata.restrictedPromptMatches as string[])
           : [],
       });
-    } catch (err: any) {
-      return res.status(400).json({ message: err.message || "Failed to ingest telemetry event" });
-    }
+      } catch (err: any) {
+        return res.status(getErrorStatus(err)).json({ message: err.message || "Failed to ingest telemetry event" });
+      }
   });
 
   app.post("/api/gateway/openai/v1/chat/completions", async (req, res) => {

@@ -2,6 +2,7 @@ import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import { db } from "../db";
 import { decisionAudits } from "@shared/schema";
 import { auditService } from "./auditService";
+import { isVercelRuntime, parseBooleanEnv } from "../env";
 
 const POLL_MS = Math.max(60_000, Number(process.env.RETENTION_ENFORCEMENT_POLL_MS || 15 * 60_000));
 
@@ -13,16 +14,16 @@ const systemActor = {
   role: "system",
 };
 
+function isRetentionWorkerEnabled() {
+  return !parseBooleanEnv(process.env.RETENTION_ENFORCEMENT_DISABLED, false) && !isVercelRuntime();
+}
+
 export class RetentionService {
   private timer: NodeJS.Timeout | null = null;
   private draining = false;
 
   start() {
-    if (
-      process.env.RETENTION_ENFORCEMENT_DISABLED === "true" ||
-      process.env.VERCEL === "1" ||
-      this.timer
-    ) {
+    if (!isRetentionWorkerEnabled() || this.timer) {
       return;
     }
 
@@ -61,9 +62,7 @@ export class RetentionService {
       archived,
       dueForArchive: summary?.dueForArchive ?? 0,
       underLegalHold: summary?.underLegalHold ?? 0,
-      workerEnabled:
-        process.env.RETENTION_ENFORCEMENT_DISABLED !== "true" &&
-        process.env.VERCEL !== "1",
+      workerEnabled: isRetentionWorkerEnabled(),
     };
   }
 

@@ -1,6 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../db";
 import { jiraIntegrations, approvalWorkflows, type ApprovalWorkflow, type InsertJiraIntegration } from "@shared/schema";
+import { fetchWithTimeout } from "../http";
+
+const JIRA_REQUEST_TIMEOUT_MS = 10_000;
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
@@ -52,7 +55,9 @@ export class JiraService {
     }
 
     const baseUrl = trimTrailingSlash(integration.baseUrl);
-    const response = await fetch(`${baseUrl}/rest/api/3/project/${integration.projectKey}`, {
+    const response = await fetchWithTimeout(`${baseUrl}/rest/api/3/project/${integration.projectKey}`, {
+      timeoutMs: JIRA_REQUEST_TIMEOUT_MS,
+      timeoutMessage: "Jira connection test timed out",
       headers: {
         Authorization: buildAuthHeader(integration.userEmail, integration.apiToken),
         Accept: "application/json",
@@ -128,8 +133,10 @@ export class JiraService {
         },
       };
 
-      const response = await fetch(`${baseUrl}/rest/api/3/issue`, {
+      const response = await fetchWithTimeout(`${baseUrl}/rest/api/3/issue`, {
         method: "POST",
+        timeoutMs: JIRA_REQUEST_TIMEOUT_MS,
+        timeoutMessage: "Jira issue sync timed out",
         headers: {
           Authorization: buildAuthHeader(integration.userEmail, integration.apiToken),
           Accept: "application/json",
