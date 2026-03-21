@@ -77,13 +77,14 @@ async function buildAll() {
   await esbuild({
     entryPoints: ["server/start-production.ts"],
     platform: "node",
+    target: "node18",
     bundle: true,
     format: "cjs",
     outfile: "dist/index.cjs",
     define: {
       "process.env.NODE_ENV": '"production"',
     },
-    minify: true,
+    minify: false,
     external: externals,
     logLevel: "info",
   });
