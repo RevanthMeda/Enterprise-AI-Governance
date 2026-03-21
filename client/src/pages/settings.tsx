@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +24,7 @@ import { resolveApiUrl } from "@/lib/api-url";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { AccountSecurityPanel } from "@/components/account-security-panel";
+import { formatDateTime } from "@/lib/date-format";
 
 type OrganizationMember = {
   membershipId: string;
@@ -114,6 +115,14 @@ const SETTINGS_PAGE_SIZE = 8;
 export default function SettingsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const initialTab = useMemo(() => {
+    if (typeof window === "undefined") {
+      return "access";
+    }
+
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    return ["access", "identity", "security", "activity", "governance"].includes(tab ?? "") ? String(tab) : "access";
+  }, []);
   const [isWorking, setIsWorking] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<(typeof INVITE_ROLES)[number]>("reviewer");
@@ -136,7 +145,7 @@ export default function SettingsPage() {
   const [enforceSso, setEnforceSso] = useState(false);
   const [strictSamlValidation, setStrictSamlValidation] = useState(false);
   const [defaultRole, setDefaultRole] = useState<(typeof SSO_ROLE_OPTIONS)[number]>("reviewer");
-  const [activeTab, setActiveTab] = useState("access");
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [inviteSearch, setInviteSearch] = useState("");
   const [inviteStatusFilter, setInviteStatusFilter] = useState<(typeof INVITE_STATUS_FILTERS)[number]>("all");
   const [invitePage, setInvitePage] = useState(0);
@@ -1355,7 +1364,7 @@ export default function SettingsPage() {
 
         <TabsContent value="activity" className="mt-4">
           <div className="grid grid-cols-1 gap-4">
-            <Card>
+            <Card id="background-job-health">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-semibold">Background Job Health</CardTitle>
               </CardHeader>
@@ -1391,7 +1400,7 @@ export default function SettingsPage() {
                           <Badge variant="outline" className="text-[10px]">{job.status}</Badge>
                         </div>
                         <p className="text-[11px] text-muted-foreground">
-                          Attempts {job.attempts}/{job.maxAttempts} · {new Date(job.updatedAt).toLocaleString()}
+                          Attempts {job.attempts}/{job.maxAttempts} · {formatDateTime(job.updatedAt)}
                         </p>
                         {job.lastError && (
                           <p className="mt-1 text-[11px] text-red-700 dark:text-red-300">{job.lastError}</p>
@@ -1475,7 +1484,7 @@ export default function SettingsPage() {
                       {event.actorName} · {event.targetType || "system"}
                     </p>
                   </div>
-                  <span className="text-[11px] text-muted-foreground">{new Date(event.createdAt).toLocaleString()}</span>
+                  <span className="text-[11px] text-muted-foreground">{formatDateTime(event.createdAt)}</span>
                 </div>
               ))}
             </div>

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { formatDateTime } from "@/lib/date-format";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { AiSystem } from "@shared/schema";
@@ -110,21 +111,25 @@ export default function DecisionTracePage() {
   const summaryQuery = useQuery<DecisionSummary>({
     queryKey: ["/api/decision-audits/summary"],
     refetchInterval: 15_000,
+    refetchIntervalInBackground: true,
     staleTime: 5_000,
   });
   const telemetryQuery = useQuery<TelemetrySummary>({
     queryKey: ["/api/telemetry/summary"],
     refetchInterval: 15_000,
+    refetchIntervalInBackground: true,
     staleTime: 5_000,
   });
   const chainQuery = useQuery<ChainStatus>({
     queryKey: ["/api/audit-logs/verify-chain"],
     refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
     staleTime: 10_000,
   });
   const listQuery = useQuery<DecisionAudit[]>({
     queryKey: ["/api/decision-audits"],
     refetchInterval: 15_000,
+    refetchIntervalInBackground: true,
     staleTime: 5_000,
   });
   const recentTraces = useMemo(() => listQuery.data ?? [], [listQuery.data]);
@@ -138,12 +143,17 @@ export default function DecisionTracePage() {
     queryKey: ["/api/decision-audits", activeTraceId, "versions"],
     enabled: Boolean(activeTraceId),
     refetchInterval: activeTraceId ? 15_000 : false,
+    refetchIntervalInBackground: true,
     staleTime: 5_000,
     queryFn: async () => {
       const response = await apiRequest("GET", `/api/decision-audits/${activeTraceId}/versions`);
       return response.json();
     },
   });
+  const systemNameById = useMemo(
+    () => new Map((systemsQuery.data ?? []).map((system) => [system.id, system.name])),
+    [systemsQuery.data],
+  );
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -396,7 +406,7 @@ export default function DecisionTracePage() {
                       <div className="min-w-0">
                         <div className="text-sm font-semibold">{trace.title}</div>
                         <div className="mt-1 text-[11px] text-muted-foreground">
-                          {new Date(trace.createdAt).toLocaleString()} • {trace.createdBy}
+                          {formatDateTime(trace.createdAt)} • {trace.createdBy}
                         </div>
                       </div>
                       <div className="flex shrink-0 flex-wrap gap-1">
@@ -423,7 +433,7 @@ export default function DecisionTracePage() {
                 <div>
                   <div className="text-lg font-semibold">{selectedTrace.title}</div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    System {selectedTrace.systemId} • Recorded by {selectedTrace.createdBy} • {new Date(selectedTrace.createdAt).toLocaleString()}
+                    System {systemNameById.get(selectedTrace.systemId) ?? selectedTrace.systemId} • Recorded by {selectedTrace.createdBy} • {formatDateTime(selectedTrace.createdAt)}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -535,7 +545,7 @@ export default function DecisionTracePage() {
                     <div key={version.id} className="rounded-md border bg-muted/20 p-3">
                       <div className="flex items-center justify-between gap-2">
                         <div className="font-medium">v{version.versionNumber}</div>
-                        <div className="text-xs text-muted-foreground">{new Date(version.createdAt).toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground">{formatDateTime(version.createdAt)}</div>
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
                         Captured by {version.createdBy}

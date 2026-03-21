@@ -3,7 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { sql } from "drizzle-orm";
 import { db } from "../server/db";
-import { getPublicAppBaseUrl } from "../server/env";
+import { getPublicAppBaseUrl, normalizeOptionalString } from "../server/env";
 import { seedRealWorldDemo } from "./seed-real-world-demo";
 
 const currentFile = fileURLToPath(import.meta.url);
@@ -93,6 +93,23 @@ async function upsertEnvFile(filePath: string, updates: Record<string, string>) 
   await fs.writeFile(`${filePath}`, `${nextLines.join("\n").trim()}\n`, "utf8");
 }
 
+function getControlTowerBackendBaseUrl() {
+  return (
+    normalizeOptionalString(process.env.AICT_BASE_URL) ||
+    normalizeOptionalString(process.env.VITE_API_BASE_URL) ||
+    normalizeOptionalString(process.env.API_BASE_URL) ||
+    normalizeOptionalString(process.env.BACKEND_URL) ||
+    getPublicAppBaseUrl()
+  ).replace(/\/+$/, "");
+}
+
+function getControlTowerConsoleBaseUrl() {
+  return (
+    normalizeOptionalString(process.env.AICT_CONSOLE_URL) ||
+    getPublicAppBaseUrl()
+  ).replace(/\/+$/, "");
+}
+
 async function main() {
   console.log("[demo:prep] Resetting demo dataset");
   await truncateForDemoReset();
@@ -106,10 +123,11 @@ async function main() {
     SEED_TEST_USERS: "false",
   });
 
-  const controlTowerUrl = getPublicAppBaseUrl();
+  const controlTowerBackendUrl = getControlTowerBackendBaseUrl();
+  const controlTowerConsoleUrl = getControlTowerConsoleBaseUrl();
   await upsertEnvFile(path.join(repoRoot, "examples", ".env.local"), {
-    AICT_BASE_URL: controlTowerUrl,
-    AICT_CONSOLE_URL: controlTowerUrl,
+    AICT_BASE_URL: controlTowerBackendUrl,
+    AICT_CONSOLE_URL: controlTowerConsoleUrl,
     AICT_TELEMETRY_KEY: summary.linkedRuntime.telemetryKey,
     AICT_SYSTEM_ID: summary.linkedRuntime.systemId,
     AICT_GATEWAY: summary.linkedRuntime.gateway,
@@ -123,6 +141,8 @@ async function main() {
   });
 
   console.log(`[demo:prep] Control Tower login: ${primaryLogin.email} / ${primaryLogin.password}`);
+  console.log(`[demo:prep] Control Tower backend: ${controlTowerBackendUrl}`);
+  console.log(`[demo:prep] Control Tower console: ${controlTowerConsoleUrl}`);
   console.log(
     `[demo:prep] Linked runtime: ${summary.linkedRuntime.organizationName} / ${summary.linkedRuntime.systemName}`,
   );

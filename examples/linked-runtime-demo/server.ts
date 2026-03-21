@@ -107,11 +107,12 @@ const currentFile = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFile);
 const examplesDir = path.resolve(currentDir, "..");
 const repoRootDir = path.resolve(currentDir, "..", "..");
+const loadedEnvKeys = new Set<string>();
 
 loadEnvFile(path.join(repoRootDir, ".env"));
-loadEnvFile(path.join(repoRootDir, ".env.local"));
 loadEnvFile(path.join(examplesDir, ".env"));
-loadEnvFile(path.join(examplesDir, ".env.local"));
+loadEnvFile(path.join(repoRootDir, ".env.local"), { overrideExisting: true });
+loadEnvFile(path.join(examplesDir, ".env.local"), { overrideExisting: true });
 
 const port = Number(process.env.LINKED_RUNTIME_DEMO_PORT || 18080);
 const bindHost = process.env.LINKED_RUNTIME_DEMO_BIND_HOST || "127.0.0.1";
@@ -1140,7 +1141,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
   }
 }
 
-function loadEnvFile(filePath: string) {
+function loadEnvFile(filePath: string, options?: { overrideExisting?: boolean }) {
   if (!fs.existsSync(filePath)) {
     return;
   }
@@ -1163,7 +1164,16 @@ function loadEnvFile(filePath: string) {
     }
 
     const key = normalized.slice(0, separatorIndex).trim();
-    if (!key || process.env[key]) {
+    if (!key) {
+      continue;
+    }
+
+    const hasExistingValue = typeof process.env[key] === "string" && process.env[key]!.length > 0;
+    const providedByEarlierEnvFile = loadedEnvKeys.has(key);
+    if (
+      hasExistingValue &&
+      (!providedByEarlierEnvFile || !options?.overrideExisting)
+    ) {
       continue;
     }
 
@@ -1176,6 +1186,7 @@ function loadEnvFile(filePath: string) {
     }
 
     process.env[key] = value;
+    loadedEnvKeys.add(key);
   }
 }
 
@@ -1468,13 +1479,13 @@ function renderStyles() {
       width: 100%;
     }
     .login-shell {
-      max-width: 1500px;
+      max-width: 1480px;
       margin: 0 auto;
       min-height: 100vh;
-      padding: 24px;
+      padding: 28px;
       display: grid;
-      grid-template-columns: 1.1fr 0.9fr;
-      gap: 24px;
+      grid-template-columns: minmax(0, 1.04fr) minmax(360px, 0.96fr);
+      gap: 26px;
       align-items: stretch;
     }
     .login-hero {
@@ -1541,9 +1552,9 @@ function renderStyles() {
       margin-top: 22px;
     }
     .login-card {
-      padding: 28px;
+      padding: 30px;
       display: grid;
-      gap: 22px;
+      gap: 20px;
       align-content: start;
     }
     .login-card h2,
@@ -1606,7 +1617,7 @@ function renderStyles() {
     }
     .identity-grid {
       display: grid;
-      gap: 12px;
+      gap: 10px;
     }
     .identity-card,
     .section-card,
@@ -1614,6 +1625,9 @@ function renderStyles() {
       border-radius: 22px;
       border: 1px solid rgba(15, 23, 42, 0.08);
       background: rgba(247, 250, 252, 0.92);
+    }
+    .section-card {
+      padding: 18px;
     }
     .identity-card {
       padding: 16px;
@@ -1680,14 +1694,14 @@ function renderStyles() {
       line-height: 1.45;
     }
     .workspace-shell {
-      max-width: 1600px;
+      max-width: 1540px;
       margin: 0 auto;
-      padding: 22px;
+      padding: 22px 22px 28px;
       display: grid;
-      gap: 20px;
+      gap: 18px;
     }
     .topbar {
-      padding: 24px;
+      padding: 24px 26px;
       align-items: center;
     }
     .brand-copy {
@@ -1727,20 +1741,32 @@ function renderStyles() {
     }
     .workspace-grid {
       display: grid;
-      grid-template-columns: 290px minmax(0, 1fr) 360px;
-      gap: 20px;
+      grid-template-columns: 300px minmax(0, 1fr) 336px;
+      gap: 18px;
       align-items: start;
     }
     .rail,
     .main-panel,
     .context-panel,
     .history-panel {
-      padding: 22px;
+      padding: 0;
     }
     .rail,
     .context-panel {
+      overflow: hidden;
+    }
+    .rail-stack,
+    .context-stack,
+    .main-stack,
+    .history-stack {
       display: grid;
       gap: 18px;
+      padding: 22px;
+    }
+    .rail-stack,
+    .context-stack {
+      position: sticky;
+      top: 18px;
     }
     .agent-card {
       display: grid;
@@ -1798,8 +1824,7 @@ function renderStyles() {
       color: var(--muted);
     }
     .main-panel {
-      display: grid;
-      gap: 18px;
+      overflow: hidden;
     }
     .case-banner {
       display: flex;
@@ -1881,12 +1906,32 @@ function renderStyles() {
       font-weight: 700;
     }
     .transcript {
-      min-height: 430px;
-      max-height: 58vh;
+      min-height: 380px;
+      max-height: 50vh;
       overflow: auto;
-      padding-right: 4px;
+      padding-right: 6px;
       display: grid;
       gap: 14px;
+    }
+    .prompt-shell {
+      padding: 20px;
+      border-radius: 26px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      background: linear-gradient(180deg, rgba(252, 253, 255, 0.96), rgba(245, 249, 252, 0.98));
+      display: grid;
+      gap: 18px;
+    }
+    .prompt-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .prompt-shell h2 {
+      margin: 0;
+      font-size: 1rem;
+      letter-spacing: 0.02em;
     }
     .message {
       display: grid;
@@ -1945,18 +1990,114 @@ function renderStyles() {
       max-width: 620px;
     }
     .suggestion {
-      padding: 10px 12px;
-      border-radius: 14px;
+      padding: 12px 14px;
+      border-radius: 16px;
       border: 1px solid rgba(15, 23, 42, 0.08);
       background: #f4f8fb;
       color: var(--ink);
       font: inherit;
       cursor: pointer;
       text-align: left;
+      display: grid;
+      gap: 6px;
     }
     .suggestion:hover {
       border-color: rgba(15, 118, 110, 0.22);
       background: #edf7f6;
+    }
+    .suggestion.start {
+      background: linear-gradient(180deg, rgba(236, 253, 245, 0.96), rgba(230, 247, 241, 0.98));
+      border-color: rgba(15, 122, 69, 0.12);
+    }
+    .suggestion.review {
+      background: linear-gradient(180deg, rgba(239, 246, 255, 0.96), rgba(232, 241, 253, 0.98));
+      border-color: rgba(29, 78, 216, 0.12);
+    }
+    .suggestion.risk {
+      background: linear-gradient(180deg, rgba(255, 244, 242, 0.96), rgba(255, 237, 235, 0.98));
+      border-color: rgba(180, 35, 24, 0.12);
+    }
+    .suggestion-kicker {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .suggestion-text {
+      line-height: 1.5;
+    }
+    .snapshot-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+      max-width: 720px;
+    }
+    .snapshot-card {
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(10px);
+    }
+    .snapshot-card.wide {
+      grid-column: span 2;
+    }
+    .snapshot-card span {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.72);
+    }
+    .snapshot-card strong {
+      display: block;
+      margin-top: 8px;
+      line-height: 1.5;
+      color: white;
+    }
+    .presenter-card {
+      background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(242, 247, 250, 0.98));
+    }
+    .presenter-steps {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 12px;
+    }
+    .presenter-step {
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+    }
+    .step-index {
+      width: 32px;
+      height: 32px;
+      border-radius: 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      color: white;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .step-copy strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 0.95rem;
+    }
+    .step-copy p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 14px;
     }
     .clean-list {
       margin: 0;
@@ -2011,6 +2152,10 @@ function renderStyles() {
       .context-panel {
         grid-column: span 2;
       }
+      .rail-stack,
+      .context-stack {
+        position: static;
+      }
     }
     @media (max-width: 1080px) {
       .login-shell,
@@ -2018,6 +2163,12 @@ function renderStyles() {
         grid-template-columns: 1fr;
       }
       .context-panel {
+        grid-column: auto;
+      }
+      .snapshot-grid {
+        grid-template-columns: 1fr;
+      }
+      .snapshot-card.wide {
         grid-column: auto;
       }
     }
@@ -2029,10 +2180,10 @@ function renderStyles() {
       .login-hero,
       .login-card,
       .topbar,
-      .rail,
-      .main-panel,
-      .context-panel,
-      .history-panel {
+      .rail-stack,
+      .main-stack,
+      .context-stack,
+      .history-stack {
         padding: 18px;
       }
       .bubble {
@@ -2099,8 +2250,102 @@ function buildQueueHtml(activeCase: DemoCase) {
 
 function buildSuggestedPromptsHtml(activeCase: DemoCase) {
   return activeCase.suggestedPrompts
-    .map((prompt) => `<button class="suggestion" type="button" data-suggested-prompt="${escapeHtml(prompt)}">${escapeHtml(prompt)}</button>`)
+    .map((prompt, index) => {
+      const promptMeta = classifySuggestedPrompt(prompt, index);
+      return `<button class="suggestion ${escapeHtml(promptMeta.tone)}" type="button" data-suggested-prompt="${escapeHtml(prompt)}">
+        <span class="suggestion-kicker">${escapeHtml(promptMeta.label)}</span>
+        <span class="suggestion-text">${escapeHtml(prompt)}</span>
+      </button>`;
+    })
     .join("");
+}
+
+function classifySuggestedPrompt(
+  prompt: string,
+  index: number,
+): { tone: "start" | "review" | "risk"; label: string } {
+  const normalized = prompt.toLowerCase();
+  if (
+    /ssn|social security|secret|hidden policy|internal|waiver script|export every customer identifier|routing note|reveal/.test(
+      normalized,
+    )
+  ) {
+    return { tone: "risk", label: "Risk test" };
+  }
+
+  if (/supervisor|manager|summary|brief|bullets|next action|stand-up|owner/.test(normalized)) {
+    return { tone: "review", label: "Manager view" };
+  }
+
+  return { tone: "start", label: index === 0 ? "Start here" : "Customer-safe" };
+}
+
+function buildCaseSnapshotHtml(activeCase: DemoCase) {
+  const riskWatch = activeCase.riskFlags.slice(0, 2).join(" · ");
+  return `<div class="snapshot-grid">
+    <div class="snapshot-card">
+      <span>Queue</span>
+      <strong>${escapeHtml(activeCase.queue)}</strong>
+    </div>
+    <div class="snapshot-card">
+      <span>Priority</span>
+      <strong>${escapeHtml(activeCase.priority)} · ${escapeHtml(activeCase.region)}</strong>
+    </div>
+    <div class="snapshot-card wide">
+      <span>Next milestone</span>
+      <strong>${escapeHtml(activeCase.nextMilestone)}</strong>
+    </div>
+    <div class="snapshot-card wide">
+      <span>Risk watch</span>
+      <strong>${escapeHtml(riskWatch || "Standard servicing controls")}</strong>
+    </div>
+  </div>`;
+}
+
+function buildPresenterChecklistHtml(activeCase: DemoCase) {
+  const safePrompt = activeCase.suggestedPrompts.find(
+    (prompt) => classifySuggestedPrompt(prompt, 0).tone === "start",
+  ) || activeCase.suggestedPrompts[0];
+  const reviewPrompt = activeCase.suggestedPrompts.find(
+    (prompt) => classifySuggestedPrompt(prompt, 1).tone === "review",
+  ) || activeCase.suggestedPrompts[1] || activeCase.suggestedPrompts[0];
+  const riskPrompt = activeCase.suggestedPrompts.find(
+    (prompt) => classifySuggestedPrompt(prompt, 2).tone === "risk",
+  ) || activeCase.suggestedPrompts[activeCase.suggestedPrompts.length - 1];
+
+  return `<div class="section-card presenter-card">
+    <p class="section-label">Presenter sequence</p>
+    <ol class="presenter-steps">
+      <li class="presenter-step">
+        <span class="step-index">1</span>
+        <div class="step-copy">
+          <strong>Start with the safe case</strong>
+          <p>Use ${escapeHtml(activeCase.reference)} and run: "${escapeHtml(safePrompt)}"</p>
+        </div>
+      </li>
+      <li class="presenter-step">
+        <span class="step-index">2</span>
+        <div class="step-copy">
+          <strong>Open live evidence in Control Tower</strong>
+          <p>Keep runtime monitoring or incidents open on the second screen while the governed turn completes.</p>
+        </div>
+      </li>
+      <li class="presenter-step">
+        <span class="step-index">3</span>
+        <div class="step-copy">
+          <strong>Show the manager view</strong>
+          <p>Follow with: "${escapeHtml(reviewPrompt)}"</p>
+        </div>
+      </li>
+      <li class="presenter-step">
+        <span class="step-index">4</span>
+        <div class="step-copy">
+          <strong>Trigger a blocked turn</strong>
+          <p>Finish with: "${escapeHtml(riskPrompt)}"</p>
+        </div>
+      </li>
+    </ol>
+  </div>`;
 }
 
 function renderLoginPage(authError: string | null) {
@@ -2125,7 +2370,7 @@ function renderLoginPage(authError: string | null) {
     `<main class="login-shell">
       <section class="panel login-hero">
         <span class="eyebrow">Northstar Assist Workspace</span>
-        <h1>Real frontline servicing demo, fully linked to Control Tower.</h1>
+        <h1>Real frontline servicing demo, refined for a cleaner live walkthrough.</h1>
         <p>
           This workspace is designed like a real daily-use collections and servicing copilot. Agents sign in, work live
           cases, get governed drafting help, and every turn becomes evidence in AI Control Tower.
@@ -2151,6 +2396,39 @@ function renderLoginPage(authError: string | null) {
             for demo day, but the interaction feels like a real agent workspace.
           </p>
         </div>
+        <div class="section-card presenter-card" style="padding: 18px;">
+          <p class="section-label">Tomorrow's flow</p>
+          <ol class="presenter-steps">
+            <li class="presenter-step">
+              <span class="step-index">1</span>
+              <div class="step-copy">
+                <strong>Start as Mia Foster</strong>
+                <p>Use the hardship case first. It gives you the cleanest approved-flow story before you show a block.</p>
+              </div>
+            </li>
+            <li class="presenter-step">
+              <span class="step-index">2</span>
+              <div class="step-copy">
+                <strong>Run one safe prompt</strong>
+                <p>Establish that the workspace feels like a normal agent tool before you narrate governance.</p>
+              </div>
+            </li>
+            <li class="presenter-step">
+              <span class="step-index">3</span>
+              <div class="step-copy">
+                <strong>Keep Control Tower open live</strong>
+                <p>Show runtime monitoring or incidents in parallel so the evidence appears while the prompt runs.</p>
+              </div>
+            </li>
+            <li class="presenter-step">
+              <span class="step-index">4</span>
+              <div class="step-copy">
+                <strong>Finish with a red prompt</strong>
+                <p>Use the built-in risk test to prove the model output never reaches the agent when policy is crossed.</p>
+              </div>
+            </li>
+          </ol>
+        </div>
         ${authError ? `<div class="form-error">${escapeHtml(authError)}</div>` : ""}
         <form class="login-form" method="post" action="/login">
           <label class="field">
@@ -2164,6 +2442,14 @@ function renderLoginPage(authError: string | null) {
           <button class="button primary wide" type="submit">Enter workspace</button>
         </form>
 
+        <div class="section-card" style="padding: 18px;">
+          <p class="section-label">Shared workspace password</p>
+          <div class="credential-grid">
+            <div class="credential-row"><span>Password</span><code>${escapeHtml(demoWorkspacePassword)}</code></div>
+            <div class="credential-row"><span>Recommended first user</span><span>Mia Foster · Senior Hardship Specialist</span></div>
+          </div>
+        </div>
+
         <div>
           <p class="section-label">Workspace identities</p>
           <div class="identity-grid">${workspaceIdentities}</div>
@@ -2175,6 +2461,9 @@ function renderLoginPage(authError: string | null) {
             <div class="credential-row"><span>Email</span><code>${escapeHtml(controlTowerDemoEmail)}</code></div>
             <div class="credential-row"><span>Password</span><code>${escapeHtml(controlTowerDemoPassword)}</code></div>
             <div class="credential-row"><span>Console URL</span><code>${escapeHtml(controlTowerConsoleUrl)}</code></div>
+          </div>
+          <div class="hero-actions" style="margin-top: 14px;">
+            <a class="button secondary wide" href="${escapeHtml(controlTowerConsoleUrl)}" target="_blank" rel="noreferrer">Open Control Tower</a>
           </div>
         </div>
       </section>
@@ -2214,7 +2503,8 @@ function renderWorkspacePage(options: Required<Pick<RenderPageOptions, "sessionU
           </p>
           <div class="top-meta" style="margin-top: 18px;">
             <div class="meta-card"><span>Signed in as</span><strong>${escapeHtml(options.sessionUser.fullName)}<br /><span class="muted">${escapeHtml(options.sessionUser.title)}</span></strong></div>
-            <div class="meta-card"><span>Linked console</span><strong class="mono">${escapeHtml(controlTowerConsoleUrl)}</strong></div>
+            <div class="meta-card"><span>Gateway</span><strong class="mono">${escapeHtml(configuredGateway)}</strong></div>
+            <div class="meta-card"><span>System binding</span><strong class="mono">${escapeHtml(configuredSystemId || "adapter default")}</strong></div>
             <div class="meta-card"><span>Model mode</span><strong>${openAiApiKey ? "Live OpenAI" : "Simulation fallback"}</strong></div>
             <div class="meta-card"><span>Recent counts</span><strong><span id="status-incidents">${incidentCount}</span> incidents · <span id="status-blocked">${blockedCount}</span> blocked · ${warnedCount} warned</strong></div>
           </div>
@@ -2231,136 +2521,157 @@ function renderWorkspacePage(options: Required<Pick<RenderPageOptions, "sessionU
 
       <section class="workspace-grid">
         <aside class="panel rail">
-          <div class="agent-card">
-            <div class="agent-head">
-              <div class="avatar">${escapeHtml(options.sessionUser.initials)}</div>
-              <div>
-                <div class="identity-name">${escapeHtml(options.sessionUser.fullName)}</div>
-                <div class="identity-role">${escapeHtml(options.sessionUser.title)} · ${escapeHtml(options.sessionUser.team)}</div>
+          <div class="rail-stack">
+            ${buildPresenterChecklistHtml(options.activeCase)}
+
+            <div class="agent-card">
+              <div class="agent-head">
+                <div class="avatar">${escapeHtml(options.sessionUser.initials)}</div>
+                <div>
+                  <div class="identity-name">${escapeHtml(options.sessionUser.fullName)}</div>
+                  <div class="identity-role">${escapeHtml(options.sessionUser.title)} · ${escapeHtml(options.sessionUser.team)}</div>
+                </div>
+              </div>
+              <div class="credential-grid">
+                <div class="credential-row"><span>Shift</span><span>${escapeHtml(options.sessionUser.shift)}</span></div>
+                <div class="credential-row"><span>Current focus</span><span>${escapeHtml(options.sessionUser.focus)}</span></div>
               </div>
             </div>
-            <div class="credential-grid">
-              <div class="credential-row"><span>Shift</span><span>${escapeHtml(options.sessionUser.shift)}</span></div>
-              <div class="credential-row"><span>Current focus</span><span>${escapeHtml(options.sessionUser.focus)}</span></div>
+
+            <div>
+              <p class="section-label">Case queue</p>
+              <div class="queue-list">${buildQueueHtml(options.activeCase)}</div>
             </div>
-          </div>
 
-          <div>
-            <p class="section-label">Case queue</p>
-            <div class="queue-list">${buildQueueHtml(options.activeCase)}</div>
-          </div>
-
-          <div class="section-card" style="padding: 18px;">
-            <p class="section-label">Demo tips</p>
-            <ul class="clean-list">
-              <li>Start with the hardship case for a safe compliant draft.</li>
-              <li>Use the voice case to show prompt-secret blocking.</li>
-              <li>Open runtime monitoring in the linked console while sending prompts.</li>
-            </ul>
+            <div class="section-card" style="padding: 18px;">
+              <p class="section-label">Live links</p>
+              <div class="controls">
+                <a class="button secondary wide" href="${escapeHtml(buildControlTowerUrl("/dashboard"))}" target="_blank" rel="noreferrer">Dashboard</a>
+                <a class="button secondary wide" href="${escapeHtml(buildControlTowerUrl("/runtime-monitoring"))}" target="_blank" rel="noreferrer">Runtime monitoring</a>
+              </div>
+            </div>
           </div>
         </aside>
 
         <main class="panel main-panel">
-          <section class="case-banner">
-            <div>
-              <span class="eyebrow">Live case</span>
-              <h2>${escapeHtml(options.activeCase.reference)} · ${escapeHtml(options.activeCase.customerName)}</h2>
-              <p>${escapeHtml(options.activeCase.accountSummary)}</p>
-            </div>
-            <div class="top-links">
-              <span class="badge">${escapeHtml(options.activeCase.product)}</span>
-              <span class="badge">${escapeHtml(options.activeCase.queue)}</span>
-              <span class="badge">${escapeHtml(options.activeCase.status)}</span>
-              <span class="badge">${escapeHtml(options.activeCase.region)}</span>
-            </div>
-          </section>
-
-          <section id="decision-bar" class="decision-banner${decision.tone ? ` show ${decision.tone}` : ""}">
-            <h3 id="decision-title">${escapeHtml(decision.title)}</h3>
-            <p id="decision-body">${escapeHtml(decision.body)}</p>
-            <div id="decision-pills" class="pill-row"${decision.pills.length === 0 ? ' style="display:none"' : ""}>${decision.pills.map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("")}</div>
-          </section>
-
-          <section id="transcript" class="transcript">${transcriptHtml}</section>
-
-          <section>
-            <p class="section-label">Suggested prompts</p>
-            <div class="suggestions">${buildSuggestedPromptsHtml(options.activeCase)}</div>
-          </section>
-
-          <form id="composer-form" class="composer" method="post" action="/chat" novalidate>
-            <input id="case-id-input" type="hidden" name="caseId" value="${escapeHtml(options.activeCase.id)}" />
-            <textarea id="prompt-input" name="prompt" placeholder="Draft a calm customer reply, summarize the case for a supervisor, or test a risky request to show the governance controls.">${escapeHtml(promptValue)}</textarea>
-            <div class="composer-row">
-              <span class="composer-note">
-                Every turn includes case reference, queue, product, and agent context before AI Control Tower evaluates the prompt and response.
-              </span>
-              <div class="controls">
-                <a class="button secondary" href="/?case=${encodeURIComponent(options.activeCase.id)}">Clear transcript</a>
-                <button id="send-button" class="button primary" type="submit">Run governed turn</button>
+          <div class="main-stack">
+            <section class="case-banner">
+              <div>
+                <span class="eyebrow">Live case</span>
+                <h2>${escapeHtml(options.activeCase.reference)} · ${escapeHtml(options.activeCase.customerName)}</h2>
+                <p>${escapeHtml(options.activeCase.accountSummary)}</p>
+                ${buildCaseSnapshotHtml(options.activeCase)}
               </div>
-            </div>
-          </form>
+              <div class="top-links">
+                <span class="badge">${escapeHtml(options.activeCase.product)}</span>
+                <span class="badge">${escapeHtml(options.activeCase.queue)}</span>
+                <span class="badge">${escapeHtml(options.activeCase.status)}</span>
+                <span class="badge">${escapeHtml(options.activeCase.region)}</span>
+              </div>
+            </section>
+
+            <section id="decision-bar" class="decision-banner${decision.tone ? ` show ${decision.tone}` : ""}">
+              <h3 id="decision-title">${escapeHtml(decision.title)}</h3>
+              <p id="decision-body">${escapeHtml(decision.body)}</p>
+              <div id="decision-pills" class="pill-row"${decision.pills.length === 0 ? ' style="display:none"' : ""}>${decision.pills.map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("")}</div>
+            </section>
+
+            <section class="prompt-shell">
+              <div class="prompt-header">
+                <div>
+                  <p class="section-label">Suggested prompts</p>
+                  <h2>Run the case conversation</h2>
+                </div>
+                <p class="helper-text">Green is your safe start, blue is the manager view, and red is the intentional blocked-turn demo.</p>
+              </div>
+              <div class="suggestions">${buildSuggestedPromptsHtml(options.activeCase)}</div>
+              <section id="transcript" class="transcript">${transcriptHtml}</section>
+              <form id="composer-form" class="composer" method="post" action="/chat" novalidate>
+                <input id="case-id-input" type="hidden" name="caseId" value="${escapeHtml(options.activeCase.id)}" />
+                <textarea id="prompt-input" name="prompt" placeholder="Draft a calm customer reply, summarize the case for a supervisor, or test a risky request to show the governance controls.">${escapeHtml(promptValue)}</textarea>
+                <div class="composer-row">
+                  <span class="composer-note">
+                    Every turn includes case reference, queue, product, and agent context before AI Control Tower evaluates the prompt and response.
+                  </span>
+                  <div class="controls">
+                    <a class="button secondary" href="/?case=${encodeURIComponent(options.activeCase.id)}">Reset case view</a>
+                    <button id="send-button" class="button primary" type="submit">Run governed turn</button>
+                  </div>
+                </div>
+              </form>
+            </section>
+          </div>
         </main>
 
         <aside class="panel context-panel">
-          <div class="section-card" style="padding: 18px;">
-            <p class="section-label">Case context</p>
-            <div class="key-grid">
-              <div class="key-row"><span>Next milestone</span><span>${escapeHtml(options.activeCase.nextMilestone)}</span></div>
-              <div class="key-row"><span>Priority</span><span class="tone-pill ${escapeHtml(options.activeCase.priority)}">${escapeHtml(options.activeCase.priority)}</span></div>
-              <div class="key-row"><span>Workflow mode</span><code id="status-workflow">${escapeHtml(activeRun?.modeLabel || modes[options.activeCase.modeId].label)}</code></div>
-              <div class="key-row"><span>Decision</span><strong id="status-decision">${escapeHtml(activeError ? "ERROR" : activeRun?.decision?.toUpperCase() || "No run yet")}</strong></div>
-              <div class="key-row"><span>Decision stage</span><code id="status-stage">${escapeHtml(activeRun?.decisionStage || "-")}</code></div>
-              <div class="key-row"><span>Threshold breaches</span><code id="status-thresholds">${escapeHtml(activeRun?.thresholdBreaches.join(", ") || "none")}</code></div>
-              <div class="key-row"><span>Incident</span><code id="status-incident">${escapeHtml(activeRun?.escalatedIncidentId || "none")}</code></div>
-              <div class="key-row"><span>Correlation ID</span><code id="status-correlation">${escapeHtml(activeRun?.correlationId || "-")}</code></div>
+          <div class="context-stack">
+            <div class="section-card" style="padding: 18px;">
+              <p class="section-label">Governance status</p>
+              <div class="key-grid">
+                <div class="key-row"><span>Workflow mode</span><code id="status-workflow">${escapeHtml(activeRun?.modeLabel || modes[options.activeCase.modeId].label)}</code></div>
+                <div class="key-row"><span>Decision</span><strong id="status-decision">${escapeHtml(activeError ? "ERROR" : activeRun?.decision?.toUpperCase() || "No run yet")}</strong></div>
+                <div class="key-row"><span>Decision stage</span><code id="status-stage">${escapeHtml(activeRun?.decisionStage || "-")}</code></div>
+                <div class="key-row"><span>Threshold breaches</span><code id="status-thresholds">${escapeHtml(activeRun?.thresholdBreaches.join(", ") || "none")}</code></div>
+                <div class="key-row"><span>Incident</span><code id="status-incident">${escapeHtml(activeRun?.escalatedIncidentId || "none")}</code></div>
+                <div class="key-row"><span>Correlation ID</span><code id="status-correlation">${escapeHtml(activeRun?.correlationId || "-")}</code></div>
+              </div>
+              <p id="status-summary" class="helper-text" style="margin-top: 12px;">
+                ${escapeHtml(activeError || activeRun?.runtimeSummary || "Use this panel to narrate what Control Tower did with the current turn.")}
+              </p>
             </div>
-            <p id="status-summary" class="helper-text" style="margin-top: 12px;">
-              ${escapeHtml(activeError || activeRun?.runtimeSummary || "Use this panel to narrate what Control Tower did with the current turn.")}
-            </p>
-          </div>
 
-          <div class="section-card" style="padding: 18px;">
-            <p class="section-label">Risk flags</p>
-            <div class="tag-list">${options.activeCase.riskFlags.map((flag) => `<span class="tag">${escapeHtml(flag)}</span>`).join("")}</div>
-          </div>
+            <div class="section-card" style="padding: 18px;">
+              <p class="section-label">Case brief</p>
+              <div class="key-grid">
+                <div class="key-row"><span>Next milestone</span><span>${escapeHtml(options.activeCase.nextMilestone)}</span></div>
+                <div class="key-row"><span>Priority</span><span class="tone-pill ${escapeHtml(options.activeCase.priority)}">${escapeHtml(options.activeCase.priority)}</span></div>
+                <div class="key-row"><span>Narrative</span><span>${escapeHtml(options.activeCase.narrative)}</span></div>
+              </div>
+            </div>
 
-          <div class="section-card" style="padding: 18px;">
-            <p class="section-label">Recent activity</p>
-            <ul class="clean-list">${options.activeCase.recentActivity.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
-          </div>
+            <div class="section-card" style="padding: 18px;">
+              <p class="section-label">Risk flags</p>
+              <div class="tag-list">${options.activeCase.riskFlags.map((flag) => `<span class="tag">${escapeHtml(flag)}</span>`).join("")}</div>
+            </div>
 
-          <div class="section-card" style="padding: 18px;">
-            <p class="section-label">Policy checklist</p>
-            <ul class="clean-list">${options.activeCase.policyChecklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+            <div class="section-card" style="padding: 18px;">
+              <p class="section-label">Recent activity</p>
+              <ul class="clean-list">${options.activeCase.recentActivity.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+            </div>
+
+            <div class="section-card" style="padding: 18px;">
+              <p class="section-label">Policy checklist</p>
+              <ul class="clean-list">${options.activeCase.policyChecklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+            </div>
           </div>
         </aside>
       </section>
 
       <section class="panel history-panel">
-        <div class="topbar" style="padding: 0;">
-          <div>
-            <p class="section-label">Recent governed turns</p>
-            <h2>Shared workspace runtime trail</h2>
+        <div class="history-stack">
+          <div class="topbar" style="padding: 0;">
+            <div>
+              <p class="section-label">Recent governed turns</p>
+              <h2>Shared workspace runtime trail</h2>
+            </div>
+            <p class="helper-text">Each run captures the case, agent, decision stage, and any escalated incident.</p>
           </div>
-          <p class="helper-text">Each run captures the case, agent, decision stage, and any escalated incident.</p>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Case</th>
-                <th>Customer</th>
-                <th>Agent</th>
-                <th>Decision</th>
-                <th>Stage</th>
-                <th>Incident</th>
-              </tr>
-            </thead>
-            <tbody id="recent-runs">${buildHistoryRowsHtml()}</tbody>
-          </table>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Case</th>
+                  <th>Customer</th>
+                  <th>Agent</th>
+                  <th>Decision</th>
+                  <th>Stage</th>
+                  <th>Incident</th>
+                </tr>
+              </thead>
+              <tbody id="recent-runs">${buildHistoryRowsHtml()}</tbody>
+            </table>
+          </div>
         </div>
       </section>
     </div>`,

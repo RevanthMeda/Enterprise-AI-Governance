@@ -129,24 +129,24 @@ function AuthenticatedRouter({
         <Route path="/activity" component={MyActivity} />
         <Route path="/account-security" component={AccountSecurityPage} />
         <Route path="/my-activity" component={ActivityAliasRedirect} />
-        <Route path="/registry" component={Registry} />
-        <Route path="/registry/connect" component={ConnectAiApplicationPage} />
-        <Route path="/systems/:id" component={SystemDetail} />
-        <Route path="/risk" component={RiskAssessment} />
+        <Route path="/registry" component={access.canAccessRegistry ? Registry : Dashboard} />
+        <Route path="/registry/connect" component={access.canAccessRegistry ? ConnectAiApplicationPage : Dashboard} />
+        <Route path="/systems/:id" component={access.canAccessRegistry ? SystemDetail : Dashboard} />
+        <Route path="/risk" component={access.canAccessRisk ? RiskAssessment : Dashboard} />
         <Route path="/risk-assessment" component={RiskAliasRedirect} />
-        <Route path="/compliance" component={Compliance} />
-        <Route path="/calendar" component={ComplianceCalendar} />
-        <Route path="/approvals" component={Approvals} />
-        <Route path="/audit" component={AuditLogPage} />
-        <Route path="/decision-trace" component={DecisionTracePage} />
+        <Route path="/compliance" component={access.canAccessCompliance ? Compliance : Dashboard} />
+        <Route path="/calendar" component={access.canAccessCalendar ? ComplianceCalendar : Dashboard} />
+        <Route path="/approvals" component={access.canAccessApprovals ? Approvals : Dashboard} />
+        <Route path="/audit" component={access.canAccessAuditLog ? AuditLogPage : Dashboard} />
+        <Route path="/decision-trace" component={access.canAccessDecisionTrace ? DecisionTracePage : Dashboard} />
         <Route path="/runtime-monitoring" component={access.canAccessRuntimeMonitoring ? RuntimeMonitoringPage : Dashboard} />
         <Route path="/exit-readiness" component={access.canAccessExitReadiness ? ExitReadinessPage : Dashboard} />
         <Route path="/portfolio-control" component={access.canAccessPortfolioControl ? PortfolioControlPage : Dashboard} />
         <Route path="/telemetry-policy" component={access.canAccessTelemetryPolicy ? TelemetryPolicyPage : Dashboard} />
         <Route path="/telemetry-adapter" component={access.canAccessTelemetryAdapter ? TelemetryAdapterPage : Dashboard} />
         <Route path="/retention-control" component={access.canAccessRetentionControl ? RetentionControlPage : Dashboard} />
-        <Route path="/incidents" component={IncidentsPage} />
-        <Route path="/bulk-controls" component={BulkControls} />
+        <Route path="/incidents" component={access.canAccessIncidents ? IncidentsPage : Dashboard} />
+        <Route path="/bulk-controls" component={access.canAccessBulkControls ? BulkControls : Dashboard} />
         <Route path="/settings" component={access.canAccessSettings ? SettingsPage : Dashboard} />
         <Route path="/integrations" component={access.canAccessIntegrations ? IntegrationsPage : Dashboard} />
         <Route path="/billing" component={access.canAccessBilling ? BillingPage : Dashboard} />

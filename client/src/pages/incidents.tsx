@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatDateTime } from "@/lib/date-format";
+import type { AiSystem } from "@shared/schema";
 
 type Incident = {
   id: string;
@@ -59,13 +61,21 @@ export default function IncidentsPage() {
   const [reviews, setReviews] = useState<Record<string, { rootCause: string; reviewSummary: string; affectedDecisionTraceIds: string; regulatoryNotifications: string }>>({});
   const summaryQuery = useQuery<IncidentSummary>({
     queryKey: ["/api/incidents/summary"],
-    refetchInterval: 15_000,
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: true,
     staleTime: 5_000,
   });
   const listQuery = useQuery<Incident[]>({
     queryKey: ["/api/incidents"],
-    refetchInterval: 15_000,
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: true,
     staleTime: 5_000,
+  });
+  const systemsQuery = useQuery<AiSystem[]>({
+    queryKey: ["/api/ai-systems"],
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
+    staleTime: 10_000,
   });
 
   const createMutation = useMutation({
@@ -125,6 +135,14 @@ export default function IncidentsPage() {
     filteredIncidents[0] ??
     incidents[0] ??
     null;
+  const systemNameById = new Map((systemsQuery.data ?? []).map((system) => [system.id, system.name]));
+  const getSystemLabel = (systemId?: string | null) => {
+    if (!systemId) {
+      return "Not linked";
+    }
+
+    return systemNameById.get(systemId) ?? systemId;
+  };
 
   return (
     <div className="page-shell">
@@ -257,7 +275,7 @@ export default function IncidentsPage() {
                           <div className="min-w-0">
                             <div className="text-sm font-semibold">{incident.title}</div>
                             <div className="mt-1 text-xs text-muted-foreground">
-                              {incident.category} • detected {new Date(incident.detectedAt).toLocaleString()}
+                              {incident.category} • detected {formatDateTime(incident.detectedAt)}
                             </div>
                           </div>
                           <div className="flex shrink-0 gap-2">
@@ -267,8 +285,8 @@ export default function IncidentsPage() {
                         </div>
                         <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{incident.description}</p>
                         <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                          {incident.systemId ? <Badge variant="outline">System</Badge> : null}
-                          {incident.dueAt ? <Badge variant="outline">Contain by {new Date(incident.dueAt).toLocaleString()}</Badge> : null}
+                          {incident.systemId ? <Badge variant="outline">{getSystemLabel(incident.systemId)}</Badge> : null}
+                          {incident.dueAt ? <Badge variant="outline">Contain by {formatDateTime(incident.dueAt)}</Badge> : null}
                         </div>
                       </button>
                     ))
@@ -281,9 +299,9 @@ export default function IncidentsPage() {
                       <div>
                         <div className="text-lg font-semibold">{selectedIncident.title}</div>
                         <div className="mt-1 text-xs text-muted-foreground">
-                          {selectedIncident.category} • detected {new Date(selectedIncident.detectedAt).toLocaleString()}
+                          {selectedIncident.category} • detected {formatDateTime(selectedIncident.detectedAt)}
                           {selectedIncident.updatedAt && selectedIncident.updatedAt !== selectedIncident.detectedAt
-                            ? ` • latest activity ${new Date(selectedIncident.updatedAt).toLocaleString()}`
+                            ? ` • latest activity ${formatDateTime(selectedIncident.updatedAt)}`
                             : ""}
                         </div>
                       </div>
@@ -294,10 +312,10 @@ export default function IncidentsPage() {
                     </div>
 
                     <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
-                      <MetaBlock label="System" value={selectedIncident.systemId ?? "Not linked"} mono />
+                      <MetaBlock label="System" value={getSystemLabel(selectedIncident.systemId)} mono={!systemNameById.has(selectedIncident.systemId ?? "")} />
                       <MetaBlock label="Owner" value={selectedIncident.owner ?? "Unassigned"} />
                       <MetaBlock label="Escalated to" value={selectedIncident.escalatedTo ?? "Not set"} />
-                      <MetaBlock label="Containment target" value={selectedIncident.dueAt ? new Date(selectedIncident.dueAt).toLocaleString() : "Not set"} />
+                      <MetaBlock label="Containment target" value={selectedIncident.dueAt ? formatDateTime(selectedIncident.dueAt) : "Not set"} />
                     </div>
 
                     <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">

@@ -58,20 +58,20 @@ type NavItem = {
 
 const mainNav: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "AI Registry", url: "/registry", icon: Server },
-  { title: "Risk", url: "/risk", icon: ShieldCheck },
-  { title: "Compliance", url: "/compliance", icon: ClipboardCheck },
+  { title: "AI Registry", url: "/registry", icon: Server, accessKey: "canAccessRegistry" },
+  { title: "Risk", url: "/risk", icon: ShieldCheck, accessKey: "canAccessRisk" },
+  { title: "Compliance", url: "/compliance", icon: ClipboardCheck, accessKey: "canAccessCompliance" },
   { title: "Runtime", url: "/runtime-monitoring", icon: Radio, accessKey: "canAccessRuntimeMonitoring" },
-  { title: "Incidents", url: "/incidents", icon: AlertTriangle },
-  { title: "Approvals", url: "/approvals", icon: FileText },
-  { title: "Decision Traces", url: "/decision-trace", icon: Fingerprint },
-  { title: "Audit Log", url: "/audit", icon: Activity },
+  { title: "Incidents", url: "/incidents", icon: AlertTriangle, accessKey: "canAccessIncidents" },
+  { title: "Approvals", url: "/approvals", icon: FileText, accessKey: "canAccessApprovals" },
+  { title: "Decision Traces", url: "/decision-trace", icon: Fingerprint, accessKey: "canAccessDecisionTrace" },
+  { title: "Audit Log", url: "/audit", icon: Activity, accessKey: "canAccessAuditLog" },
   { title: "My Activity", url: "/activity", icon: UserCircle },
   { title: "Account Security", url: "/account-security", icon: KeyRound },
   { title: "Evidence", url: "/exit-readiness", icon: Gauge, accessKey: "canAccessExitReadiness" },
   { title: "Portfolio", url: "/portfolio-control", icon: Building2, accessKey: "canAccessPortfolioControl" },
-  { title: "Calendar", url: "/calendar", icon: CalendarDays },
-  { title: "Bulk Controls", url: "/bulk-controls", icon: Layers },
+  { title: "Calendar", url: "/calendar", icon: CalendarDays, accessKey: "canAccessCalendar" },
+  { title: "Bulk Controls", url: "/bulk-controls", icon: Layers, accessKey: "canAccessBulkControls" },
 ];
 
 const settingsNav: NavItem[] = [
@@ -116,7 +116,7 @@ export function AppSidebar() {
             </div>
           </div>
         </Link>
-        {user && user.organizations.length > 1 ? (
+        {user && access.canSwitchOrganizations && user.organizations.length > 1 ? (
           <div className="mt-4 space-y-2 rounded-lg border bg-muted/20 p-3">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
@@ -145,7 +145,7 @@ export function AppSidebar() {
               </SelectContent>
             </Select>
             <div className="text-[11px] text-muted-foreground">
-              Portfolio views aggregate across companies. All other pages use the active organization shown here.
+              Cross-organization switching is limited to organization owners and admins.
             </div>
           </div>
         ) : null}

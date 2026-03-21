@@ -25,6 +25,37 @@ import {
 import type { AiSystem, ApprovalWorkflow, SystemControl } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth, type AuthOnboardingState, type AuthUser } from "@/hooks/use-auth";
+import { getAppAccess } from "@/lib/permissions";
+
+type DashboardAccess = ReturnType<typeof getAppAccess>;
+type DashboardAccessKey = keyof DashboardAccess;
+type DashboardNavAction = {
+  label: string;
+  value: number;
+  href: string;
+  tone: string;
+  accessKey: DashboardAccessKey;
+};
+type SetupTask = {
+  id: string;
+  label: string;
+  summary: string;
+  description: string;
+  href: string;
+  cta: string;
+  complete: boolean;
+  accessKey?: DashboardAccessKey;
+};
+type WatchlistAlert = {
+  key: string;
+  label: string;
+  description: string;
+  href: string;
+  tone: string;
+  detectedAt: string | Date | null;
+  severity: "critical" | "warning" | "info";
+  accessKey?: DashboardAccessKey;
+};
 
 function StatCard({
   title,
@@ -477,22 +508,49 @@ function ActionBoard({
   workflows,
   systems,
   controls,
+  access,
 }: {
   workflows: ApprovalWorkflow[];
   systems: AiSystem[];
   controls: SystemControl[];
+  access: DashboardAccess;
 }) {
   const inReview = workflows.filter((workflow) => workflow.status === "in_review").length;
   const rejected = workflows.filter((workflow) => workflow.status === "rejected").length;
   const highRisk = systems.filter((system) => system.riskLevel === "high" || system.riskLevel === "unacceptable").length;
   const notStartedControls = controls.filter((control) => control.status === "not_started").length;
 
-  const actions = [
-    { label: "In review now", value: inReview, href: "/approvals", tone: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300" },
-    { label: "High-scrutiny systems", value: highRisk, href: "/registry", tone: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300" },
-    { label: "Controls not started", value: notStartedControls, href: "/compliance", tone: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300" },
-    { label: "Rejected workflows", value: rejected, href: "/audit", tone: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300" },
+  const actions: DashboardNavAction[] = [
+    {
+      label: "In review now",
+      value: inReview,
+      href: "/approvals",
+      tone: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+      accessKey: "canAccessApprovals",
+    },
+    {
+      label: "High-scrutiny systems",
+      value: highRisk,
+      href: "/registry",
+      tone: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+      accessKey: "canAccessRegistry",
+    },
+    {
+      label: "Controls not started",
+      value: notStartedControls,
+      href: "/compliance",
+      tone: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+      accessKey: "canAccessCompliance",
+    },
+    {
+      label: "Rejected workflows",
+      value: rejected,
+      href: "/audit",
+      tone: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+      accessKey: "canAccessAuditLog",
+    },
   ];
+  const visibleActions = actions.filter((action) => access[action.accessKey]);
 
   return (
     <Card data-testid="card-action-board">
@@ -503,7 +561,7 @@ function ActionBoard({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {actions.map((action) => (
+        {visibleActions.map((action) => (
           <a
             key={action.label}
             href={action.href}
@@ -538,17 +596,19 @@ function SetupGuide({
   controls,
   ready,
   onboarding,
+  access,
 }: {
   systems: AiSystem[];
   workflows: ApprovalWorkflow[];
   controls: SystemControl[];
   ready?: ReadyStatus;
   onboarding: AuthOnboardingState | null;
+  access: DashboardAccess;
 }) {
   const pendingApprovals = workflows.filter((workflow) => workflow.status === "pending" || workflow.status === "in_review").length;
   const failedJobs = ready?.queue.failed ?? 0;
   const highRiskSystems = systems.filter((system) => system.riskLevel === "high" || system.riskLevel === "unacceptable").length;
-  const tasks = [
+  const tasks: SetupTask[] = [
     {
       id: "inventory",
       label: "Stand up system inventory",
@@ -557,6 +617,7 @@ function SetupGuide({
       href: "/registry",
       cta: systems.length > 0 ? "Review registry" : "Register systems",
       complete: systems.length > 0,
+      accessKey: "canAccessRegistry",
     },
     {
       id: "controls",
@@ -568,6 +629,7 @@ function SetupGuide({
       href: "/compliance",
       cta: "Open compliance",
       complete: controls.length > 0,
+      accessKey: "canAccessCompliance",
     },
     {
       id: "approvals",
@@ -577,17 +639,19 @@ function SetupGuide({
       href: "/approvals",
       cta: "Review approvals",
       complete: pendingApprovals === 0,
+      accessKey: "canAccessApprovals",
     },
     {
       id: "readiness",
       label: "Validate runtime readiness",
       summary: ready?.ready ? "Readiness probe is green." : "Investigate readiness before rollout.",
       description: failedJobs > 0
-        ? `${failedJobs} background job${failedJobs === 1 ? "" : "s"} failed and should be retried from Settings.`
+        ? `${failedJobs} background job${failedJobs === 1 ? "" : "s"} failed and should be retried from the activity queue.`
         : "Use readiness, queue health, and smoke checks before promoting changes or onboarding more users.",
-      href: failedJobs > 0 ? "/settings" : "/api-docs",
-      cta: failedJobs > 0 ? "Open settings" : "Review API and probes",
+      href: failedJobs > 0 ? "/settings?tab=activity#background-job-health" : "/api-docs",
+      cta: failedJobs > 0 ? "Open activity queue" : "Review API and probes",
       complete: Boolean(ready?.ready),
+      accessKey: failedJobs > 0 ? "canAccessSettings" : undefined,
     },
   ];
 
@@ -686,12 +750,20 @@ function SetupGuide({
           <p className="mt-1 text-sm text-muted-foreground">{activeTask.description}</p>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button asChild size="sm">
-              <a href={activeTask.href}>{activeTask.cta}</a>
-            </Button>
-            <Button asChild size="sm" variant="outline">
-              <a href="/settings">Admin setup</a>
-            </Button>
+            {!activeTask.accessKey || access[activeTask.accessKey] ? (
+              <Button asChild size="sm">
+                <a href={activeTask.href}>{activeTask.cta}</a>
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" disabled>
+                Admin action required
+              </Button>
+            )}
+            {access.canAccessSettings ? (
+              <Button asChild size="sm" variant="outline">
+                <a href="/settings">Admin setup</a>
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -715,10 +787,12 @@ function SetupGuide({
           </Button>
         </div>
 
-        <div className="rounded-md border border-border/70 bg-background/70 p-3 text-xs text-muted-foreground">
-          Admin-owned setup still lives in <a href="/settings" className="font-medium text-foreground underline underline-offset-4">Settings</a>:
-          SAML/OIDC, verified domains, invites, member roles, and background job recovery.
-        </div>
+        {access.canAccessSettings ? (
+          <div className="rounded-md border border-border/70 bg-background/70 p-3 text-xs text-muted-foreground">
+            Admin-owned setup still lives in <a href="/settings" className="font-medium text-foreground underline underline-offset-4">Settings</a>:
+            SAML/OIDC, verified domains, invites, member roles, and background job recovery.
+          </div>
+        ) : null}
         {saveOnboardingMutation.isSuccess ? (
           <p className="text-xs text-muted-foreground">Progress is saved for your current organization.</p>
         ) : null}
@@ -733,12 +807,14 @@ function OperationalWatchlist({
   systems,
   controls,
   onboarding,
+  access,
 }: {
   ready?: ReadyStatus;
   workflows: ApprovalWorkflow[];
   systems: AiSystem[];
   controls: SystemControl[];
   onboarding: AuthOnboardingState | null;
+  access: DashboardAccess;
 }) {
   const latestWorkflowAt = workflows
     .filter((workflow) => workflow.status === "pending" || workflow.status === "in_review")
@@ -786,17 +862,19 @@ function OperationalWatchlist({
           tone: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
           detectedAt: ready?.timestamp ?? null,
           severity: "critical",
+          accessKey: undefined as DashboardAccessKey | undefined,
         }
       : null,
     failedJobs > 0
       ? {
           key: "failed_background_jobs",
           label: "Failed background jobs",
-          description: `${failedJobs} queued delivery or monitoring job${failedJobs === 1 ? "" : "s"} need attention in Settings.`,
-          href: "/settings",
+          description: `${failedJobs} queued delivery or monitoring job${failedJobs === 1 ? "" : "s"} need attention in the activity queue.`,
+          href: "/settings?tab=activity#background-job-health",
           tone: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
           detectedAt: ready?.timestamp ?? null,
           severity: "critical",
+          accessKey: "canAccessSettings" as DashboardAccessKey,
         }
       : null,
     queuePending > 10
@@ -804,10 +882,11 @@ function OperationalWatchlist({
           key: "queue_backlog",
           label: "Queue backlog building",
           description: `${queuePending} jobs are pending. Check worker throughput before that grows into user-visible delay.`,
-          href: "/settings",
+          href: "/settings?tab=activity#background-job-health",
           tone: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
           detectedAt: ready?.timestamp ?? null,
           severity: "warning",
+          accessKey: "canAccessSettings" as DashboardAccessKey,
         }
       : null,
     pendingApprovals > 25
@@ -819,6 +898,7 @@ function OperationalWatchlist({
           tone: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
           detectedAt: latestWorkflowAt ?? null,
           severity: "warning",
+          accessKey: "canAccessApprovals" as DashboardAccessKey,
         }
       : null,
     highRiskSystems > 0
@@ -830,6 +910,7 @@ function OperationalWatchlist({
           tone: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
           detectedAt: latestHighRiskAssessmentAt ?? ready?.timestamp ?? null,
           severity: "info",
+          accessKey: "canAccessRegistry" as DashboardAccessKey,
         }
       : null,
     unstartedControls > 50
@@ -841,17 +922,10 @@ function OperationalWatchlist({
           tone: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
           detectedAt: ready?.timestamp ?? null,
           severity: "warning",
+          accessKey: "canAccessCompliance" as DashboardAccessKey,
         }
       : null,
-  ].filter(Boolean) as Array<{
-    key: string;
-    label: string;
-    description: string;
-    href: string;
-    tone: string;
-    detectedAt: string | Date | null;
-    severity: keyof typeof severityOrder;
-  }>;
+  ].filter(Boolean) as WatchlistAlert[];
 
   const visibleAlerts = alerts.filter((alert) => {
     if (dismissedAlerts.includes(alert.key)) return false;
@@ -973,9 +1047,15 @@ function OperationalWatchlist({
                     </span>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <Button asChild size="sm" variant="outline">
-                      <a href={alert.href}>Open</a>
-                    </Button>
+                    {!alert.accessKey || access[alert.accessKey] ? (
+                      <Button asChild size="sm" variant="outline">
+                        <a href={alert.href}>Open</a>
+                      </Button>
+                    ) : (
+                      <Button type="button" size="sm" variant="outline" disabled>
+                        Admin action required
+                      </Button>
+                    )}
                     <Button type="button" size="sm" variant="ghost" onClick={() => snoozeAlert(alert.key)}>
                       Snooze 24h
                     </Button>
@@ -1013,6 +1093,7 @@ function OperationalWatchlist({
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const access = getAppAccess(user);
   const { data: systems = [], isLoading: loadingSystems } = useQuery<AiSystem[]>({
     queryKey: ["/api/ai-systems"],
     refetchInterval: 30_000,
@@ -1126,15 +1207,21 @@ export default function Dashboard() {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Button asChild size="sm">
-                  <a href="/runtime-monitoring">Open runtime monitoring</a>
-                </Button>
-                <Button asChild size="sm" variant="outline">
-                  <a href="/approvals">Review approvals</a>
-                </Button>
-                <Button asChild size="sm" variant="outline">
-                  <a href="/registry">Open registry</a>
-                </Button>
+                {access.canAccessRuntimeMonitoring ? (
+                  <Button asChild size="sm">
+                    <a href="/runtime-monitoring">Open runtime monitoring</a>
+                  </Button>
+                ) : null}
+                {access.canAccessApprovals ? (
+                  <Button asChild size="sm" variant="outline">
+                    <a href="/approvals">Review approvals</a>
+                  </Button>
+                ) : null}
+                {access.canAccessRegistry ? (
+                  <Button asChild size="sm" variant="outline">
+                    <a href="/registry">Open registry</a>
+                  </Button>
+                ) : null}
               </div>
             </div>
           </CardContent>
@@ -1146,6 +1233,7 @@ export default function Dashboard() {
           systems={systems}
           controls={systemControls}
           onboarding={user?.currentOrganizationOnboarding ?? null}
+          access={access}
         />
       </div>
 
@@ -1184,7 +1272,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <OperationalReadiness ready={ready} />
-        <ActionBoard workflows={workflows} systems={systems} controls={systemControls} />
+        <ActionBoard workflows={workflows} systems={systems} controls={systemControls} access={access} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -1204,6 +1292,7 @@ export default function Dashboard() {
           controls={systemControls}
           ready={ready}
           onboarding={user?.currentOrganizationOnboarding ?? null}
+          access={access}
         />
       </div>
 

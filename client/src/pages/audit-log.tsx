@@ -15,6 +15,7 @@ import {
 import { exportAuditTrailCsv } from "@/lib/export-utils";
 import { resolveApiUrl } from "@/lib/api-url";
 import { captureCsrfTokenFromResponse } from "@/lib/queryClient";
+import { DISPLAY_TIMEZONE_LABEL, formatDateTime } from "@/lib/date-format";
 import type { AuditLog } from "@shared/schema";
 
 const entityIcons: Record<string, any> = {
@@ -53,7 +54,8 @@ export default function AuditLogPage() {
 
   const { data: logs = [], isLoading } = useQuery<AuditLog[]>({
     queryKey: ["/api/audit-logs", queryParams.toString()],
-    refetchInterval: 15_000,
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: true,
     staleTime: 5_000,
     queryFn: async () => {
       const res = await fetch(resolveApiUrl(`/api/audit-logs?${queryParams.toString()}`), { credentials: "include" });
@@ -88,7 +90,7 @@ export default function AuditLogPage() {
         <div>
           <h1 className="text-xl font-bold tracking-tight">Audit Log</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Complete audit trail of all governance activities
+            Complete audit trail of all governance activities. Auto-refreshes every 5 seconds in {DISPLAY_TIMEZONE_LABEL}.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -228,7 +230,7 @@ export default function AuditLogPage() {
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-[10px] text-muted-foreground">{log.performedBy}</span>
                           <span className="text-[10px] text-muted-foreground">
-                            {log.createdAt ? new Date(log.createdAt).toLocaleString() : ""}
+                            {formatDateTime(log.createdAt)}
                           </span>
                         </div>
                       </div>

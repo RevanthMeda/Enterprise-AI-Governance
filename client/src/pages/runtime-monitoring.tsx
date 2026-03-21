@@ -41,7 +41,7 @@ function buildAllowSample(systemId?: string) {
     systemId: systemId || undefined,
     modelName: "gpt-4.1-mini",
     provider: "openai",
-    gateway: "primary-runtime-gateway",
+    gateway: "customer-support-gateway",
     eventType: "runtime.evaluation",
     severity: "info",
     summary: "Compliant customer-support response generated with no elevated policy signals.",
@@ -68,7 +68,7 @@ function buildWarnSample(systemId?: string) {
     systemId: systemId || undefined,
     modelName: "gpt-4.1",
     provider: "openai",
-    gateway: "primary-runtime-gateway",
+    gateway: "customer-support-gateway",
     eventType: "runtime.evaluation",
     severity: "warning",
     summary: "Recruiting-related output showed elevated bias and override-risk signals.",
@@ -97,7 +97,7 @@ function buildBlockSample(systemId?: string) {
     systemId: systemId || undefined,
     modelName: "gpt-4.1",
     provider: "openai",
-    gateway: "primary-runtime-gateway",
+    gateway: "customer-support-gateway",
     eventType: "runtime.evaluation",
     severity: "critical",
     summary: "Restricted prompt and PII exposure attempt detected in runtime evaluation.",
@@ -188,6 +188,7 @@ export default function RuntimeMonitoringPage() {
   const telemetrySummaryQuery = useQuery<any>({
     queryKey: ["runtime-monitoring-summary"],
     refetchInterval: 10_000,
+    refetchIntervalInBackground: true,
     staleTime: 5_000,
     queryFn: async () => {
       const response = await fetch(resolveApiUrl("/api/telemetry/summary"), { credentials: "include" });
@@ -202,6 +203,7 @@ export default function RuntimeMonitoringPage() {
   const incidentSummaryQuery = useQuery<any>({
     queryKey: ["runtime-monitoring-incidents"],
     refetchInterval: 10_000,
+    refetchIntervalInBackground: true,
     staleTime: 5_000,
     queryFn: async () => {
       const response = await fetch(resolveApiUrl("/api/incidents/summary"), { credentials: "include" });
@@ -216,6 +218,7 @@ export default function RuntimeMonitoringPage() {
   const adapterQuery = useQuery<any>({
     queryKey: ["runtime-monitoring-adapter"],
     refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
     staleTime: 10_000,
     queryFn: async () => {
       const response = await fetch(resolveApiUrl("/api/organization/telemetry-adapter"), { credentials: "include" });
@@ -244,9 +247,14 @@ export default function RuntimeMonitoringPage() {
       return;
     }
 
-    const fallbackSystemId = initialSystemId && systemsQuery.data.some((system) => system.id === initialSystemId)
-      ? initialSystemId
-      : systemsQuery.data[0]?.id;
+    const defaultAdapterSystemId =
+      typeof adapterQuery.data?.defaultSystemId === "string" ? adapterQuery.data.defaultSystemId : "";
+    const fallbackSystemId =
+      initialSystemId && systemsQuery.data.some((system) => system.id === initialSystemId)
+        ? initialSystemId
+        : defaultAdapterSystemId && systemsQuery.data.some((system) => system.id === defaultAdapterSystemId)
+          ? defaultAdapterSystemId
+          : systemsQuery.data[0]?.id;
 
     if (!fallbackSystemId) {
       return;
@@ -261,7 +269,7 @@ export default function RuntimeMonitoringPage() {
         return JSON.stringify(buildAllowSample(fallbackSystemId), null, 2);
       }
     });
-  }, [initialSystemId, selectedSystemId, systemsQuery.data]);
+  }, [adapterQuery.data?.defaultSystemId, initialSystemId, selectedSystemId, systemsQuery.data]);
 
   const selectedSystem = systemsQuery.data?.find((system) => system.id === selectedSystemId) ?? null;
   const telemetrySummary = telemetrySummaryQuery.data ?? {};
@@ -271,6 +279,10 @@ export default function RuntimeMonitoringPage() {
   const adapterGateways = Array.isArray(adapter.allowedGateways) && adapter.allowedGateways.length
     ? adapter.allowedGateways.join(", ")
     : "Any gateway";
+  const sampleGateway =
+    Array.isArray(adapter.allowedGateways) && adapter.allowedGateways.length
+      ? String(adapter.allowedGateways[0])
+      : "customer-support-gateway";
   const responseBreaches = extractThresholdLabels(runtimeResponse);
   const responseRestrictedMatches = Array.isArray(runtimeResponse?.restrictedPromptMatches)
     ? runtimeResponse.restrictedPromptMatches
@@ -285,6 +297,7 @@ export default function RuntimeMonitoringPage() {
     const nextPayload = {
       ...sample,
       systemId: selectedSystemId || sample.systemId,
+      gateway: sampleGateway,
     };
     setPayloadText(JSON.stringify(nextPayload, null, 2));
   }
