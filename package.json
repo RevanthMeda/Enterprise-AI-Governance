@@ -14,7 +14,7 @@
     "deploy:firebase": "npm run build:firebase && firebase deploy --only hosting",
     "demo:linked-runtime-app": "npm run build:sdk:telemetry && tsx examples/linked-runtime-demo/server.ts",
     "build:sdk:telemetry": "tsc -p packages/telemetry-sdk-node/tsconfig.json",
-    "start": "NODE_ENV=production node dist/index.cjs",
+    "start": "node dist/index.cjs",
     "docker:gateway:build": "docker build -f deploy/sidecar/Dockerfile -t aict-gateway-sidecar .",
     "check": "tsc",
     "openapi:sync-public": "tsx script/sync-openapi-public.ts",
