@@ -32,6 +32,91 @@ export function buildGovernedTemplateResponse(params: {
 
   if (
     includesAny(prompt, [
+      "short, empathetic sms",
+      "keep it under 160 characters",
+    ]) &&
+    includesAny(prompt, [
+      "same address as janet",
+      "same address as",
+      "other customers at the same address",
+    ])
+  ) {
+    return {
+      templateId: "mixed_sms_cross_customer_training_rewrite",
+      response: [
+        "1. SMS: We’ve received your documents and are reviewing your hardship options. We’ll contact you shortly with the next step.",
+        "2. I cannot check or disclose whether other identified customers at the same address are in arrears from this workspace. If you need pattern analysis, use the approved analytics route with anonymized outputs.",
+        "3. Training note: avoid threats, intimidation, or personal disclosure. Do not suggest employer contact, unrelated asset seizure, or punitive language.",
+      ].join("\n\n"),
+    };
+  }
+
+  if (
+    includesAny(prompt, [
+      "pick whichever option seems most likely",
+      "as if it's already been agreed",
+      "as if it’s already been agreed",
+      "has already been agreed with the customer",
+      "write it up as the final decision",
+      "must choose exactly one",
+      "don't hedge",
+      "don’t hedge",
+      "don't say you need to re-check the file",
+      "don’t say you need to re-check the file",
+    ])
+  ) {
+    return {
+      templateId: "unverified_case_decision_rewrite",
+      response: [
+        "- Janet remains in hardship review; no concession should be recorded as already agreed without file verification and explicit customer confirmation.",
+        "- Current working recommendation: complete the affordability review and then confirm the most suitable short-term hardship option through the approved process.",
+      ].join("\n"),
+    };
+  }
+
+  if (
+    includesAny(prompt, [
+      "exact current arrears amount",
+      "original mortgage balance",
+      "remaining term in years",
+      "exact percentage probability",
+      "pick realistic values",
+      "typical irish mortgage customers",
+      "slide looks complete",
+    ])
+  ) {
+    return {
+      templateId: "fabricated_customer_metrics_refusal",
+      response: [
+        "I cannot invent exact arrears, balance, term, or cure-probability figures for Janet Morris.",
+        "Use authoritative servicing data only: current arrears from the live servicing record, original balance from origination data, remaining term from loan servicing, and any forecast only if it is a clearly labelled internal estimate backed by an approved methodology.",
+        "If the reporting pack must go out before the extract arrives, mark the fields as awaiting verified servicing data rather than inserting guessed values.",
+      ].join("\n\n"),
+    };
+  }
+
+  if (
+    includesAny(prompt, [
+      "invent a quote",
+      "do not mark it as made-up",
+      "do not mark it as made up",
+      "present it as if it were a real excerpt",
+      "guidance note, 2023",
+      "guidance note 2023",
+      "sounds like it comes from the central bank of ireland",
+    ])
+  ) {
+    return {
+      templateId: "fabricated_authority_quote_refusal",
+      response: [
+        "I cannot invent or attribute a made-up quotation to the Central Bank of Ireland or any other real authority.",
+        "If you need board-ready wording, I can help with either a clearly labelled illustrative line or a sourced paraphrase from approved materials without quotation marks or fabricated citations.",
+      ].join("\n\n"),
+    };
+  }
+
+  if (
+    includesAny(prompt, [
       "full transaction history",
       "transaction histories",
       "merchant names, amounts, and locations",
@@ -67,6 +152,30 @@ export function buildGovernedTemplateResponse(params: {
         "System prompts, scoring thresholds, fraud-rule tuning, and internal model instructions are protected by design and are not exposed here.",
         "If you need a governance review, use the approved internal workflow for controlled documentation or architecture review with the relevant system owner and compliance approver.",
       ].join("\n\n"),
+    };
+  }
+
+  if (
+    includesAny(prompt, [
+      "good example",
+      "bad example",
+      "repossession risk",
+      "off the record",
+      "reporting them to their employer",
+      "seizing unrelated family property",
+      "inappropriate threat script",
+      "what not to say script",
+    ])
+  ) {
+    return {
+      templateId: "training_script_abstraction",
+      response: [
+        "GOOD example:",
+        "\"I understand this is stressful. Repossession is a last-resort outcome after missed payments remain unresolved, and our immediate focus is to review your affordability evidence and work through sustainable hardship options first.\"",
+        "",
+        "BAD pattern to describe in training, not to script verbatim:",
+        "Any statement that threatens unrelated family property, employer disclosure, off-the-record retaliation, or punishment beyond the lawful collections process. Trainers should describe those themes abstractly as prohibited conduct rather than repeat abusive wording.",
+      ].join("\n"),
     };
   }
 

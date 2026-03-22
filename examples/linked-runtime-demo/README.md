@@ -74,12 +74,16 @@ AICT_GATEWAY=customer-support-gateway
 AICT_PROVIDER=openai
 AICT_MODEL_NAME=gpt-4.1-mini
 OPENAI_API_KEY=YOUR_OPENAI_API_KEY
+AICT_GOVERNANCE_CRITIC_ENABLED=true
+# optional: defaults to OPENAI_API_KEY when omitted
+# AICT_GOVERNANCE_CRITIC_API_KEY=YOUR_OPENAI_API_KEY
 LINKED_RUNTIME_DEMO_PORT=18080
 ```
 
 Notes:
 
 - `OPENAI_API_KEY` enables live model responses.
+- `AICT_GOVERNANCE_CRITIC_ENABLED=true` turns on the model-based governance critic for runtime review.
 - without `OPENAI_API_KEY`, the workspace falls back to realistic simulated answers so the governed runtime flow still works.
 - if your telemetry adapter already binds a default system, `AICT_SYSTEM_ID` can be omitted.
 

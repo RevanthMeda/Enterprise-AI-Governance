@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ShieldAlert, Siren, Clock3 } from "lucide-react";
+import { AlertTriangle, ShieldAlert, Siren, Clock3, Brain } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  formatGovernanceCriticVerdict,
   formatGovernanceReasonCode,
   formatLawPackLabel,
   formatLegalProfileLabel,
@@ -26,6 +27,8 @@ type IncidentPlaybook = {
   lawPackIdsApplied?: string[];
   telemetryEventId?: string;
   correlationId?: string | null;
+  rulesEngine?: Record<string, unknown>;
+  governanceCritic?: Record<string, unknown>;
 };
 
 type Incident = {
@@ -371,6 +374,59 @@ export default function IncidentsPage() {
                                 />
                               </div>
 
+                              {selectedIncidentEvidence.rulesEngine || selectedIncidentEvidence.governanceCritic ? (
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <div className="rounded-lg border bg-background p-3">
+                                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Rules engine</p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {typeof selectedIncidentEvidence.rulesEngine?.decision === "string" ? (
+                                        <Badge variant="outline">{selectedIncidentEvidence.rulesEngine.decision}</Badge>
+                                      ) : null}
+                                      {typeof selectedIncidentEvidence.rulesEngine?.blocked === "boolean" ? (
+                                        <Badge variant={selectedIncidentEvidence.rulesEngine.blocked ? "destructive" : "secondary"}>
+                                          {selectedIncidentEvidence.rulesEngine.blocked ? "blocked" : "release path"}
+                                        </Badge>
+                                      ) : null}
+                                    </div>
+                                    {typeof selectedIncidentEvidence.rulesEngine?.decisionSummary === "string" ? (
+                                      <p className="mt-3 text-sm text-muted-foreground">{selectedIncidentEvidence.rulesEngine.decisionSummary}</p>
+                                    ) : (
+                                      <p className="mt-3 text-sm text-muted-foreground">No separate rules-engine snapshot recorded.</p>
+                                    )}
+                                  </div>
+                                  <div className="rounded-lg border bg-background p-3">
+                                    <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                                      <Brain className="h-3.5 w-3.5" />
+                                      AI governance critic
+                                    </p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {selectedIncidentEvidence.governanceCritic?.enabled ? (
+                                        <Badge variant="outline">
+                                          {formatGovernanceCriticVerdict(
+                                            typeof selectedIncidentEvidence.governanceCritic.verdict === "string"
+                                              ? selectedIncidentEvidence.governanceCritic.verdict
+                                              : null,
+                                          )}
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="secondary">Not run</Badge>
+                                      )}
+                                      {typeof selectedIncidentEvidence.governanceCritic?.recommendedDecision === "string" ? (
+                                        <Badge variant="outline">{selectedIncidentEvidence.governanceCritic.recommendedDecision}</Badge>
+                                      ) : null}
+                                      {selectedIncidentEvidence.governanceCritic?.appliedDecisionChange ? (
+                                        <Badge variant="secondary">Decision changed</Badge>
+                                      ) : null}
+                                    </div>
+                                    <p className="mt-3 text-sm text-muted-foreground">
+                                      {typeof selectedIncidentEvidence.governanceCritic?.rationale === "string"
+                                        ? selectedIncidentEvidence.governanceCritic.rationale
+                                        : "No critic rationale recorded for this incident."}
+                                    </p>
+                                  </div>
+                                </div>
+                              ) : null}
+
                               {selectedIncidentEvidence.reasonCodes.length > 0 ? (
                                 <div>
                                   <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Reason codes</p>
@@ -393,6 +449,64 @@ export default function IncidentsPage() {
                                         {formatLawPackLabel(packId)}
                                       </Badge>
                                     ))}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {Array.isArray(selectedIncidentEvidence.governanceCritic?.reasonCodes) ||
+                              Array.isArray(selectedIncidentEvidence.governanceCritic?.fabricationFlags) ||
+                              Array.isArray(selectedIncidentEvidence.governanceCritic?.groundingConcerns) ? (
+                                <div className="grid gap-3 md:grid-cols-3">
+                                  <div>
+                                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Critic reason codes</p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {Array.isArray(selectedIncidentEvidence.governanceCritic?.reasonCodes) &&
+                                      selectedIncidentEvidence.governanceCritic.reasonCodes.length > 0 ? (
+                                        selectedIncidentEvidence.governanceCritic.reasonCodes.map((reasonCode: unknown) => (
+                                          typeof reasonCode === "string" ? (
+                                            <Badge key={reasonCode} variant="secondary">
+                                              {formatGovernanceReasonCode(reasonCode)}
+                                            </Badge>
+                                          ) : null
+                                        ))
+                                      ) : (
+                                        <span className="text-sm text-muted-foreground">None</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Fabrication flags</p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {Array.isArray(selectedIncidentEvidence.governanceCritic?.fabricationFlags) &&
+                                      selectedIncidentEvidence.governanceCritic.fabricationFlags.length > 0 ? (
+                                        selectedIncidentEvidence.governanceCritic.fabricationFlags.map((flag: unknown) => (
+                                          typeof flag === "string" ? (
+                                            <Badge key={flag} variant="destructive">
+                                              {flag.replace(/_/g, " ")}
+                                            </Badge>
+                                          ) : null
+                                        ))
+                                      ) : (
+                                        <span className="text-sm text-muted-foreground">None</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Grounding concerns</p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {Array.isArray(selectedIncidentEvidence.governanceCritic?.groundingConcerns) &&
+                                      selectedIncidentEvidence.governanceCritic.groundingConcerns.length > 0 ? (
+                                        selectedIncidentEvidence.governanceCritic.groundingConcerns.map((concern: unknown) => (
+                                          typeof concern === "string" ? (
+                                            <Badge key={concern} variant="outline">
+                                              {concern.replace(/_/g, " ")}
+                                            </Badge>
+                                          ) : null
+                                        ))
+                                      ) : (
+                                        <span className="text-sm text-muted-foreground">None</span>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
                               ) : null}
@@ -649,6 +763,15 @@ function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | 
     return null;
   }
 
+  const rulesEngine =
+    playbook.rulesEngine && typeof playbook.rulesEngine === "object" && !Array.isArray(playbook.rulesEngine)
+      ? (playbook.rulesEngine as Record<string, unknown>)
+      : null;
+  const governanceCritic =
+    playbook.governanceCritic && typeof playbook.governanceCritic === "object" && !Array.isArray(playbook.governanceCritic)
+      ? (playbook.governanceCritic as Record<string, unknown>)
+      : null;
+
   const reasonCodes = Array.isArray(playbook.reasonCodes)
     ? playbook.reasonCodes.filter((entry): entry is string => typeof entry === "string")
     : [];
@@ -671,7 +794,9 @@ function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | 
     lawPackIdsApplied.length > 0 ||
     typeof playbook.telemetryEventId === "string" ||
     typeof playbook.correlationId === "string" ||
-    typeof playbook.legalProfileApplied === "string";
+    typeof playbook.legalProfileApplied === "string" ||
+    Boolean(rulesEngine) ||
+    Boolean(governanceCritic);
 
   if (!hasEvidence) {
     return null;
@@ -689,5 +814,7 @@ function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | 
     telemetryEventId: typeof playbook.telemetryEventId === "string" ? playbook.telemetryEventId : null,
     correlationId:
       typeof playbook.correlationId === "string" ? playbook.correlationId : null,
+    rulesEngine,
+    governanceCritic,
   };
 }

@@ -127,12 +127,17 @@ test("core API smoke across all role personas", async () => {
     "/api/compliance-controls",
     "/api/approval-workflows",
     "/api/system-controls",
-    "/api/audit-logs",
     "/api/calendar-events",
     "/api/notifications/unread-count",
   ] as const;
 
   const restrictedChecks = [
+    {
+      path: "/api/audit-logs",
+      method: "GET",
+      body: undefined,
+      allowedRoles: ["admin", "cro", "ciso", "compliance_lead", "auditor"] as RoleName[],
+    },
     {
       path: "/api/leads",
       method: "GET",

@@ -212,6 +212,10 @@ function buildTelemetryAuditDetails(params: {
     typeof metadata.decisionSummary === "string" ? metadata.decisionSummary.trim() : "";
   const legalProfileApplied =
     typeof metadata.legalProfileApplied === "string" ? metadata.legalProfileApplied : null;
+  const governanceCritic =
+    metadata.governanceCritic && typeof metadata.governanceCritic === "object" && !Array.isArray(metadata.governanceCritic)
+      ? (metadata.governanceCritic as Record<string, unknown>)
+      : null;
 
   const suffix: string[] = [];
   if (decisionSummary) {
@@ -228,6 +232,14 @@ function buildTelemetryAuditDetails(params: {
   }
   if (lawPackIds.length > 0) {
     suffix.push(`Law packs: ${lawPackIds.join(", ")}`);
+  }
+  if (governanceCritic && governanceCritic.enabled) {
+    const verdict = typeof governanceCritic.verdict === "string" ? governanceCritic.verdict : null;
+    const recommendedDecision =
+      typeof governanceCritic.recommendedDecision === "string" ? governanceCritic.recommendedDecision : null;
+    if (verdict) {
+      suffix.push(`AI critic verdict: ${verdict}${recommendedDecision ? ` (${recommendedDecision})` : ""}`);
+    }
   }
 
   return `${params.sourceLabel} "${params.eventType}" recorded${params.gateway ? ` from ${params.gateway}` : ""} with decision "${params.decision}"${suffix.length > 0 ? `. ${suffix.join(". ")}` : ""}`;
@@ -4470,6 +4482,18 @@ export async function registerRoutes(
         lawPackIdsApplied: Array.isArray(metadata?.lawPackIdsApplied)
           ? (metadata.lawPackIdsApplied as string[])
           : [],
+        rulesEngine:
+          metadata?.rulesEngine && typeof metadata.rulesEngine === "object" && !Array.isArray(metadata.rulesEngine)
+            ? metadata.rulesEngine
+            : null,
+        governanceCritic:
+          metadata?.governanceCritic && typeof metadata.governanceCritic === "object" && !Array.isArray(metadata.governanceCritic)
+            ? metadata.governanceCritic
+            : null,
+        guard:
+          metadata?.guard && typeof metadata.guard === "object" && !Array.isArray(metadata.guard)
+            ? metadata.guard
+            : null,
       });
       } catch (err: any) {
         return res.status(getErrorStatus(err)).json({ message: err.message || "Failed to ingest telemetry event" });

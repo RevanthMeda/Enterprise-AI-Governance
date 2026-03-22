@@ -63,6 +63,13 @@ type DemoRun = {
   decisionSummary: string | null;
   legalProfileApplied: string | null;
   lawPackIdsApplied: string[];
+  rulesEngineDecision: string | null;
+  rulesEngineSummary: string | null;
+  criticVerdict: string | null;
+  criticConfidence: number | null;
+  criticRecommendedDecision: string | null;
+  criticRationale: string | null;
+  criticChangedDecision: boolean;
   usedSimulation: boolean;
   upstreamError: string | null;
 };
@@ -112,6 +119,11 @@ const currentFile = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFile);
 const examplesDir = path.resolve(currentDir, "..");
 const repoRootDir = path.resolve(currentDir, "..", "..");
+const shellProvidedEnvKeys = new Set(
+  Object.entries(process.env)
+    .filter(([, value]) => typeof value === "string" && value.length > 0)
+    .map(([key]) => key),
+);
 const loadedEnvKeys = new Set<string>();
 
 loadEnvFile(path.join(repoRootDir, ".env"));
@@ -729,6 +741,8 @@ async function executeGovernedTurn(
   );
 
   const primaryDecision = guarded.postflight ?? guarded.preflight;
+  const rulesEngine = primaryDecision.rulesEngine ?? null;
+  const governanceCritic = primaryDecision.governanceCritic ?? null;
   const run: DemoRun = {
     id: randomUUID(),
     createdAt: new Date().toISOString(),
@@ -756,6 +770,13 @@ async function executeGovernedTurn(
     decisionSummary: primaryDecision.decisionSummary ?? null,
     legalProfileApplied: primaryDecision.legalProfileApplied ?? null,
     lawPackIdsApplied: primaryDecision.lawPackIdsApplied ?? [],
+    rulesEngineDecision: rulesEngine?.decision ?? null,
+    rulesEngineSummary: rulesEngine?.decisionSummary ?? null,
+    criticVerdict: governanceCritic?.verdict ?? null,
+    criticConfidence: typeof governanceCritic?.confidence === "number" ? governanceCritic.confidence : null,
+    criticRecommendedDecision: governanceCritic?.recommendedDecision ?? null,
+    criticRationale: governanceCritic?.rationale ?? null,
+    criticChangedDecision: Boolean(governanceCritic?.appliedDecisionChange),
     usedSimulation,
     upstreamError,
   };
@@ -1198,8 +1219,9 @@ function loadEnvFile(filePath: string, options?: { overrideExisting?: boolean })
 
     const hasExistingValue = typeof process.env[key] === "string" && process.env[key]!.length > 0;
     const providedByEarlierEnvFile = loadedEnvKeys.has(key);
+    const providedByShell = shellProvidedEnvKeys.has(key) && !providedByEarlierEnvFile;
     if (
-      hasExistingValue &&
+      (providedByShell || hasExistingValue) &&
       (!providedByEarlierEnvFile || !options?.overrideExisting)
     ) {
       continue;
@@ -2641,6 +2663,8 @@ function renderWorkspacePage(options: Required<Pick<RenderPageOptions, "sessionU
                 <div class="key-row"><span>Workflow mode</span><code id="status-workflow">${escapeHtml(activeRun?.modeLabel || modes[options.activeCase.modeId].label)}</code></div>
                 <div class="key-row"><span>Decision</span><strong id="status-decision">${escapeHtml(activeError ? "ERROR" : activeRun?.decision?.toUpperCase() || "No run yet")}</strong></div>
                 <div class="key-row"><span>Decision stage</span><code id="status-stage">${escapeHtml(activeRun?.decisionStage || "-")}</code></div>
+                <div class="key-row"><span>Rules engine</span><code id="status-rules-engine">${escapeHtml(activeRun?.rulesEngineDecision?.toUpperCase() || "-")}</code></div>
+                <div class="key-row"><span>AI critic</span><code id="status-critic">${escapeHtml(activeRun?.criticVerdict || "not run")}</code></div>
                 <div class="key-row"><span>Threshold breaches</span><code id="status-thresholds">${escapeHtml(activeRun?.thresholdBreaches.join(", ") || "none")}</code></div>
                 <div class="key-row"><span>Reason codes</span><code id="status-reasons">${escapeHtml(activeRun?.reasonCodes.join(", ") || "none")}</code></div>
                 <div class="key-row"><span>Incident</span><code id="status-incident">${escapeHtml(activeRun?.escalatedIncidentId || "none")}</code></div>
@@ -2648,6 +2672,15 @@ function renderWorkspacePage(options: Required<Pick<RenderPageOptions, "sessionU
               </div>
               <p id="status-summary" class="helper-text" style="margin-top: 12px;">
                 ${escapeHtml(activeError || activeRun?.decisionSummary || activeRun?.runtimeSummary || "Use this panel to narrate what Control Tower did with the current turn.")}
+              </p>
+              <p id="status-critic-summary" class="helper-text" style="margin-top: 8px;">
+                ${escapeHtml(
+                  activeRun?.criticRationale
+                    ? `AI critic: ${activeRun.criticRationale}`
+                    : activeRun?.criticVerdict
+                      ? `AI critic verdict: ${activeRun.criticVerdict}${activeRun.criticRecommendedDecision ? ` (${activeRun.criticRecommendedDecision})` : ""}`
+                      : "AI critic details will appear here when enabled.",
+                )}
               </p>
             </div>
 
@@ -2752,11 +2785,14 @@ function buildDemoScript() {
   const statusWorkflow = document.getElementById('status-workflow');
   const statusDecision = document.getElementById('status-decision');
   const statusStage = document.getElementById('status-stage');
+  const statusRulesEngine = document.getElementById('status-rules-engine');
+  const statusCritic = document.getElementById('status-critic');
   const statusThresholds = document.getElementById('status-thresholds');
   const statusReasons = document.getElementById('status-reasons');
   const statusIncident = document.getElementById('status-incident');
   const statusCorrelation = document.getElementById('status-correlation');
   const statusSummary = document.getElementById('status-summary');
+  const statusCriticSummary = document.getElementById('status-critic-summary');
   const statusIncidents = document.getElementById('status-incidents');
   const statusBlocked = document.getElementById('status-blocked');
   const recentRuns = document.getElementById('recent-runs');
@@ -2875,22 +2911,35 @@ function buildDemoScript() {
     if (errorMessage) {
       setText(statusDecision, 'ERROR');
       setText(statusStage, '-');
+      setText(statusRulesEngine, '-');
+      setText(statusCritic, 'not run');
       setText(statusThresholds, 'none');
       setText(statusReasons, 'none');
       setText(statusIncident, 'none');
       setText(statusCorrelation, '-');
       setText(statusSummary, errorMessage);
+      setText(statusCriticSummary, 'AI critic details unavailable because the turn did not complete.');
       return;
     }
     if (!run) return;
     setText(statusWorkflow, run.modeLabel || '-');
     setText(statusDecision, (run.decision || 'allow').toUpperCase());
     setText(statusStage, run.decisionStage || '-');
+    setText(statusRulesEngine, run.rulesEngineDecision ? String(run.rulesEngineDecision).toUpperCase() : '-');
+    setText(statusCritic, run.criticVerdict || 'not run');
     setText(statusThresholds, run.thresholdBreaches && run.thresholdBreaches.length ? run.thresholdBreaches.join(', ') : 'none');
     setText(statusReasons, run.reasonCodes && run.reasonCodes.length ? run.reasonCodes.join(', ') : 'none');
     setText(statusIncident, run.escalatedIncidentId || 'none');
     setText(statusCorrelation, run.correlationId || '-');
     setText(statusSummary, run.decisionSummary || run.runtimeSummary || '');
+    setText(
+      statusCriticSummary,
+      run.criticRationale
+        ? 'AI critic: ' + run.criticRationale
+        : run.criticRecommendedDecision
+          ? 'AI critic recommended ' + run.criticRecommendedDecision + (run.criticChangedDecision ? ' and changed the final outcome.' : '.')
+          : 'AI critic details will appear here when enabled.',
+    );
   }
 
   function bumpCounter(el, increment) {

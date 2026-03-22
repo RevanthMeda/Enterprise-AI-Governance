@@ -5,6 +5,7 @@ import {
   Activity,
   AlertTriangle,
   Ban,
+  Brain,
   Cable,
   ExternalLink,
   Radio,
@@ -43,6 +44,27 @@ type RuntimeResponse = {
   decisionSummary?: string | null;
   legalProfileApplied?: string | null;
   lawPackIdsApplied?: string[];
+  rulesEngine?: {
+    decision?: RuntimeDecision;
+    blocked?: boolean;
+    severity?: string;
+    thresholdBreaches?: string[];
+    reasonCodes?: string[];
+    decisionSummary?: string | null;
+  } | null;
+  governanceCritic?: {
+    enabled?: boolean;
+    model?: string | null;
+    verdict?: "aligned" | "needs_review" | "unsafe" | null;
+    confidence?: number | null;
+    recommendedDecision?: RuntimeDecision | null;
+    rationale?: string | null;
+    reasonCodes?: string[];
+    fabricationFlags?: string[];
+    groundingConcerns?: string[];
+    appliedDecisionChange?: boolean;
+    promotedThresholdBreaches?: string[];
+  } | null;
   [key: string]: unknown;
 };
 
@@ -141,6 +163,32 @@ function decisionBadgeVariant(decision?: RuntimeDecision) {
       return "destructive" as const;
     default:
       return "outline" as const;
+  }
+}
+
+function criticBadgeVariant(verdict?: "aligned" | "needs_review" | "unsafe" | null) {
+  switch (verdict) {
+    case "aligned":
+      return "default" as const;
+    case "needs_review":
+      return "outline" as const;
+    case "unsafe":
+      return "destructive" as const;
+    default:
+      return "secondary" as const;
+  }
+}
+
+function formatCriticVerdict(verdict?: "aligned" | "needs_review" | "unsafe" | null) {
+  switch (verdict) {
+    case "aligned":
+      return "Aligned";
+    case "needs_review":
+      return "Needs review";
+    case "unsafe":
+      return "Unsafe";
+    default:
+      return "Not run";
   }
 }
 
@@ -304,6 +352,14 @@ export default function RuntimeMonitoringPage() {
   const responseLawPackIds = Array.isArray(runtimeResponse?.lawPackIdsApplied)
     ? runtimeResponse.lawPackIdsApplied
     : [];
+  const rulesEngine = runtimeResponse?.rulesEngine ?? null;
+  const critic = runtimeResponse?.governanceCritic ?? null;
+  const rulesEngineReasonCodes = Array.isArray(rulesEngine?.reasonCodes) ? rulesEngine.reasonCodes : [];
+  const rulesEngineThresholds = Array.isArray(rulesEngine?.thresholdBreaches) ? rulesEngine.thresholdBreaches : [];
+  const criticReasonCodes = Array.isArray(critic?.reasonCodes) ? critic.reasonCodes : [];
+  const criticFabricationFlags = Array.isArray(critic?.fabricationFlags) ? critic.fabricationFlags : [];
+  const criticGroundingConcerns = Array.isArray(critic?.groundingConcerns) ? critic.groundingConcerns : [];
+  const criticPromotedThresholds = Array.isArray(critic?.promotedThresholdBreaches) ? critic.promotedThresholdBreaches : [];
 
   const totalEvents = telemetrySummary.total ?? telemetrySummary.events ?? 0;
   const thresholdBreaches = telemetrySummary.thresholdBreaches ?? telemetrySummary.breaches ?? 0;
@@ -677,6 +733,81 @@ export default function RuntimeMonitoringPage() {
                     <p className="mt-2 text-sm text-muted-foreground">{runtimeResponse.decisionSummary}</p>
                   </div>
                 ) : null}
+                {rulesEngine || critic ? (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Rules engine</p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <Badge variant={decisionBadgeVariant(rulesEngine?.decision)} className="uppercase">
+                          {rulesEngine?.decision ?? "unknown"}
+                        </Badge>
+                        {typeof rulesEngine?.blocked === "boolean" ? (
+                          <Badge variant={rulesEngine.blocked ? "destructive" : "outline"}>
+                            {rulesEngine.blocked ? "blocking" : "release path"}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      {rulesEngine?.decisionSummary ? (
+                        <p className="mt-3 text-sm text-muted-foreground">{rulesEngine.decisionSummary}</p>
+                      ) : null}
+                      {rulesEngineThresholds.length > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {rulesEngineThresholds.map((threshold) => (
+                            <Badge key={threshold} variant="outline">{formatThresholdLabel(threshold)}</Badge>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                        <Brain className="h-3.5 w-3.5" />
+                        AI governance critic
+                      </p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <Badge variant={criticBadgeVariant(critic?.verdict)}>
+                          {formatCriticVerdict(critic?.verdict)}
+                        </Badge>
+                        {critic?.recommendedDecision ? (
+                          <Badge variant={decisionBadgeVariant(critic.recommendedDecision)} className="uppercase">
+                            {critic.recommendedDecision}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        {critic?.enabled
+                          ? critic.rationale || "AI critic reviewed this turn without additional commentary."
+                          : "AI critic is disabled or not configured for this environment."}
+                      </p>
+                      {typeof critic?.confidence === "number" ? (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Confidence {(critic.confidence * 100).toFixed(0)}%
+                          {critic.model ? ` • ${critic.model}` : ""}
+                          {critic.appliedDecisionChange ? " • changed final decision" : ""}
+                        </p>
+                      ) : critic?.model ? (
+                        <p className="mt-2 text-xs text-muted-foreground">{critic.model}</p>
+                      ) : null}
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Final runtime outcome</p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <Badge variant={decisionBadgeVariant(runtimeResponse.decision)} className="uppercase">
+                          {runtimeResponse.decision ?? "unknown"}
+                        </Badge>
+                        {critic?.appliedDecisionChange ? (
+                          <Badge variant="secondary">critic adjusted</Badge>
+                        ) : (
+                          <Badge variant="outline">rules engine retained</Badge>
+                        )}
+                      </div>
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        {criticPromotedThresholds.length > 0
+                          ? `Additional thresholds promoted by the critic: ${criticPromotedThresholds.join(", ")}.`
+                          : "No extra thresholds were promoted beyond the rules engine decision."}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
                 {responseReasonCodes.length || runtimeResponse.legalProfileApplied || responseLawPackIds.length ? (
                   <div className="grid gap-3 md:grid-cols-3">
                     <div className="rounded-lg border bg-background p-3 md:col-span-2">
@@ -701,6 +832,37 @@ export default function RuntimeMonitoringPage() {
                         )) : (
                           <span className="text-sm text-muted-foreground">Global Baseline</span>
                         )}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                {rulesEngineReasonCodes.length > 0 || criticReasonCodes.length > 0 || criticFabricationFlags.length > 0 || criticGroundingConcerns.length > 0 ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Rules engine reason codes</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {rulesEngineReasonCodes.length > 0 ? rulesEngineReasonCodes.map((reasonCode) => (
+                          <Badge key={reasonCode} variant="outline">{formatGovernanceReasonCode(reasonCode)}</Badge>
+                        )) : (
+                          <span className="text-sm text-muted-foreground">No rules-engine reason codes recorded.</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">AI critic findings</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {criticReasonCodes.map((reasonCode) => (
+                          <Badge key={reasonCode} variant="secondary">{formatGovernanceReasonCode(reasonCode)}</Badge>
+                        ))}
+                        {criticFabricationFlags.map((flag) => (
+                          <Badge key={flag} variant="destructive">{flag.replace(/_/g, " ")}</Badge>
+                        ))}
+                        {criticGroundingConcerns.map((concern) => (
+                          <Badge key={concern} variant="outline">{concern.replace(/_/g, " ")}</Badge>
+                        ))}
+                        {criticReasonCodes.length === 0 && criticFabricationFlags.length === 0 && criticGroundingConcerns.length === 0 ? (
+                          <span className="text-sm text-muted-foreground">No additional AI critic findings recorded.</span>
+                        ) : null}
                       </div>
                     </div>
                   </div>

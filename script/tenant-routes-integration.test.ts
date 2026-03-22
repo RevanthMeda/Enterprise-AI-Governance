@@ -139,7 +139,7 @@ test("tenant route integration: org switch, session cookie, denial matrix", asyn
       password: await hashPassword("test-password"),
       fullName: `Route Multi ${suffix}`,
       email: `route-multi-${suffix}@example.com`,
-      role: "reviewer",
+      role: "admin",
     });
     tracker.userIds.push(multiUser.id);
 

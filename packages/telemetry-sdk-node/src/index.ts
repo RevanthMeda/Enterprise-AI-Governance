@@ -1,4 +1,5 @@
 export type TelemetrySeverity = "info" | "warning" | "critical";
+export type TelemetryDecision = "allow" | "warn" | "escalate" | "block";
 
 export type TelemetryMetadata = Record<string, unknown>;
 
@@ -26,7 +27,7 @@ export type TelemetryEventInput = {
 export type TelemetryIngestResult = {
   id: string;
   ok: boolean;
-  decision: "allow" | "warn" | "escalate" | "block";
+  decision: TelemetryDecision;
   blocked: boolean;
   thresholdBreaches: string[];
   escalatedIncidentId: string | null;
@@ -35,6 +36,27 @@ export type TelemetryIngestResult = {
   decisionSummary?: string | null;
   legalProfileApplied?: string | null;
   lawPackIdsApplied?: string[];
+  rulesEngine?: {
+    decision?: TelemetryDecision;
+    blocked?: boolean;
+    severity?: TelemetrySeverity;
+    thresholdBreaches?: string[];
+    reasonCodes?: string[];
+    decisionSummary?: string | null;
+  } | null;
+  governanceCritic?: {
+    enabled?: boolean;
+    model?: string | null;
+    verdict?: "aligned" | "needs_review" | "unsafe" | null;
+    confidence?: number | null;
+    recommendedDecision?: TelemetryDecision | null;
+    rationale?: string | null;
+    reasonCodes?: string[];
+    fabricationFlags?: string[];
+    groundingConcerns?: string[];
+    appliedDecisionChange?: boolean;
+    promotedThresholdBreaches?: string[];
+  } | null;
 };
 
 export type GuardStage = "input" | "output";
