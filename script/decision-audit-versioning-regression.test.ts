@@ -142,6 +142,8 @@ test("sealed decision traces create version snapshots on edit", async () => {
       geography: "EU",
       purpose: "Decision trace regression coverage",
       usersImpacted: 1000,
+      legalProfile: "eu",
+      lawPackIds: ["global_baseline", "eu_core", "eu_finance"],
     });
 
     ({ server } = await startTestServer());
@@ -172,6 +174,26 @@ test("sealed decision traces create version snapshots on edit", async () => {
     const createdBody = created.body as { id: string; currentVersionNumber: number };
     assert.equal(createdBody.currentVersionNumber, 1);
 
+    const [createdAudit] = await db
+      .select()
+      .from(decisionAudits)
+      .where(eq(decisionAudits.id, createdBody.id));
+    assert.ok(createdAudit.retentionUntil instanceof Date);
+    const minimumExpectedRetention = new Date(Date.now() + 9 * 365 * 24 * 60 * 60 * 1000);
+    assert.ok(
+      createdAudit.retentionUntil.getTime() > minimumExpectedRetention.getTime(),
+      "expected EU finance law packs to raise retention close to 10 years",
+    );
+    assert.ok(
+      Array.isArray(createdAudit.explainabilityFactors) &&
+        createdAudit.explainabilityFactors.includes("law_pack:eu_finance") &&
+        createdAudit.explainabilityFactors.includes("minimum_retention_years:10"),
+    );
+    assert.ok(
+      Array.isArray(createdAudit.decisionConstraints) &&
+        createdAudit.decisionConstraints.includes("Maintain at least 10 years of reviewable decision evidence."),
+    );
+
     const updated = await apiRequest(baseUrl, `/api/decision-audits/${createdBody.id}`, {
       method: "PATCH",
       cookie,
@@ -198,6 +220,10 @@ test("sealed decision traces create version snapshots on edit", async () => {
       .from(decisionAudits)
       .where(eq(decisionAudits.id, createdBody.id));
     assert.equal(storedAudit.currentVersionNumber, 2);
+    assert.ok(
+      Array.isArray(storedAudit.explainabilityFactors) &&
+        storedAudit.explainabilityFactors.includes("law_pack:eu_finance"),
+    );
 
     const [storedVersion] = await db
       .select()

@@ -3,8 +3,18 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { storage } from "../storage";
 import {
+  compileLawPackRuntimeOverlay,
+  deriveLawPackGovernanceRequirements,
+  normalizeLegalProfile,
+  resolveSystemLawPackIds,
+  resolveWorkflowLawPackIds,
+  resolveWorkflowLegalProfile,
+  sanitizeLawPackIds,
+} from "@shared/law-packs";
+import {
   decisionAudits,
   decisionAuditVersions,
+  type AiSystem,
   type ApprovalWorkflow,
   type DecisionAudit,
   type DecisionAuditVersion,
@@ -19,7 +29,11 @@ type DecisionAuditFilters = {
 type DecisionAuditUpdateInput = Partial<Omit<InsertDecisionAudit, "organizationId">> & {
   actorName?: string | null;
   versionReason?: string | null;
+  legalProfile?: string | null;
+  lawPackIds?: unknown;
 };
+
+const YEAR_IN_MS = 365 * 24 * 60 * 60 * 1000;
 
 function buildOverrideDiff(aiOutput: string, humanOutput: string | null | undefined) {
   if (!humanOutput || humanOutput === aiOutput) {
@@ -183,6 +197,126 @@ function sanitizeStructuredValue(value: unknown): unknown {
   return value;
 }
 
+function unique<T>(items: T[]) {
+  return Array.from(new Set(items));
+}
+
+function getStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return unique(
+    value
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+  );
+}
+
+function applyMinimumRetentionFloor(
+  retentionUntil: Date | null | undefined,
+  referenceDate: Date,
+  minimumRetentionYears: number,
+) {
+  const floorDate = new Date(referenceDate.getTime() + minimumRetentionYears * YEAR_IN_MS);
+  if (retentionUntil && retentionUntil.getTime() > floorDate.getTime()) {
+    return retentionUntil;
+  }
+  return floorDate;
+}
+
+function mergeDecisionContext(baseContext: string, additions: string[]) {
+  const nextContext = baseContext.trim();
+  const appended = additions.filter((addition) => addition && !nextContext.includes(addition));
+  if (appended.length === 0) {
+    return nextContext;
+  }
+  return [nextContext, ...appended].join("\n");
+}
+
+function mergeGovernanceSnapshot(snapshot: unknown, governance: Record<string, unknown>) {
+  const safeSnapshot =
+    snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)
+      ? (sanitizeStructuredValue(snapshot) as Record<string, unknown>)
+      : {};
+  const existingGovernance =
+    safeSnapshot.governance && typeof safeSnapshot.governance === "object" && !Array.isArray(safeSnapshot.governance)
+      ? (sanitizeStructuredValue(safeSnapshot.governance) as Record<string, unknown>)
+      : {};
+
+  return sanitizeStructuredValue({
+    ...safeSnapshot,
+    governance: {
+      ...existingGovernance,
+      ...governance,
+    },
+  });
+}
+
+function buildLawPackDecisionArtifacts(params: {
+  system: AiSystem;
+  legalProfileOverride?: string | null;
+  lawPackIdsOverride?: unknown;
+  decisionContext: string;
+  inputSnapshot: unknown;
+  decisionConstraints: unknown;
+  explainabilityFactors: unknown;
+  retentionUntil: Date | null | undefined;
+  referenceDate: Date;
+}) {
+  const explicitLawPackIds = sanitizeLawPackIds(params.lawPackIdsOverride);
+  const lawPackIdsApplied =
+    explicitLawPackIds.length > 0
+      ? sanitizeLawPackIds(
+          explicitLawPackIds.includes("global_baseline")
+            ? explicitLawPackIds
+            : unique(["global_baseline", ...explicitLawPackIds]),
+        )
+      : resolveSystemLawPackIds(params.system);
+  const legalProfileApplied = params.legalProfileOverride
+    ? normalizeLegalProfile(params.legalProfileOverride)
+    : normalizeLegalProfile(params.system.legalProfile ?? params.system.geography);
+  const lawPackOverlay = compileLawPackRuntimeOverlay(lawPackIdsApplied);
+  const governanceRequirements = deriveLawPackGovernanceRequirements(lawPackIdsApplied);
+
+  return {
+    decisionContext: mergeDecisionContext(params.decisionContext, [
+      `Legal profile: ${legalProfileApplied}`,
+      `Law packs applied: ${lawPackIdsApplied.join(", ")}`,
+      `Minimum decision tier: ${governanceRequirements.minimumDecisionTier}`,
+      `Minimum evidence retention: ${governanceRequirements.minimumRetentionYears} years`,
+    ]),
+    inputSnapshot: mergeGovernanceSnapshot(params.inputSnapshot, {
+      legalProfileApplied,
+      lawPackIdsApplied,
+      minimumDecisionTier: governanceRequirements.minimumDecisionTier,
+      minimumRetentionYears: governanceRequirements.minimumRetentionYears,
+      lawPackGuidanceTags: lawPackOverlay.guidanceTags,
+      lawPackSources: lawPackOverlay.sourceRefs,
+      lawPackDecisionConstraints: lawPackOverlay.decisionConstraints,
+    }),
+    decisionConstraints: unique([
+      ...getStringArray(params.decisionConstraints),
+      ...lawPackOverlay.decisionConstraints,
+      `Maintain at least ${governanceRequirements.minimumRetentionYears} years of reviewable decision evidence.`,
+    ]),
+    explainabilityFactors: unique([
+      ...getStringArray(params.explainabilityFactors),
+      `legal_profile:${legalProfileApplied}`,
+      ...lawPackIdsApplied.map((lawPackId) => `law_pack:${lawPackId}`),
+      `minimum_decision_tier:${governanceRequirements.minimumDecisionTier}`,
+      `minimum_retention_years:${governanceRequirements.minimumRetentionYears}`,
+      ...lawPackOverlay.guidanceTags.map((tag) => `guidance_tag:${tag}`),
+    ]),
+    retentionUntil: applyMinimumRetentionFloor(
+      params.retentionUntil,
+      params.referenceDate,
+      governanceRequirements.minimumRetentionYears,
+    ),
+  };
+}
+
 function hasMaterialChanges(current: DecisionAudit, next: DecisionAudit) {
   return VERSIONED_FIELDS.some((field) => serializeComparableValue(current[field]) !== serializeComparableValue(next[field]));
 }
@@ -211,7 +345,11 @@ export class DecisionAuditService {
         error.status = 409;
         throw error;
       }
+
+      return { system, workflow };
     }
+
+    return { system, workflow: undefined };
   }
 
   async listForOrg(organizationId: string, filters?: DecisionAuditFilters) {
@@ -261,10 +399,27 @@ export class DecisionAuditService {
     };
   }
 
-  async createForOrg(organizationId: string, input: Omit<InsertDecisionAudit, "organizationId">): Promise<DecisionAudit> {
-    await this.ensureLinkedEntitiesExist(organizationId, {
+  async createForOrg(
+    organizationId: string,
+    input: Omit<InsertDecisionAudit, "organizationId"> & {
+      legalProfile?: string | null;
+      lawPackIds?: unknown;
+    },
+  ): Promise<DecisionAudit> {
+    const { system } = await this.ensureLinkedEntitiesExist(organizationId, {
       systemId: input.systemId,
       workflowId: input.workflowId ?? null,
+    });
+    const governanceArtifacts = buildLawPackDecisionArtifacts({
+      system,
+      legalProfileOverride: input.legalProfile ?? null,
+      lawPackIdsOverride: input.lawPackIds ?? [],
+      decisionContext: input.decisionContext,
+      inputSnapshot: input.inputSnapshot ?? {},
+      decisionConstraints: input.decisionConstraints ?? [],
+      explainabilityFactors: input.explainabilityFactors ?? [],
+      retentionUntil: input.retentionUntil ?? null,
+      referenceDate: new Date(),
     });
 
     const payloadBase = {
@@ -273,22 +428,22 @@ export class DecisionAuditService {
       workflowId: input.workflowId ?? null,
       title: input.title,
       businessObjective: input.businessObjective ?? null,
-      decisionContext: input.decisionContext,
+      decisionContext: governanceArtifacts.decisionContext,
       modelName: input.modelName ?? null,
       modelVersion: input.modelVersion ?? null,
       promptText: input.promptText ?? null,
       inputSources: input.inputSources ?? [],
-      inputSnapshot: sanitizeStructuredValue(input.inputSnapshot ?? {}),
-      decisionConstraints: input.decisionConstraints ?? [],
+      inputSnapshot: governanceArtifacts.inputSnapshot,
+      decisionConstraints: governanceArtifacts.decisionConstraints,
       aiOutput: input.aiOutput,
       humanOutput: input.humanOutput ?? null,
       overrideDiff: input.overrideDiff ?? buildOverrideDiff(input.aiOutput, input.humanOutput ?? null),
       overrideRationale: input.overrideRationale ?? null,
       confidenceScore: input.confidenceScore ?? null,
       uncertaintyScore: input.uncertaintyScore ?? null,
-      explainabilityFactors: input.explainabilityFactors ?? [],
+      explainabilityFactors: governanceArtifacts.explainabilityFactors,
       documentationStatus: input.documentationStatus ?? "sealed",
-      retentionUntil: input.retentionUntil ?? new Date(Date.now() + 7 * 365 * 24 * 60 * 60 * 1000),
+      retentionUntil: governanceArtifacts.retentionUntil,
       legalHold: false,
       legalHoldReason: null,
       legalHoldAppliedAt: null,
@@ -347,7 +502,7 @@ export class DecisionAuditService {
       throw error;
     }
 
-    await this.ensureLinkedEntitiesExist(organizationId, {
+    const { system } = await this.ensureLinkedEntitiesExist(organizationId, {
       systemId: changes.systemId ?? current.systemId,
       workflowId:
         changes.workflowId !== undefined
@@ -385,16 +540,31 @@ export class DecisionAuditService {
       outcomeSummary: changes.outcomeSummary !== undefined ? changes.outcomeSummary : current.outcomeSummary,
       reviewedBy: changes.reviewedBy !== undefined ? changes.reviewedBy : current.reviewedBy,
     };
-
-    const computedDiff =
-      changes.overrideDiff !== undefined
-        ? changes.overrideDiff
-        : buildOverrideDiff(merged.aiOutput, merged.humanOutput ?? null);
-
+    const governanceArtifacts = buildLawPackDecisionArtifacts({
+      system,
+      legalProfileOverride: merged.legalProfile ?? null,
+      lawPackIdsOverride: merged.lawPackIds ?? [],
+      decisionContext: merged.decisionContext,
+      inputSnapshot: merged.inputSnapshot,
+      decisionConstraints: merged.decisionConstraints,
+      explainabilityFactors: merged.explainabilityFactors,
+      retentionUntil: merged.retentionUntil,
+      referenceDate: current.createdAt ?? new Date(),
+    });
     const comparableMerged = {
       ...merged,
-      overrideDiff: computedDiff ?? null,
+      decisionContext: governanceArtifacts.decisionContext,
+      inputSnapshot: governanceArtifacts.inputSnapshot,
+      decisionConstraints: governanceArtifacts.decisionConstraints,
+      explainabilityFactors: governanceArtifacts.explainabilityFactors,
+      retentionUntil: governanceArtifacts.retentionUntil,
+      overrideDiff:
+        changes.overrideDiff !== undefined
+          ? changes.overrideDiff
+          : buildOverrideDiff(merged.aiOutput, merged.humanOutput ?? null),
     } satisfies DecisionAudit;
+
+    const computedDiff = comparableMerged.overrideDiff ?? null;
 
     const shouldVersion = current.documentationStatus === "sealed" && hasMaterialChanges(current, comparableMerged);
 
@@ -416,20 +586,20 @@ export class DecisionAuditService {
       workflowId: merged.workflowId ?? null,
       title: merged.title,
       businessObjective: merged.businessObjective ?? null,
-      decisionContext: merged.decisionContext,
+      decisionContext: comparableMerged.decisionContext,
       modelName: merged.modelName ?? null,
       modelVersion: merged.modelVersion ?? null,
       promptText: merged.promptText ?? null,
       inputSources: merged.inputSources ?? [],
-      inputSnapshot: merged.inputSnapshot ?? {},
-      decisionConstraints: merged.decisionConstraints ?? [],
+      inputSnapshot: comparableMerged.inputSnapshot ?? {},
+      decisionConstraints: comparableMerged.decisionConstraints ?? [],
       aiOutput: merged.aiOutput,
       humanOutput: merged.humanOutput ?? null,
       overrideDiff: computedDiff ?? null,
       overrideRationale: merged.overrideRationale ?? null,
       confidenceScore: merged.confidenceScore ?? null,
       uncertaintyScore: merged.uncertaintyScore ?? null,
-      explainabilityFactors: merged.explainabilityFactors ?? [],
+      explainabilityFactors: comparableMerged.explainabilityFactors ?? [],
       outcome30d: merged.outcome30d ?? {},
       outcome60d: merged.outcome60d ?? {},
       outcome90d: merged.outcome90d ?? {},
@@ -441,8 +611,31 @@ export class DecisionAuditService {
     const [updated] = await db
       .update(decisionAudits)
       .set({
-        ...changes,
-        ...(computedDiff !== undefined ? { overrideDiff: computedDiff } : {}),
+        title: merged.title,
+        systemId: merged.systemId,
+        workflowId: merged.workflowId ?? null,
+        businessObjective: merged.businessObjective ?? null,
+        decisionContext: comparableMerged.decisionContext,
+        modelName: merged.modelName ?? null,
+        modelVersion: merged.modelVersion ?? null,
+        promptText: merged.promptText ?? null,
+        inputSources: sanitizeStructuredValue(merged.inputSources ?? []),
+        inputSnapshot: comparableMerged.inputSnapshot,
+        decisionConstraints: comparableMerged.decisionConstraints,
+        aiOutput: merged.aiOutput,
+        humanOutput: merged.humanOutput ?? null,
+        overrideDiff: computedDiff,
+        overrideRationale: merged.overrideRationale ?? null,
+        confidenceScore: merged.confidenceScore ?? null,
+        uncertaintyScore: merged.uncertaintyScore ?? null,
+        explainabilityFactors: comparableMerged.explainabilityFactors,
+        documentationStatus: merged.documentationStatus,
+        retentionUntil: comparableMerged.retentionUntil,
+        outcome30d: sanitizeStructuredValue(merged.outcome30d ?? {}),
+        outcome60d: sanitizeStructuredValue(merged.outcome60d ?? {}),
+        outcome90d: sanitizeStructuredValue(merged.outcome90d ?? {}),
+        outcomeSummary: merged.outcomeSummary ?? null,
+        reviewedBy: merged.reviewedBy ?? null,
         ...(shouldVersion
           ? {
               currentVersionNumber: current.currentVersionNumber + 1,
@@ -514,6 +707,8 @@ export class DecisionAuditService {
         params.workflow.customerFacing ? "Customer-facing decision" : "Internal decision",
         params.workflow.safetyCritical ? "Safety and compliance escalation" : "Standard safety profile",
       ],
+      legalProfile: resolveWorkflowLegalProfile(params.workflow),
+      lawPackIds: resolveWorkflowLawPackIds(params.workflow),
       confidenceScore: null,
       uncertaintyScore: null,
       explainabilityFactors: [

@@ -1,4 +1,10 @@
 import { storage, type EvidenceFileFilters } from "../storage";
+import {
+  compileLawPackRuntimeOverlay,
+  resolveSystemLawPackIds,
+  resolveWorkflowLawPackIds,
+  resolveWorkflowLegalProfile,
+} from "@shared/law-packs";
 
 type Actor = {
   id: string;
@@ -52,12 +58,20 @@ export class EvidenceService {
       }
     }
 
+    let legalProfileApplied = resolveWorkflowLegalProfile({}, system);
+    let lawPackIdsApplied = resolveSystemLawPackIds(system);
+
     if (params.input.workflowId) {
       const workflow = await storage.getApprovalWorkflowById(params.organizationId, params.input.workflowId);
       if (!workflow || workflow.systemId !== params.input.systemId) {
         throw new Error("Workflow not found for this system in the active organization");
       }
+
+      legalProfileApplied = resolveWorkflowLegalProfile(workflow, system);
+      lawPackIdsApplied = resolveWorkflowLawPackIds(workflow, system);
     }
+
+    const overlay = compileLawPackRuntimeOverlay(lawPackIdsApplied);
 
     return storage.createEvidenceFileForOrg(params.organizationId, {
       systemId: params.input.systemId,
@@ -68,6 +82,12 @@ export class EvidenceService {
       mimeType: params.input.mimeType,
       filePath: params.input.filePath,
       uploadedBy: params.actor.fullName,
+      metadata: {
+        legalProfileApplied,
+        lawPackIdsApplied,
+        lawPackDecisionConstraints: overlay.decisionConstraints,
+        lawPackSources: overlay.sourceRefs,
+      },
     });
   }
 

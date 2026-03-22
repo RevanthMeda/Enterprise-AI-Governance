@@ -44,6 +44,7 @@ import {
   verifyTotpCode,
 } from "./auth";
 import { requireAuth } from "./auth";
+import { isPlatformAdminUser, pickCurrentOrganizationId } from "./auth-visibility";
 import { requireOrgRole, requireTenant } from "./tenant";
 import { auditService } from "./services/auditService";
 import { activityService } from "./services/activityService";
@@ -81,6 +82,12 @@ import {
   isPasswordResetTokenValidForUser,
   verifyPasswordResetToken,
 } from "./services/passwordResetService";
+import {
+  compileLawPackRuntimeOverlay,
+  resolveSystemLawPackIds,
+  resolveWorkflowLawPackIds,
+  resolveWorkflowLegalProfile,
+} from "@shared/law-packs";
 import { getUploadsRoot } from "./runtime-paths";
 import { areMockAuthRoutesEnabled, parseBooleanEnv } from "./env";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
@@ -145,6 +152,7 @@ async function notifyAllAdmins(
   type: string,
   entityType?: string,
   entityId?: string,
+  metadata?: Record<string, unknown>,
 ) {
   const admins = await storage.getUsersByOrganizationRoles(organizationId, [
     "owner",
@@ -163,6 +171,7 @@ async function notifyAllAdmins(
         type,
         entityType: entityType || null,
         entityId: entityId || null,
+        metadata: metadata ?? {},
         read: false,
       },
     });
@@ -232,6 +241,7 @@ async function notifyUser(
   type: string,
   entityType?: string,
   entityId?: string,
+  metadata?: Record<string, unknown>,
 ) {
   await notificationService.createForUser({
     organizationId,
@@ -242,6 +252,7 @@ async function notifyUser(
       type,
       entityType: entityType || null,
       entityId: entityId || null,
+      metadata: metadata ?? {},
       read: false,
     },
   });
@@ -3273,6 +3284,12 @@ export async function registerRoutes(
       return res.status(400).json({ message: "organizationId is required" });
     }
     const memberships = await storage.getMembershipsByUserId(req.user!.id);
+    if (!isPlatformAdminUser(req.user!)) {
+      const currentOrganizationId = pickCurrentOrganizationId(req.session.currentOrganizationId, memberships);
+      if (!currentOrganizationId || currentOrganizationId !== organizationId) {
+        return res.status(403).json({ message: "Cross-organization switching is restricted to platform admins" });
+      }
+    }
     const membership = memberships.find(
       (m) => m.organizationId === organizationId && m.membershipState === "active",
     );
@@ -3457,6 +3474,7 @@ export async function registerRoutes(
         });
 
         if (riskLevel === "high" || riskLevel === "unacceptable") {
+          const systemLawPackIds = resolveSystemLawPackIds(system);
           await notifyAllAdmins(
             req.tenant!.organizationId,
             "High-Risk Application Connected",
@@ -3464,6 +3482,10 @@ export async function registerRoutes(
             "high_risk_created",
             "ai_system",
             system.id,
+            {
+              legalProfileApplied: resolveWorkflowLegalProfile({}, system),
+              lawPackIdsApplied: systemLawPackIds,
+            },
           );
         }
 
@@ -3579,6 +3601,7 @@ export async function registerRoutes(
           },
         });
         if (system.riskLevel === "high" || system.riskLevel === "unacceptable") {
+          const systemLawPackIds = resolveSystemLawPackIds(system);
           await notifyAllAdmins(
             req.tenant!.organizationId,
             "High-Risk System Registered",
@@ -3586,6 +3609,10 @@ export async function registerRoutes(
             "high_risk_created",
             "ai_system",
             system.id,
+            {
+              legalProfileApplied: resolveWorkflowLegalProfile({}, system),
+              lawPackIdsApplied: systemLawPackIds,
+            },
           );
         }
         res.status(201).json(system);
@@ -3738,7 +3765,12 @@ export async function registerRoutes(
     },
   );
 
-  app.get("/api/approval-workflows", requireAuth, requireTenant, async (req, res) => {
+  app.get(
+    "/api/approval-workflows",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
+    async (req, res) => {
     const filters = {
       status: req.query.status as string | undefined,
       priority: req.query.priority as string | undefined,
@@ -3749,8 +3781,9 @@ export async function registerRoutes(
       actor: req.user!,
       filters,
     });
-    res.json(workflows);
-  });
+      res.json(workflows);
+    },
+  );
 
   app.post(
     "/api/approval-workflows",
@@ -3776,12 +3809,14 @@ export async function registerRoutes(
             details: `Approval workflow "${wf.title}" created and routed to ${wf.committeeType?.replace(/_/g, " ") || "technical team"} as ${wf.decisionTier?.replace("_", " ") || "tier 1"}`,
           },
         });
+        const linkedSystem = await storage.getAiSystemById(req.tenant!.organizationId, wf.systemId);
         if (wf.reviewer) {
           const reviewer = await workflowService.findUserByNameOrUsername({
             organizationId: req.tenant!.organizationId,
             identity: wf.reviewer,
           });
           if (reviewer) {
+            const workflowLawPackIds = resolveWorkflowLawPackIds(wf, linkedSystem ?? undefined);
             await notifyUser(
               req.tenant!.organizationId,
               reviewer.id,
@@ -3790,10 +3825,14 @@ export async function registerRoutes(
               "approval_assigned",
               "approval_workflow",
               wf.id,
+              {
+                legalProfileApplied: resolveWorkflowLegalProfile(wf, linkedSystem ?? undefined),
+                lawPackIdsApplied: workflowLawPackIds,
+                lawPackDecisionConstraints: compileLawPackRuntimeOverlay(workflowLawPackIds).decisionConstraints,
+              },
             );
           }
         }
-        const linkedSystem = await storage.getAiSystemById(req.tenant!.organizationId, wf.systemId);
         const jiraSync = await jiraService.syncWorkflowIfNeeded({
           organizationId: req.tenant!.organizationId,
           workflow: wf,
@@ -3814,6 +3853,7 @@ export async function registerRoutes(
           });
         }
         if (jiraSync.status === "error") {
+          const workflowLawPackIds = resolveWorkflowLawPackIds(wf, linkedSystem ?? undefined);
           await notifyAllAdmins(
             req.tenant!.organizationId,
             "Jira sync failed",
@@ -3821,6 +3861,10 @@ export async function registerRoutes(
             "workflow_status_changed",
             "approval_workflow",
             wf.id,
+            {
+              legalProfileApplied: resolveWorkflowLegalProfile(wf, linkedSystem ?? undefined),
+              lawPackIdsApplied: workflowLawPackIds,
+            },
           );
         }
         const finalWorkflow = jiraSync.workflow ?? wf;
@@ -3841,7 +3885,7 @@ export async function registerRoutes(
     "/api/approval-workflows/:id",
     requireAuth,
     requireTenant,
-    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer"),
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
     async (req, res) => {
       try {
         const updated = await workflowService.updateWorkflow({
@@ -3867,7 +3911,9 @@ export async function registerRoutes(
           organizationId: req.tenant!.organizationId,
           identity: updated.requestedBy,
         });
+        const linkedSystem = await storage.getAiSystemById(req.tenant!.organizationId, updated.systemId);
         if (requester) {
+          const workflowLawPackIds = resolveWorkflowLawPackIds(updated, linkedSystem ?? undefined);
           await notifyUser(
             req.tenant!.organizationId,
             requester.id,
@@ -3876,9 +3922,12 @@ export async function registerRoutes(
             "workflow_status_changed",
             "approval_workflow",
             updated.id,
+            {
+              legalProfileApplied: resolveWorkflowLegalProfile(updated, linkedSystem ?? undefined),
+              lawPackIdsApplied: workflowLawPackIds,
+            },
           );
         }
-        const linkedSystem = await storage.getAiSystemById(req.tenant!.organizationId, updated.systemId);
         const jiraSync = await jiraService.syncWorkflowIfNeeded({
           organizationId: req.tenant!.organizationId,
           workflow: updated,
@@ -3912,23 +3961,41 @@ export async function registerRoutes(
     },
   );
 
-  app.get("/api/decision-audits", requireAuth, requireTenant, async (req, res) => {
+  app.get(
+    "/api/decision-audits",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
+    async (req, res) => {
     const rows = await decisionAuditService.listForOrg(req.tenant!.organizationId, {
       systemId: req.query.systemId as string | undefined,
       workflowId: req.query.workflowId as string | undefined,
     });
-    res.json(rows);
-  });
+      res.json(rows);
+    },
+  );
 
-  app.get("/api/decision-audits/summary", requireAuth, requireTenant, async (req, res) => {
+  app.get(
+    "/api/decision-audits/summary",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
+    async (req, res) => {
     const summary = await decisionAuditService.getSummaryForOrg(req.tenant!.organizationId);
-    res.json(summary);
-  });
+      res.json(summary);
+    },
+  );
 
-  app.get("/api/decision-audits/:id/versions", requireAuth, requireTenant, async (req, res) => {
+  app.get(
+    "/api/decision-audits/:id/versions",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
+    async (req, res) => {
     const versions = await decisionAuditService.listVersionsForOrg(req.tenant!.organizationId, routeParam(req.params.id));
-    res.json(versions);
-  });
+      res.json(versions);
+    },
+  );
 
   app.get(
     "/api/decision-audits/retention-summary",
@@ -4084,18 +4151,30 @@ export async function registerRoutes(
     },
   );
 
-  app.get("/api/incidents", requireAuth, requireTenant, async (req, res) => {
+  app.get(
+    "/api/incidents",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
+    async (req, res) => {
     const rows = await incidentService.listForOrg(req.tenant!.organizationId, {
       status: req.query.status as string | undefined,
       severity: req.query.severity as string | undefined,
     });
-    res.json(rows);
-  });
+      res.json(rows);
+    },
+  );
 
-  app.get("/api/incidents/summary", requireAuth, requireTenant, async (req, res) => {
+  app.get(
+    "/api/incidents/summary",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
+    async (req, res) => {
     const summary = await incidentService.getSummaryForOrg(req.tenant!.organizationId);
-    res.json(summary);
-  });
+      res.json(summary);
+    },
+  );
 
   app.post(
     "/api/incidents",
@@ -4192,7 +4271,12 @@ export async function registerRoutes(
     },
   );
 
-  app.get("/api/audit-logs", requireAuth, requireTenant, async (req, res) => {
+  app.get(
+    "/api/audit-logs",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "auditor"),
+    async (req, res) => {
     const filters = {
       action: req.query.action as string | undefined,
       entityType: req.query.entityType as string | undefined,
@@ -4205,21 +4289,34 @@ export async function registerRoutes(
       actor: req.user!,
       filters,
     });
-    res.json(logs);
-  });
+      res.json(logs);
+    },
+  );
 
-  app.get("/api/audit-logs/verify-chain", requireAuth, requireTenant, async (req, res) => {
+  app.get(
+    "/api/audit-logs/verify-chain",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "auditor"),
+    async (req, res) => {
     const result = await auditService.verifyChain({
       organizationId: req.tenant!.organizationId,
       actor: req.user!,
     });
-    res.status(result.ok ? 200 : 409).json(result);
-  });
+      res.status(result.ok ? 200 : 409).json(result);
+    },
+  );
 
-  app.get("/api/telemetry/summary", requireAuth, requireTenant, async (req, res) => {
+  app.get(
+    "/api/telemetry/summary",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
     const summary = await telemetryService.getSummaryForOrg(req.tenant!.organizationId);
-    res.json(summary);
-  });
+      res.json(summary);
+    },
+  );
 
   app.post(
     ["/api/telemetry/events", "/api/telemetry/ingest"],
@@ -5235,7 +5332,12 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/evidence", requireAuth, requireTenant, async (req, res) => {
+  app.get(
+    "/api/evidence",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "system_owner", "auditor"),
+    async (req, res) => {
     try {
       const filters = {
         systemId: req.query.systemId as string | undefined,
@@ -5251,12 +5353,14 @@ export async function registerRoutes(
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
-  });
+    },
+  );
 
   app.post(
     "/api/evidence",
     requireAuth,
     requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "system_owner"),
     upload.single("file"),
     async (req, res) => {
     try {
@@ -5288,7 +5392,7 @@ export async function registerRoutes(
           entityId: evidence.id,
           action: "created",
           performedBy: req.user!.fullName,
-          details: `Evidence file "${req.file.originalname}" uploaded for system ${systemId}`,
+          details: `Evidence file "${req.file.originalname}" uploaded for system ${systemId}${Array.isArray((evidence.metadata as Record<string, unknown> | null)?.lawPackIdsApplied) ? ` under law packs ${((evidence.metadata as Record<string, unknown>).lawPackIdsApplied as string[]).join(", ")}` : ""}`,
         },
       });
       res.status(201).json(evidence);
@@ -5298,7 +5402,12 @@ export async function registerRoutes(
     },
   );
 
-  app.get("/api/evidence/:id/download", requireAuth, requireTenant, async (req, res) => {
+  app.get(
+    "/api/evidence/:id/download",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "system_owner", "auditor"),
+    async (req, res) => {
     try {
       const file = await evidenceService.getEvidenceFile({
         organizationId: req.tenant!.organizationId,
@@ -5312,7 +5421,15 @@ export async function registerRoutes(
       }
       res.setHeader("Content-Disposition", `attachment; filename="${sanitizeFilename(file.fileName)}"`);
       res.setHeader("Content-Type", file.mimeType);
-      res.sendFile(filePath);
+      const stream = fs.createReadStream(path.resolve(filePath));
+      stream.on("error", (err) => {
+        if (!res.headersSent) {
+          res.status(500).json({ message: err.message || "Failed to stream evidence file" });
+        } else {
+          res.end();
+        }
+      });
+      stream.pipe(res);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -5364,7 +5481,8 @@ export async function registerRoutes(
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
-  });
+    },
+  );
 
   app.get("/api/risk-assessments/system/:systemId", requireAuth, requireTenant, async (req, res) => {
     try {

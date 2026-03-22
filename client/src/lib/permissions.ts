@@ -17,7 +17,7 @@ export const ORG_INCIDENT_ROLES = [...ORG_OPERATIONAL_ROLES, "auditor"] as const
 export const ORG_DECISION_TRACE_ROLES = [...ORG_OPERATIONAL_ROLES, "auditor"] as const;
 export const ORG_APPROVAL_ROLES = [...ORG_OPERATIONAL_ROLES, "auditor"] as const;
 export const ORG_BULK_CONTROL_ROLES = [...ORG_GOVERNANCE_ROLES, "system_owner"] as const;
-export const ORG_EVIDENCE_ROLES = [...ORG_GOVERNANCE_ROLES, "auditor"] as const;
+export const ORG_EVIDENCE_ROLES = [...ORG_GOVERNANCE_ROLES, "system_owner", "auditor"] as const;
 
 function getActiveOrganization(user: AuthUser | null): AuthOrganization | null {
   if (!user) {

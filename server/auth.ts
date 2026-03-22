@@ -9,6 +9,7 @@ import { storage } from "./storage";
 import type { User } from "@shared/schema";
 import { getPgPoolConfig } from "./db-config";
 import { getRuntimeConfig } from "./env";
+import { getVisibleActiveMemberships, pickCurrentOrganizationId } from "./auth-visibility";
 
 declare global {
   namespace Express {
@@ -302,30 +303,6 @@ export async function consumeRecoveryCode(
   return { valid: false, remainingRecoveryCodes: hashes };
 }
 
-function pickCurrentOrganizationId(
-  currentOrganizationId: string | undefined,
-  memberships: Awaited<ReturnType<typeof storage.getMembershipsByUserId>>,
-): string | null {
-  const activeMemberships = memberships.filter((m) => m.membershipState === "active");
-  if (activeMemberships.length === 0) return null;
-
-  if (currentOrganizationId) {
-    const exists = activeMemberships.some((m) => m.organizationId === currentOrganizationId);
-    if (exists) return currentOrganizationId;
-  }
-
-  if (activeMemberships.length === 1) {
-    return activeMemberships[0].organizationId;
-  }
-
-  const defaultMembership = activeMemberships.find((m) => m.isDefault);
-  if (defaultMembership) {
-    return defaultMembership.organizationId;
-  }
-
-  return activeMemberships[0].organizationId;
-}
-
 export async function buildAuthUserPayload(
   user: Express.User,
   currentOrganizationId?: string,
@@ -364,16 +341,15 @@ export async function buildAuthUserPayload(
 
   const storedUser = await storage.getUser(user.id);
   const memberships = await storage.getMembershipsByUserId(user.id);
-  const organizations = memberships
-    .filter((m) => m.membershipState === "active")
+  const resolvedCurrentOrganizationId = pickCurrentOrganizationId(currentOrganizationId, memberships);
+  const organizations = getVisibleActiveMemberships(user, memberships, resolvedCurrentOrganizationId)
     .map((m) => ({
       id: m.organizationId,
-      name: m.organizationName,
-      slug: m.organizationSlug,
-      role: m.role,
-      isDefault: m.isDefault,
+      name: m.organizationName ?? m.organizationId,
+      slug: m.organizationSlug ?? m.organizationId,
+      role: m.role ?? "reviewer",
+      isDefault: Boolean(m.isDefault),
     }));
-  const resolvedCurrentOrganizationId = pickCurrentOrganizationId(currentOrganizationId, memberships);
   const currentMembership = memberships.find(
     (membership) =>
       membership.organizationId === resolvedCurrentOrganizationId && membership.membershipState === "active",

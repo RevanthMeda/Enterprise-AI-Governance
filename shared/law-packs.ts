@@ -28,6 +28,15 @@ export type LawPackDefinition = {
   };
 };
 
+export type LawPackGovernanceRequirements = {
+  minimumDecisionTier: "tier_1" | "tier_2" | "tier_3";
+  committeeType: "technical_team" | "operations_committee" | "governance_committee_ceo";
+  requiredApproverRoles: string[];
+  preferredReviewerRoles: string[];
+  minimumRetentionYears: number;
+  guidanceNotes: string[];
+};
+
 const lawPackCatalog: LawPackDefinition[] = [
   {
     id: "global_baseline",
@@ -348,6 +357,82 @@ export function resolveSystemLawPackIds(system: {
   return getDefaultLawPackIdsForProfile(profile, { financeDomain: inferFinanceDomain(system) });
 }
 
+function inferProfileFromLawPackIds(explicitLawPackIds: LawPackId[]): LegalProfile | null {
+  for (const packId of explicitLawPackIds) {
+    const pack = LAW_PACKS_BY_ID.get(packId);
+    if (pack && pack.profile !== "global") {
+      return pack.profile;
+    }
+  }
+
+  return explicitLawPackIds.length > 0 ? "global" : null;
+}
+
+export function resolveWorkflowLegalProfile(
+  workflow: {
+    legalProfile?: string | null;
+    lawPackIds?: unknown;
+  },
+  system?: {
+    legalProfile?: string | null;
+    geography?: string | null;
+    lawPackIds?: unknown;
+    name?: string | null;
+    department?: string | null;
+    purpose?: string | null;
+    description?: string | null;
+  },
+): LegalProfile {
+  if (workflow.legalProfile) {
+    return normalizeLegalProfile(workflow.legalProfile);
+  }
+
+  const explicitLawPackIds = sanitizeLawPackIds(workflow.lawPackIds);
+  const inferredFromWorkflow = inferProfileFromLawPackIds(explicitLawPackIds);
+  if (inferredFromWorkflow) {
+    return inferredFromWorkflow;
+  }
+
+  if (system) {
+    return normalizeLegalProfile(system.legalProfile ?? system.geography);
+  }
+
+  return "global";
+}
+
+export function resolveWorkflowLawPackIds(
+  workflow: {
+    legalProfile?: string | null;
+    lawPackIds?: unknown;
+  },
+  system?: {
+    legalProfile?: string | null;
+    geography?: string | null;
+    lawPackIds?: unknown;
+    name?: string | null;
+    department?: string | null;
+    purpose?: string | null;
+    description?: string | null;
+  },
+): LawPackId[] {
+  const explicit = sanitizeLawPackIds(workflow.lawPackIds);
+  if (explicit.length > 0) {
+    return explicit.includes("global_baseline") ? explicit : unique(["global_baseline", ...explicit]);
+  }
+
+  if (workflow.legalProfile) {
+    return getDefaultLawPackIdsForProfile(normalizeLegalProfile(workflow.legalProfile), {
+      financeDomain: inferFinanceDomain(system ?? {}),
+    });
+  }
+
+  if (system) {
+    return resolveSystemLawPackIds(system);
+  }
+
+  return ["global_baseline"];
+}
+
 export function compileLawPackRuntimeOverlay(lawPackIdsToCompile: LawPackId[]) {
   const packs = lawPackIdsToCompile
     .map((id) => LAW_PACKS_BY_ID.get(id))
@@ -359,5 +444,85 @@ export function compileLawPackRuntimeOverlay(lawPackIdsToCompile: LawPackId[]) {
     decisionConstraints: unique(packs.flatMap((pack) => pack.runtime.decisionConstraints)),
     guidanceTags: unique(packs.flatMap((pack) => pack.runtime.guidanceTags)),
     sourceRefs: unique(packs.flatMap((pack) => pack.sources)),
+  };
+}
+
+const decisionTierRank: Record<LawPackGovernanceRequirements["minimumDecisionTier"], number> = {
+  tier_1: 1,
+  tier_2: 2,
+  tier_3: 3,
+};
+
+function pickCommitteeForTier(
+  tier: LawPackGovernanceRequirements["minimumDecisionTier"],
+): LawPackGovernanceRequirements["committeeType"] {
+  if (tier === "tier_3") return "governance_committee_ceo";
+  if (tier === "tier_2") return "operations_committee";
+  return "technical_team";
+}
+
+export function deriveLawPackGovernanceRequirements(
+  lawPackIdsToCompile: LawPackId[],
+): LawPackGovernanceRequirements {
+  let minimumDecisionTier: LawPackGovernanceRequirements["minimumDecisionTier"] = "tier_1";
+  let minimumRetentionYears = 7;
+  const requiredApproverRoles = ["technical_team"];
+  const preferredReviewerRoles = ["reviewer", "system_owner"];
+  const guidanceNotes: string[] = [];
+
+  const packs = lawPackIdsToCompile
+    .map((packId) => LAW_PACKS_BY_ID.get(packId))
+    .filter((pack): pack is LawPackDefinition => Boolean(pack));
+
+  for (const pack of packs) {
+    if (pack.id !== "global_baseline") {
+      preferredReviewerRoles.push("compliance_lead");
+    }
+
+    if (pack.profile === "eu") {
+      guidanceNotes.push("EU-facing systems should preserve human oversight, logging, and accountable review.");
+    }
+
+    if (pack.profile === "uk") {
+      guidanceNotes.push("UK-facing systems should preserve accountable review and traceable customer-data handling.");
+    }
+
+    if (pack.profile === "us") {
+      guidanceNotes.push("US-facing systems should preserve auditable records and controlled reviewer assignment.");
+    }
+
+    if (pack.profile === "india") {
+      guidanceNotes.push("India-facing systems should preserve accountable processing and documented reviewer approval.");
+    }
+
+    if (pack.domains.includes("finance")) {
+      if (decisionTierRank[minimumDecisionTier] < decisionTierRank.tier_2) {
+        minimumDecisionTier = "tier_2";
+      }
+      minimumRetentionYears = Math.max(minimumRetentionYears, 10);
+      requiredApproverRoles.push("operations_committee", "compliance_lead", "system_owner");
+      preferredReviewerRoles.push("compliance_lead", "cro", "system_owner");
+      guidanceNotes.push("Financial-services law packs require governed reviewer assignment and extended evidence retention.");
+    }
+
+    if (pack.sources.includes("eu_ai_act")) {
+      requiredApproverRoles.push("compliance_lead");
+      guidanceNotes.push("EU AI Act alignment requires human oversight and reviewable documentation.");
+    }
+
+    if (pack.sources.includes("dora") || pack.sources.includes("rbi")) {
+      requiredApproverRoles.push("ciso");
+      guidanceNotes.push("Operational-resilience overlays require review paths that include control owners and resilience stakeholders.");
+    }
+  }
+
+  const committeeType = pickCommitteeForTier(minimumDecisionTier);
+  return {
+    minimumDecisionTier,
+    committeeType,
+    requiredApproverRoles: unique(requiredApproverRoles),
+    preferredReviewerRoles: unique(preferredReviewerRoles),
+    minimumRetentionYears,
+    guidanceNotes: unique(guidanceNotes),
   };
 }

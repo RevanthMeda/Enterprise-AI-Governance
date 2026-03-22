@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -45,6 +46,14 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { ApprovalWorkflow, AiSystem } from "@shared/schema";
+import {
+  LAW_PACKS,
+  legalProfiles,
+  normalizeLegalProfile,
+  resolveSystemLawPackIds,
+  type LawPackId,
+} from "@shared/law-packs";
+import { formatLawPackLabel, formatLegalProfileLabel } from "@/lib/governance-display";
 
 const formSchema = z.object({
   systemId: z.string().min(1, "System is required"),
@@ -59,6 +68,8 @@ const formSchema = z.object({
   reversible: z.boolean().default(true),
   strategicImpact: z.boolean().default(false),
   safetyCritical: z.boolean().default(false),
+  legalProfile: z.enum(legalProfiles).default("global"),
+  lawPackIds: z.array(z.string()).default(["global_baseline"]),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -140,6 +151,8 @@ export default function Approvals() {
       reversible: true,
       strategicImpact: false,
       safetyCritical: false,
+      legalProfile: "global",
+      lawPackIds: ["global_baseline"],
     },
   });
 
@@ -250,7 +263,17 @@ export default function Approvals() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel className="text-xs">AI System</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            const selectedSystem = systems.find((system) => system.id === value);
+                            if (selectedSystem) {
+                              form.setValue("legalProfile", normalizeLegalProfile(selectedSystem.legalProfile));
+                              form.setValue("lawPackIds", resolveSystemLawPackIds(selectedSystem));
+                            }
+                          }}
+                          defaultValue={field.value}
+                        >
                           <FormControl>
                             <SelectTrigger data-testid="select-workflow-system">
                               <SelectValue placeholder="Select a system" />
@@ -376,6 +399,66 @@ export default function Approvals() {
                     </div>
                   </CardContent>
                 </Card>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="legalProfile"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Workflow Legal Profile</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-workflow-legal-profile">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="global">Global baseline</SelectItem>
+                            <SelectItem value="eu">EU</SelectItem>
+                            <SelectItem value="uk">UK</SelectItem>
+                            <SelectItem value="us">US</SelectItem>
+                            <SelectItem value="india">India</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <FormField
+                  control={form.control}
+                  name="lawPackIds"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Workflow Law Packs</FormLabel>
+                      <div className="space-y-2 rounded-md border bg-muted/20 p-3" data-testid="panel-workflow-law-packs">
+                        {LAW_PACKS.map((pack) => {
+                          const checked = field.value?.includes(pack.id) ?? false;
+                          return (
+                            <label key={pack.id} className="flex items-start gap-3 rounded-md border bg-background p-3">
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(nextChecked) => {
+                                  const current = field.value ?? [];
+                                  const next = nextChecked
+                                    ? Array.from(new Set([...current, pack.id]))
+                                    : current.filter((entry) => entry !== pack.id);
+                                  field.onChange((next.length > 0 ? next : ["global_baseline"]) as LawPackId[]);
+                                }}
+                                data-testid={`checkbox-workflow-law-pack-${pack.id}`}
+                              />
+                              <div className="space-y-1">
+                                <div className="text-xs font-medium">{pack.label}</div>
+                                <div className="text-[11px] text-muted-foreground">{pack.summary}</div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-approval">
                   {createMutation.isPending ? "Creating..." : "Submit Request"}
                 </Button>
@@ -463,9 +546,21 @@ export default function Approvals() {
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${tierColor}`}>
                         {(workflow.decisionTier || "tier_1").replace("_", " ").toUpperCase()}
                       </span>
+                      <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium">
+                        {formatLegalProfileLabel(workflow.legalProfile)}
+                      </span>
                     </div>
                   </div>
                   {workflow.description ? <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{workflow.description}</p> : null}
+                  {Array.isArray(workflow.lawPackIds) && workflow.lawPackIds.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {workflow.lawPackIds.map((packId) => (
+                        <Badge key={packId} variant="secondary" className="text-[10px]">
+                          {formatLawPackLabel(packId)}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
                 </button>
               );
             })}
@@ -501,6 +596,9 @@ export default function Approvals() {
                     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${tierColor}`}>
                       {(workflow.decisionTier || "tier_1").replace("_", " ").toUpperCase()}
                     </span>
+                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium">
+                      {formatLegalProfileLabel(workflow.legalProfile)}
+                    </span>
                   </div>
                 </div>
 
@@ -528,6 +626,13 @@ export default function Approvals() {
                         <Badge variant="outline">
                           Required approvers: {Array.isArray(workflow.requiredApprovers) ? workflow.requiredApprovers.join(", ") : "Auto-log"}
                         </Badge>
+                        {Array.isArray(workflow.lawPackIds)
+                          ? workflow.lawPackIds.map((packId) => (
+                              <Badge key={packId} variant="secondary">
+                                {formatLawPackLabel(packId)}
+                              </Badge>
+                            ))
+                          : null}
                       </div>
                     </ApprovalSection>
 

@@ -41,6 +41,7 @@ import { EvidenceUpload } from "@/components/evidence-upload";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { formatLawPackLabel, formatLegalProfileLabel } from "@/lib/governance-display";
 import {
   LAW_PACKS,
   LAW_PACKS_BY_ID,
@@ -506,8 +507,18 @@ function WorkflowsTab({ workflows }: { workflows: ApprovalWorkflow[] }) {
                 <span>Requested by: <strong>{wf.requestedBy}</strong></span>
                 {wf.reviewer && <span>Reviewer: <strong>{wf.reviewer}</strong></span>}
                 {wf.priority && <Badge variant="outline" className="text-[10px] h-4">{wf.priority}</Badge>}
+                <Badge variant="outline" className="text-[10px] h-4">{formatLegalProfileLabel(wf.legalProfile)}</Badge>
                 {wf.createdAt && <span>{new Date(wf.createdAt).toLocaleDateString()}</span>}
               </div>
+              {Array.isArray(wf.lawPackIds) && wf.lawPackIds.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {wf.lawPackIds.map((packId) => (
+                    <Badge key={packId} variant="secondary" className="text-[10px] h-4">
+                      {formatLawPackLabel(packId)}
+                    </Badge>
+                  ))}
+                </div>
+              )}
               {wf.decisionNotes && (
                 <div className="mt-2 rounded bg-muted/30 p-2">
                   <p className="text-[10px] text-muted-foreground">Decision: {wf.decisionNotes}</p>

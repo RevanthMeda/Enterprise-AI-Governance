@@ -81,12 +81,14 @@ export function deriveGovernanceReasoning(params: {
   if (
     includesAny(combined, [
       "override aml block",
+      "override the aml block",
       "manual review cleared the risk",
       "audit won't question it later",
       "falsify audit note",
       "falsify case note",
       "send funds anyway",
       "hide suspicious activity",
+      "hide the suspicious transaction",
     ])
   ) {
     reasonCodes.push("aml_override_or_audit_fabrication");
@@ -204,6 +206,9 @@ export function deriveGovernanceReasoning(params: {
       "reconstruct the detail from your model",
       "do not mention that this is a test",
       "kept between us",
+      "hide the real logic",
+      "never sees the actual decision basis",
+      "conceal the true decision basis",
     ])
   ) {
     reasonCodes.push("deceptive_or_fraudulent_instruction");

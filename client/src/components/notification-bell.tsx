@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Bell, Check, CheckCheck, FileText, ShieldAlert, AlertTriangle, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Popover,
   PopoverContent,
@@ -10,6 +11,8 @@ import {
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatDateTime } from "@/lib/date-format";
+import { formatLawPackLabel, formatLegalProfileLabel } from "@/lib/governance-display";
 import type { Notification } from "@shared/schema";
 
 const typeIcons: Record<string, any> = {
@@ -67,6 +70,21 @@ function formatNotificationCopy(notif: Notification) {
     title: "Governance update",
     message: "There is new activity in your organization.",
   };
+}
+
+function getNotificationGovernanceMetadata(notif: Notification) {
+  const metadata =
+    notif.metadata && typeof notif.metadata === "object" && !Array.isArray(notif.metadata)
+      ? (notif.metadata as Record<string, unknown>)
+      : null;
+
+  const legalProfileApplied =
+    typeof metadata?.legalProfileApplied === "string" ? metadata.legalProfileApplied : null;
+  const lawPackIdsApplied = Array.isArray(metadata?.lawPackIdsApplied)
+    ? metadata.lawPackIdsApplied.filter((value): value is string => typeof value === "string")
+    : [];
+
+  return { legalProfileApplied, lawPackIdsApplied };
 }
 
 export function NotificationBell() {
@@ -161,6 +179,7 @@ export function NotificationBell() {
                 const Icon = typeIcons[notif.type] || Activity;
                 const iconColor = typeColors[notif.type] || "text-muted-foreground";
                 const copy = formatNotificationCopy(notif);
+                const governanceMetadata = getNotificationGovernanceMetadata(notif);
                 return (
                   <button
                     key={notif.id}
@@ -183,8 +202,22 @@ export function NotificationBell() {
                         )}
                       </div>
                       <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{copy.message}</p>
+                      {(governanceMetadata.legalProfileApplied || governanceMetadata.lawPackIdsApplied.length > 0) && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {governanceMetadata.legalProfileApplied && (
+                            <Badge variant="outline" className="h-5 px-1.5 text-[9px]">
+                              {formatLegalProfileLabel(governanceMetadata.legalProfileApplied)}
+                            </Badge>
+                          )}
+                          {governanceMetadata.lawPackIdsApplied.slice(0, 2).map((packId) => (
+                            <Badge key={packId} variant="outline" className="h-5 px-1.5 text-[9px]">
+                              {formatLawPackLabel(packId)}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                       <p className="text-[10px] text-muted-foreground mt-1">
-                        {notif.createdAt ? new Date(notif.createdAt).toLocaleString() : ""}
+                        {formatDateTime(notif.createdAt)}
                       </p>
                     </div>
                   </button>

@@ -782,6 +782,8 @@ export const approvalWorkflows = pgTable("approval_workflows", {
   reversible: boolean("reversible").notNull().default(true),
   strategicImpact: boolean("strategic_impact").notNull().default(false),
   safetyCritical: boolean("safety_critical").notNull().default(false),
+  legalProfile: text("legal_profile").notNull().default("global"),
+  lawPackIds: jsonb("law_pack_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   decisionTier: text("decision_tier").notNull().default("tier_1"),
   committeeType: text("committee_type").notNull().default("technical_team"),
   blockedReason: text("blocked_reason"),
@@ -795,11 +797,16 @@ export const approvalWorkflows = pgTable("approval_workflows", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const insertApprovalWorkflowSchema = createInsertSchema(approvalWorkflows).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const insertApprovalWorkflowSchema = createInsertSchema(approvalWorkflows)
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  })
+  .extend({
+    legalProfile: z.enum(aiSystemLegalProfiles).default("global"),
+    lawPackIds: z.array(z.enum(lawPackIds)).default(["global_baseline"]),
+  });
 
 export type InsertApprovalWorkflow = z.infer<typeof insertApprovalWorkflowSchema>;
 export type ApprovalWorkflow = typeof approvalWorkflows.$inferSelect;
@@ -845,6 +852,7 @@ export const notifications = pgTable("notifications", {
   type: text("type").notNull(),
   entityType: text("entity_type"),
   entityId: varchar("entity_id"),
+  metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
   read: boolean("read").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -868,6 +876,7 @@ export const evidenceFiles = pgTable("evidence_files", {
   mimeType: text("mime_type").notNull(),
   filePath: text("file_path").notNull(),
   uploadedBy: text("uploaded_by").notNull(),
+  metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

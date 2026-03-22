@@ -18,6 +18,28 @@ function isRetentionWorkerEnabled() {
   return !parseBooleanEnv(process.env.RETENTION_ENFORCEMENT_DISABLED, false) && !isVercelRuntime();
 }
 
+function getGovernanceRetentionContext(inputSnapshot: unknown) {
+  const snapshot =
+    inputSnapshot && typeof inputSnapshot === "object" && !Array.isArray(inputSnapshot)
+      ? (inputSnapshot as Record<string, unknown>)
+      : {};
+  const governance =
+    snapshot.governance && typeof snapshot.governance === "object" && !Array.isArray(snapshot.governance)
+      ? (snapshot.governance as Record<string, unknown>)
+      : {};
+
+  const legalProfileApplied =
+    typeof governance.legalProfileApplied === "string" ? governance.legalProfileApplied : null;
+  const lawPackIdsApplied = Array.isArray(governance.lawPackIdsApplied)
+    ? governance.lawPackIdsApplied.filter((entry): entry is string => typeof entry === "string")
+    : [];
+
+  return {
+    legalProfileApplied,
+    lawPackIdsApplied,
+  };
+}
+
 export class RetentionService {
   private timer: NodeJS.Timeout | null = null;
   private draining = false;
@@ -147,6 +169,15 @@ export class RetentionService {
     const archivedAt = new Date();
 
     for (const row of dueRows) {
+      const governanceContext = getGovernanceRetentionContext(row.inputSnapshot);
+      const suffix: string[] = [];
+      if (governanceContext.legalProfileApplied) {
+        suffix.push(`legal profile ${governanceContext.legalProfileApplied}`);
+      }
+      if (governanceContext.lawPackIdsApplied.length > 0) {
+        suffix.push(`law packs ${governanceContext.lawPackIdsApplied.join(", ")}`);
+      }
+
       await db
         .update(decisionAudits)
         .set({
@@ -168,7 +199,7 @@ export class RetentionService {
           entityId: row.id,
           action: "retention_archived",
           performedBy: params?.actorName ?? systemActor.fullName,
-          details: `Decision trace "${row.title}" archived by retention policy`,
+          details: `Decision trace "${row.title}" archived by retention policy${suffix.length > 0 ? ` (${suffix.join("; ")})` : ""}`,
         },
       });
     }

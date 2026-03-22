@@ -1,6 +1,11 @@
 import type { ApprovalWorkflowFilters } from "../storage";
 import { storage } from "../storage";
 import type { InsertApprovalWorkflow } from "@shared/schema";
+import {
+  deriveLawPackGovernanceRequirements,
+  resolveWorkflowLawPackIds,
+  resolveWorkflowLegalProfile,
+} from "@shared/law-packs";
 
 type Actor = {
   id: string;
@@ -9,6 +14,24 @@ type Actor = {
   email: string | null;
   role: string;
 };
+
+type WorkflowRouting = {
+  decisionTier: "tier_1" | "tier_2" | "tier_3";
+  committeeType: "technical_team" | "operations_committee" | "governance_committee_ceo";
+  requiredApprovers: string[];
+  blockedReason: string | null;
+  status: "approved" | "pending" | "escalated";
+};
+
+const DECISION_TIER_RANK: Record<WorkflowRouting["decisionTier"], number> = {
+  tier_1: 1,
+  tier_2: 2,
+  tier_3: 3,
+};
+
+function unique<T>(values: T[]) {
+  return Array.from(new Set(values));
+}
 
 export class WorkflowService {
   private normalizeIdentity(value: string | null | undefined) {
@@ -27,7 +50,7 @@ export class WorkflowService {
     );
   }
 
-  private deriveRouting(input: InsertApprovalWorkflow, systemRiskLevel?: string | null) {
+  private deriveRouting(input: InsertApprovalWorkflow, systemRiskLevel?: string | null): WorkflowRouting {
     const estimatedFinancialImpact = input.estimatedFinancialImpact ?? 0;
     const usesPii = Boolean(input.usesPii);
     const customerFacing = Boolean(input.customerFacing);
@@ -75,6 +98,55 @@ export class WorkflowService {
     };
   }
 
+  private mergeRoutingWithLawPackRequirements(
+    routing: WorkflowRouting,
+    requirements: ReturnType<typeof deriveLawPackGovernanceRequirements>,
+  ): WorkflowRouting {
+    const finalDecisionTier =
+      DECISION_TIER_RANK[routing.decisionTier] >= DECISION_TIER_RANK[requirements.minimumDecisionTier]
+        ? routing.decisionTier
+        : requirements.minimumDecisionTier;
+    const finalCommitteeType =
+      DECISION_TIER_RANK[routing.decisionTier] >= DECISION_TIER_RANK[requirements.minimumDecisionTier]
+        ? routing.committeeType
+        : requirements.committeeType;
+
+    let status = routing.status;
+    if (finalDecisionTier === "tier_3") {
+      status = "escalated";
+    } else if (finalDecisionTier !== "tier_1" && routing.status === "approved") {
+      status = "pending";
+    }
+
+    const elevatedByLawPack =
+      DECISION_TIER_RANK[requirements.minimumDecisionTier] > DECISION_TIER_RANK[routing.decisionTier];
+    const blockedReason = routing.blockedReason
+      ?? (elevatedByLawPack ? requirements.guidanceNotes[0] ?? null : null);
+
+    return {
+      decisionTier: finalDecisionTier,
+      committeeType: finalCommitteeType,
+      requiredApprovers: unique([...routing.requiredApprovers, ...requirements.requiredApproverRoles]),
+      blockedReason,
+      status,
+    };
+  }
+
+  private async selectSuggestedReviewer(
+    organizationId: string,
+    preferredRoles: string[],
+  ) {
+    for (const role of preferredRoles) {
+      const users = await storage.getUsersByOrganizationRoles(organizationId, [role]);
+      const candidate = users[0];
+      if (candidate) {
+        return candidate.fullName || candidate.username;
+      }
+    }
+
+    return null;
+  }
+
   async listWorkflows(params: { organizationId: string; actor: Actor; filters?: ApprovalWorkflowFilters }) {
     return storage.getApprovalWorkflowsByOrg(params.organizationId, params.filters);
   }
@@ -106,9 +178,21 @@ export class WorkflowService {
   async createWorkflow(params: { organizationId: string; actor: Actor; input: InsertApprovalWorkflow }) {
     const system = await this.ensureSystemInOrg(params.organizationId, params.input.systemId);
     await this.ensureReviewerInOrg(params.organizationId, params.input.reviewer);
-    const routing = this.deriveRouting(params.input, system.riskLevel);
+    const legalProfile = resolveWorkflowLegalProfile(params.input, system);
+    const lawPackIds = resolveWorkflowLawPackIds(params.input, system);
+    const lawPackRequirements = deriveLawPackGovernanceRequirements(lawPackIds);
+    const routing = this.mergeRoutingWithLawPackRequirements(
+      this.deriveRouting(params.input, system.riskLevel),
+      lawPackRequirements,
+    );
+    const suggestedReviewer =
+      params.input.reviewer ??
+      (await this.selectSuggestedReviewer(params.organizationId, lawPackRequirements.preferredReviewerRoles));
     return storage.createApprovalWorkflowForOrg(params.organizationId, {
       ...params.input,
+      reviewer: suggestedReviewer,
+      legalProfile,
+      lawPackIds,
       decisionTier: routing.decisionTier,
       committeeType: routing.committeeType,
       requiredApprovers: routing.requiredApprovers,
@@ -153,7 +237,20 @@ export class WorkflowService {
       systemRiskLevel ??
       (await storage.getAiSystemById(params.organizationId, merged.systemId))?.riskLevel ??
       null;
-    const routing = this.deriveRouting(merged as InsertApprovalWorkflow, resolvedSystemRiskLevel);
+    const resolvedSystem =
+      (await storage.getAiSystemById(params.organizationId, merged.systemId)) ?? null;
+    const legalProfile = resolveWorkflowLegalProfile(merged, resolvedSystem ?? undefined);
+    const lawPackIds = resolveWorkflowLawPackIds(merged, resolvedSystem ?? undefined);
+    const lawPackRequirements = deriveLawPackGovernanceRequirements(lawPackIds);
+    const routing = this.mergeRoutingWithLawPackRequirements(
+      this.deriveRouting(merged as InsertApprovalWorkflow, resolvedSystemRiskLevel),
+      lawPackRequirements,
+    );
+    const assignedReviewer =
+      params.input.reviewer !== undefined
+        ? params.input.reviewer
+        : existing.reviewer ??
+          (await this.selectSuggestedReviewer(params.organizationId, lawPackRequirements.preferredReviewerRoles));
 
     const nextStatus = params.input.status ?? existing.status ?? routing.status;
     const statusChanged = params.input.status !== undefined && params.input.status !== existing.status;
@@ -161,8 +258,8 @@ export class WorkflowService {
       statusChanged && ["in_review", "approved", "rejected"].includes(nextStatus);
 
     if (requiresAssignedReviewerAction) {
-      const assignedReviewer = params.input.reviewer ?? existing.reviewer;
-      if (!assignedReviewer) {
+      const reviewerForAction = assignedReviewer;
+      if (!reviewerForAction) {
         const error = new Error(
           "Assign a reviewer before starting review, approving, or rejecting this workflow.",
         ) as Error & { status?: number };
@@ -170,7 +267,7 @@ export class WorkflowService {
         throw error;
       }
 
-      if (!this.actorMatchesReviewer(params.actor, assignedReviewer)) {
+      if (!this.actorMatchesReviewer(params.actor, reviewerForAction)) {
         const error = new Error(
           "Only the assigned reviewer can start review, approve, or reject this workflow.",
         ) as Error & { status?: number };
@@ -189,6 +286,9 @@ export class WorkflowService {
 
     return storage.updateApprovalWorkflowByOrg(params.organizationId, params.workflowId, {
       ...params.input,
+      reviewer: assignedReviewer,
+      legalProfile,
+      lawPackIds,
       decisionTier: routing.decisionTier,
       committeeType: routing.committeeType,
       requiredApprovers: routing.requiredApprovers,

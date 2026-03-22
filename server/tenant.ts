@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { storage, type UserMembershipContext } from "./storage";
+import { getVisibleActiveMemberships } from "./auth-visibility";
 
 declare global {
   namespace Express {
@@ -55,8 +56,9 @@ export async function requireTenant(req: Request, res: Response, next: NextFunct
   const explicitOrgId = req.header("X-Organization-Id") || undefined;
   const sessionOrgId = req.session.currentOrganizationId;
   const memberships = await storage.getMembershipsByUserId(req.user.id);
+  const accessibleMemberships = getVisibleActiveMemberships(req.user, memberships, sessionOrgId);
 
-  const membership = pickMembership(memberships, explicitOrgId, sessionOrgId);
+  const membership = pickMembership(accessibleMemberships, explicitOrgId, sessionOrgId);
   if (!membership) {
     return res.status(403).json({ message: "No active organization membership" });
   }
