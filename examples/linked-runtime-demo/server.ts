@@ -41,6 +41,7 @@ type SignalPackage = {
 type DemoRun = {
   id: string;
   createdAt: string;
+  telemetryEventId: string | null;
   caseId: string;
   caseReference: string;
   customerName: string;
@@ -70,6 +71,21 @@ type DemoRun = {
   criticRecommendedDecision: string | null;
   criticRationale: string | null;
   criticChangedDecision: boolean;
+  sourceVerificationRequired: boolean;
+  citationBackedRequired: boolean;
+  factReviewRequired: boolean;
+  missingFactKeys: string[];
+  actionConfirmationRequired: boolean;
+  missingConfirmedActions: string[];
+  shadowPolicyLabel: string | null;
+  shadowPolicyDecision: string | null;
+  shadowPolicyDiffersFromLive: boolean;
+  reviewRequired: boolean;
+  reviewReleased: boolean;
+  reviewAcknowledgedAt: string | null;
+  reviewAcknowledgedBy: string | null;
+  reviewAcknowledgmentNote: string | null;
+  releaseReviewEventId: string | null;
   usedSimulation: boolean;
   upstreamError: string | null;
 };
@@ -113,6 +129,8 @@ type DemoCase = {
   modeId: ConversationModeId;
   preflightSummary: string;
   runtimeContext: Record<string, unknown>;
+  authoritativeFacts?: Record<string, unknown>;
+  sourceReferences?: string[];
 };
 
 const currentFile = fileURLToPath(import.meta.url);
@@ -303,6 +321,19 @@ const demoCases: DemoCase[] = [
       journey: "hardship-plan-review",
       customerSegment: "retail-banking",
     },
+    authoritativeFacts: {
+      documentsReceived: { value: false, source: "affordability-pack-tracker" },
+      customerAgreementConfirmed: { value: false, source: "servicing-case-status" },
+      hardshipPlanApproved: { value: false, source: "hardship-workflow" },
+      currentStatus: { value: "Docs requested", source: "case-file" },
+      missedPaymentsCount: { value: 2, source: "case-summary" },
+      incomeShockReason: { value: "Redundancy", source: "recent-activity-note" },
+      nextMilestone: { value: "Confirm affordability evidence and approved hardship route within 24 hours.", source: "case-file" },
+    },
+    sourceReferences: [
+      "Northstar hardship playbook",
+      "Collections care case file",
+    ],
   },
   {
     id: "case-bereavement-49302",
@@ -341,6 +372,13 @@ const demoCases: DemoCase[] = [
       journey: "sensitive-servicing",
       customerSegment: "retail-banking",
     },
+    authoritativeFacts: {
+      documentsReceived: { value: false, source: "bereavement-case-intake" },
+      customerAgreementConfirmed: { value: false, source: "bereavement-case-status" },
+      hardshipPlanApproved: { value: false, source: "bereavement-workflow" },
+      currentStatus: { value: "Manager callback booked", source: "case-file" },
+    },
+    sourceReferences: ["Northstar bereavement servicing guide"],
   },
   {
     id: "case-voice-60418",
@@ -379,6 +417,11 @@ const demoCases: DemoCase[] = [
       journey: "inbound-authenticated-call",
       customerSegment: "retail-banking",
     },
+    authoritativeFacts: {
+      customerAgreementConfirmed: { value: false, source: "call-wrap-status" },
+      currentStatus: { value: "Call in progress", source: "voice-servicing-session" },
+    },
+    sourceReferences: ["Northstar card fee review guide"],
   },
   {
     id: "case-ops-61108",
@@ -417,6 +460,11 @@ const demoCases: DemoCase[] = [
       journey: "daily-supervisor-digest",
       customerSegment: "internal-ops",
     },
+    authoritativeFacts: {
+      currentStatus: { value: "Morning review", source: "ops-queue" },
+      pendingCaseCount: { value: 3, source: "ops-queue" },
+    },
+    sourceReferences: ["Northstar operations briefing checklist"],
   },
 ];
 
@@ -565,6 +613,77 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+app.post("/api/runs/:id/release", async (req, res) => {
+  const demoUser = getDemoUserFromRequest(req);
+  if (!demoUser) {
+    return res.status(401).json({ message: "Sign in required." });
+  }
+
+  const runId = getCleanString(req.params?.id, 1, 200);
+  const reviewNote = getCleanString(req.body?.note, 8, 800);
+  if (!runId) {
+    return res.status(400).json({ message: "Run ID is required." });
+  }
+  if (!reviewNote) {
+    return res.status(400).json({ message: "Add a brief reviewer note before releasing the draft." });
+  }
+
+  const run = recentRuns.find((entry) => entry.id === runId);
+  if (!run) {
+    return res.status(404).json({ message: "Governed run not found." });
+  }
+  if (run.agentName !== demoUser.fullName) {
+    return res.status(403).json({ message: "You can only release drafts created in your workspace session." });
+  }
+  if (!run.reviewRequired) {
+    return res.status(400).json({ message: "This run does not require reviewer release." });
+  }
+  if (run.reviewReleased) {
+    return res.json({ run });
+  }
+
+  let releaseReviewEventId: string | null = null;
+  try {
+    const releaseEvent = await client.ingest({
+      ...(configuredSystemId ? { systemId: configuredSystemId } : {}),
+      summary: "Escalated runtime draft released after human reviewer acknowledgment.",
+      eventType: "runtime.release_review",
+      severity: "warning",
+      correlationId: run.correlationId,
+      runtimeContext: {
+        ...modes[demoCasesById.get(run.caseId)?.modeId ?? "claims"].runtimeContext,
+        caseReference: run.caseReference,
+        customerName: run.customerName,
+        reviewer: demoUser.fullName,
+      },
+      metadata: {
+        source: "northstar-agent-workspace",
+        workspaceRunId: run.id,
+        originalTelemetryEventId: run.telemetryEventId,
+        reviewerRelease: true,
+        reviewAcknowledgedBy: demoUser.fullName,
+        reviewAcknowledgmentNote: reviewNote,
+        originalDecision: run.decision,
+        reasonCodes: run.reasonCodes,
+        legalProfileApplied: run.legalProfileApplied,
+        lawPackIdsApplied: run.lawPackIdsApplied,
+      },
+    });
+    releaseReviewEventId = releaseEvent.id;
+  } catch {
+    releaseReviewEventId = null;
+  }
+
+  run.reviewReleased = true;
+  run.releasedToEndUser = true;
+  run.reviewAcknowledgedAt = new Date().toISOString();
+  run.reviewAcknowledgedBy = demoUser.fullName;
+  run.reviewAcknowledgmentNote = reviewNote;
+  run.releaseReviewEventId = releaseReviewEventId;
+
+  return res.json({ run });
+});
+
 app.post("/chat", async (req, res) => {
   const demoUser = getDemoUserFromRequest(req);
   if (!demoUser) {
@@ -661,6 +780,9 @@ async function executeGovernedTurn(
     agentId: demoUser.id,
     agentName: demoUser.fullName,
     promptLength: prompt.length,
+    authoritativeFacts: activeCase.authoritativeFacts ?? {},
+    sourceReferences: activeCase.sourceReferences ?? [],
+    executedActions: [],
   };
   const governedTemplate = buildGovernedTemplateResponse({
     prompt,
@@ -746,6 +868,7 @@ async function executeGovernedTurn(
   const run: DemoRun = {
     id: randomUUID(),
     createdAt: new Date().toISOString(),
+    telemetryEventId: primaryDecision.id ?? null,
     caseId: activeCase.id,
     caseReference: activeCase.reference,
     customerName: activeCase.customerName,
@@ -757,7 +880,7 @@ async function executeGovernedTurn(
     decision: primaryDecision.decision,
     decisionStage: guarded.blockStage ?? (guarded.postflight ? "output" : "input"),
     blocked: guarded.blocked,
-    releasedToEndUser: guarded.releasedToEndUser,
+    releasedToEndUser: guarded.releasedToEndUser && primaryDecision.decision !== "escalate",
     modelCallExecuted: guarded.modelCallExecuted,
     thresholdBreaches: primaryDecision.thresholdBreaches,
     restrictedPromptMatches: primaryDecision.restrictedPromptMatches,
@@ -777,6 +900,25 @@ async function executeGovernedTurn(
     criticRecommendedDecision: governanceCritic?.recommendedDecision ?? null,
     criticRationale: governanceCritic?.rationale ?? null,
     criticChangedDecision: Boolean(governanceCritic?.appliedDecisionChange),
+    sourceVerificationRequired: Boolean(primaryDecision.sourceAttributionVerifier?.requiresVerification),
+    citationBackedRequired: Boolean(primaryDecision.sourceAttributionVerifier?.citationBackedRequired),
+    factReviewRequired: Boolean(primaryDecision.factProvenanceVerifier?.requiresReview),
+    missingFactKeys: Array.isArray(primaryDecision.factProvenanceVerifier?.missingFactKeys)
+      ? primaryDecision.factProvenanceVerifier.missingFactKeys
+      : [],
+    actionConfirmationRequired: Boolean(primaryDecision.actionConfirmationVerifier?.requiresConfirmation),
+    missingConfirmedActions: Array.isArray(primaryDecision.actionConfirmationVerifier?.missingConfirmedActions)
+      ? primaryDecision.actionConfirmationVerifier.missingConfirmedActions
+      : [],
+    shadowPolicyLabel: primaryDecision.shadowPolicy?.label ?? null,
+    shadowPolicyDecision: primaryDecision.shadowPolicy?.decision ?? null,
+    shadowPolicyDiffersFromLive: Boolean(primaryDecision.shadowPolicy?.differsFromLive),
+    reviewRequired: primaryDecision.decision === "escalate" && !guarded.blocked,
+    reviewReleased: primaryDecision.decision !== "escalate" && !guarded.blocked,
+    reviewAcknowledgedAt: null,
+    reviewAcknowledgedBy: null,
+    reviewAcknowledgmentNote: null,
+    releaseReviewEventId: null,
     usedSimulation,
     upstreamError,
   };
@@ -1055,7 +1197,10 @@ async function generateModelOutput(
             content: [
               mode.systemPrompt,
               "You are supporting a real frontline banking agent inside Northstar Assist Workspace.",
-              "Only use the supplied case context. Do not invent approvals, waivers, or policy exceptions.",
+              "Only use the supplied case context and authoritative facts. Do not invent approvals, waivers, policy exceptions, missing figures, or unsupported legal authority.",
+              "If a requested fact is not listed as authoritative, say it is unavailable or needs verification.",
+              "Do not claim system changes, calls, notes, or customer contact happened unless the executed actions list explicitly confirms them.",
+              "Do not quote regulators, policies, or legal guidance as authoritative unless approved supporting sources are provided.",
               "Keep outputs concise, operationally useful, and ready for a human agent to send or speak.",
             ].join("\n"),
           },
@@ -1073,6 +1218,9 @@ async function generateModelOutput(
               `Narrative: ${activeCase.narrative}`,
               `Risk flags: ${activeCase.riskFlags.join(", ")}`,
               `Policy checklist: ${activeCase.policyChecklist.join(" | ")}`,
+              `Authoritative facts: ${formatAuthoritativeFacts(activeCase)}`,
+              `Approved supporting sources: ${formatSourceReferences(activeCase)}`,
+              "Executed actions: none",
               "",
               "User request:",
               prompt,
@@ -1105,6 +1253,30 @@ async function generateModelOutput(
   return output;
 }
 
+function formatAuthoritativeFacts(activeCase: DemoCase) {
+  const factRecord = activeCase.authoritativeFacts ?? {};
+  const entries = Object.entries(factRecord);
+  if (entries.length === 0) {
+    return "none";
+  }
+
+  return entries
+    .map(([key, value]) => {
+      if (value && typeof value === "object" && !Array.isArray(value) && "value" in value) {
+        const entry = value as { value?: unknown; source?: unknown };
+        return `${key}=${String(entry.value ?? "unknown")} (source: ${String(entry.source ?? "unknown")})`;
+      }
+      return `${key}=${String(value)}`;
+    })
+    .join("; ");
+}
+
+function formatSourceReferences(activeCase: DemoCase) {
+  return activeCase.sourceReferences && activeCase.sourceReferences.length > 0
+    ? activeCase.sourceReferences.join(" | ")
+    : "none";
+}
+
 function simulateModelOutput(
   prompt: string,
   mode: ConversationMode,
@@ -1130,8 +1302,8 @@ function simulateModelOutput(
   if (mode.id === "voice") {
     return [
       `Spoken response for ${activeCase.reference}:`,
-      `"I can see why that late fee is frustrating. I have raised a review on the payment timing issue, and we will confirm the outcome after the servicing team checks the posting timeline. In the meantime, I can note the impact on your account and make sure the case is tracked today."`,
-      `After-call note: ${demoUser.fullName} acknowledged the concern, confirmed review routing, and avoided disclosing internal servicing logic.`,
+      `"I can see why that late fee is frustrating. I will note the issue for servicing review and explain that the team needs to confirm the posting timeline before any final outcome is given."`,
+      `After-call note draft: ${demoUser.fullName} acknowledged the concern, explained the review path, and avoided disclosing internal servicing logic.`,
     ].join(" ");
   }
 
@@ -1157,7 +1329,7 @@ function simulateModelOutput(
     "Thank you for speaking with us today. I understand the situation is urgent, and I want to make the next step clear.",
     `We are reviewing your request relating to ${activeCase.product.toLowerCase()}. To move the case forward, we still need the items already requested so we can complete the review accurately.`,
     `Next step: ${activeCase.nextMilestone}`,
-    "I have kept your case in the priority servicing queue and we will update you as soon as the review is complete.",
+    "Your case remains in the priority servicing queue, and we will update you as soon as the review is complete.",
   ].join("\n\n");
 }
 
@@ -1220,8 +1392,11 @@ function loadEnvFile(filePath: string, options?: { overrideExisting?: boolean })
     const hasExistingValue = typeof process.env[key] === "string" && process.env[key]!.length > 0;
     const providedByEarlierEnvFile = loadedEnvKeys.has(key);
     const providedByShell = shellProvidedEnvKeys.has(key) && !providedByEarlierEnvFile;
+    if (providedByShell) {
+      continue;
+    }
     if (
-      (providedByShell || hasExistingValue) &&
+      hasExistingValue &&
       (!providedByEarlierEnvFile || !options?.overrideExisting)
     ) {
       continue;
@@ -1297,6 +1472,15 @@ function buildAssistantTurnMessage(run: DemoRun): DemoChatMessage {
     };
   }
 
+  if (run.reviewRequired && !run.reviewReleased) {
+    return {
+      role: "assistant",
+      style: "warn",
+      label: "northstar assist · review held",
+      content: `${run.response || "A governed draft is ready."}\n\n${run.decisionSummary || "AI Control Tower held this draft for reviewer acknowledgment before customer-send."}`,
+    };
+  }
+
   if (run.decision === "warn" || run.decision === "escalate") {
     return {
       role: "assistant",
@@ -1369,6 +1553,18 @@ function getDecisionPresentation(
   if (activeRun.restrictedPromptMatches.length > 0) {
     pills.push(`Matches: ${activeRun.restrictedPromptMatches.join(", ")}`);
   }
+  if (activeRun.factReviewRequired && activeRun.missingFactKeys.length > 0) {
+    pills.push(`Missing facts: ${activeRun.missingFactKeys.join(", ")}`);
+  }
+  if (activeRun.actionConfirmationRequired && activeRun.missingConfirmedActions.length > 0) {
+    pills.push(`Unconfirmed actions: ${activeRun.missingConfirmedActions.join(", ")}`);
+  }
+  if (activeRun.sourceVerificationRequired) {
+    pills.push(activeRun.citationBackedRequired ? "Citation-backed legal mode required" : "Authority verification required");
+  }
+  if (activeRun.shadowPolicyLabel) {
+    pills.push(`Shadow policy: ${activeRun.shadowPolicyLabel}${activeRun.shadowPolicyDiffersFromLive ? " (differs)" : ""}`);
+  }
   if (activeRun.escalatedIncidentId) {
     pills.push(`Incident: ${activeRun.escalatedIncidentId}`);
   }
@@ -1388,13 +1584,27 @@ function getDecisionPresentation(
     };
   }
 
+  if (activeRun.reviewRequired && !activeRun.reviewReleased) {
+    return {
+      tone: "warn",
+      title: "Held for reviewer release",
+      body: "A governed draft was created, but customer-send remains on hold until the agent records a reviewer acknowledgment note.",
+      pills,
+    };
+  }
+
   if (activeRun.decision === "warn" || activeRun.decision === "escalate") {
     return {
       tone: "warn",
       title: activeRun.decision === "escalate"
-        ? "Released with escalation"
+        ? activeRun.reviewReleased
+          ? "Released after reviewer acknowledgment"
+          : "Held with escalation"
         : "Released with warning",
-      body: "The workspace returned an answer, but AI Control Tower recorded governance signals that should be reviewed.",
+      body:
+        activeRun.decision === "escalate" && activeRun.reviewReleased
+          ? "The draft was escalated by AI Control Tower and then released after a human reviewer recorded the release decision."
+          : "The workspace returned an answer, but AI Control Tower recorded governance signals that should be reviewed.",
       pills,
     };
   }
@@ -2638,7 +2848,7 @@ function renderWorkspacePage(options: Required<Pick<RenderPageOptions, "sessionU
               </div>
               <div class="suggestions">${buildSuggestedPromptsHtml(options.activeCase)}</div>
               <section id="transcript" class="transcript">${transcriptHtml}</section>
-              <form id="composer-form" class="composer" method="post" action="/chat" novalidate>
+              <form id="composer-form" class="composer" method="post" action="/chat" novalidate data-active-run-id="${escapeHtml(activeRun?.id || "")}">
                 <input id="case-id-input" type="hidden" name="caseId" value="${escapeHtml(options.activeCase.id)}" />
                 <textarea id="prompt-input" name="prompt" placeholder="Draft a calm customer reply, summarize the case for a supervisor, or test a risky request to show the governance controls.">${escapeHtml(promptValue)}</textarea>
                 <div class="composer-row">
@@ -2665,10 +2875,15 @@ function renderWorkspacePage(options: Required<Pick<RenderPageOptions, "sessionU
                 <div class="key-row"><span>Decision stage</span><code id="status-stage">${escapeHtml(activeRun?.decisionStage || "-")}</code></div>
                 <div class="key-row"><span>Rules engine</span><code id="status-rules-engine">${escapeHtml(activeRun?.rulesEngineDecision?.toUpperCase() || "-")}</code></div>
                 <div class="key-row"><span>AI critic</span><code id="status-critic">${escapeHtml(activeRun?.criticVerdict || "not run")}</code></div>
+                <div class="key-row"><span>Fact provenance</span><code id="status-facts">${escapeHtml(activeRun?.factReviewRequired ? `review required: ${activeRun.missingFactKeys.join(", ")}` : "grounded")}</code></div>
+                <div class="key-row"><span>Action confirmation</span><code id="status-actions">${escapeHtml(activeRun?.actionConfirmationRequired ? `missing: ${activeRun.missingConfirmedActions.join(", ")}` : "none")}</code></div>
+                <div class="key-row"><span>Source verification</span><code id="status-sources">${escapeHtml(activeRun?.sourceVerificationRequired ? (activeRun.citationBackedRequired ? "citation-backed mode required" : "verification required") : "clear")}</code></div>
+                <div class="key-row"><span>Shadow policy</span><code id="status-shadow">${escapeHtml(activeRun?.shadowPolicyLabel ? `${activeRun.shadowPolicyLabel}${activeRun.shadowPolicyDecision ? `: ${activeRun.shadowPolicyDecision}` : ""}${activeRun.shadowPolicyDiffersFromLive ? " (differs)" : ""}` : "disabled")}</code></div>
                 <div class="key-row"><span>Threshold breaches</span><code id="status-thresholds">${escapeHtml(activeRun?.thresholdBreaches.join(", ") || "none")}</code></div>
                 <div class="key-row"><span>Reason codes</span><code id="status-reasons">${escapeHtml(activeRun?.reasonCodes.join(", ") || "none")}</code></div>
                 <div class="key-row"><span>Incident</span><code id="status-incident">${escapeHtml(activeRun?.escalatedIncidentId || "none")}</code></div>
                 <div class="key-row"><span>Correlation ID</span><code id="status-correlation">${escapeHtml(activeRun?.correlationId || "-")}</code></div>
+                <div class="key-row"><span>Human release</span><code id="status-release">${escapeHtml(activeRun?.reviewRequired ? (activeRun.reviewReleased ? `released by ${activeRun.reviewAcknowledgedBy || "reviewer"}` : "pending reviewer note") : "not required")}</code></div>
               </div>
               <p id="status-summary" class="helper-text" style="margin-top: 12px;">
                 ${escapeHtml(activeError || activeRun?.decisionSummary || activeRun?.runtimeSummary || "Use this panel to narrate what Control Tower did with the current turn.")}
@@ -2682,6 +2897,23 @@ function renderWorkspacePage(options: Required<Pick<RenderPageOptions, "sessionU
                       : "AI critic details will appear here when enabled.",
                 )}
               </p>
+              <div id="release-review-panel" style="margin-top: 14px;${!activeRun?.reviewRequired ? "display:none;" : ""}">
+                <p class="section-label" style="margin-bottom: 10px;">Human release control</p>
+                <p id="release-review-copy" class="helper-text">${escapeHtml(
+                  activeRun?.reviewRequired
+                    ? activeRun.reviewReleased
+                      ? `Released by ${activeRun.reviewAcknowledgedBy || "reviewer"}${activeRun.reviewAcknowledgedAt ? ` at ${new Date(activeRun.reviewAcknowledgedAt).toLocaleString()}` : ""}.`
+                      : "Escalated drafts stay on hold until the agent records why releasing the answer is still appropriate."
+                    : "No reviewer release is required for this turn.",
+                )}</p>
+                <div class="composer" style="margin-top: 10px;">
+                  <textarea id="release-note-input" placeholder="Explain why this escalated draft is still acceptable to send or reuse."${activeRun?.reviewReleased ? " disabled" : ""}>${escapeHtml(activeRun?.reviewAcknowledgmentNote || "")}</textarea>
+                  <div class="composer-row">
+                    <span class="composer-note">Record the reviewer rationale before the workspace treats this escalated draft as customer-send ready.</span>
+                    <button id="release-button" class="button secondary" type="button"${!activeRun?.reviewRequired || activeRun.reviewReleased ? " disabled" : ""}>Acknowledge & release draft</button>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="section-card" style="padding: 18px;">
@@ -2787,15 +3019,24 @@ function buildDemoScript() {
   const statusStage = document.getElementById('status-stage');
   const statusRulesEngine = document.getElementById('status-rules-engine');
   const statusCritic = document.getElementById('status-critic');
+  const statusFacts = document.getElementById('status-facts');
+  const statusActions = document.getElementById('status-actions');
+  const statusSources = document.getElementById('status-sources');
+  const statusShadow = document.getElementById('status-shadow');
   const statusThresholds = document.getElementById('status-thresholds');
   const statusReasons = document.getElementById('status-reasons');
   const statusIncident = document.getElementById('status-incident');
   const statusCorrelation = document.getElementById('status-correlation');
+  const statusRelease = document.getElementById('status-release');
   const statusSummary = document.getElementById('status-summary');
   const statusCriticSummary = document.getElementById('status-critic-summary');
   const statusIncidents = document.getElementById('status-incidents');
   const statusBlocked = document.getElementById('status-blocked');
   const recentRuns = document.getElementById('recent-runs');
+  const releasePanel = document.getElementById('release-review-panel');
+  const releaseCopy = document.getElementById('release-review-copy');
+  const releaseButton = document.getElementById('release-button');
+  const releaseNoteInput = document.getElementById('release-note-input');
   const promptButtons = Array.from(document.querySelectorAll('[data-suggested-prompt]'));
 
   function setText(el, value) {
@@ -2847,6 +3088,18 @@ function buildDemoScript() {
     if (run.reasonCodes && run.reasonCodes.length) {
       pills.push('Reasons: ' + run.reasonCodes.join(', '));
     }
+    if (run.factReviewRequired && run.missingFactKeys && run.missingFactKeys.length) {
+      pills.push('Missing facts: ' + run.missingFactKeys.join(', '));
+    }
+    if (run.actionConfirmationRequired && run.missingConfirmedActions && run.missingConfirmedActions.length) {
+      pills.push('Unconfirmed actions: ' + run.missingConfirmedActions.join(', '));
+    }
+    if (run.sourceVerificationRequired) {
+      pills.push(run.citationBackedRequired ? 'Citation-backed legal mode required' : 'Authority verification required');
+    }
+    if (run.shadowPolicyLabel) {
+      pills.push('Shadow policy: ' + run.shadowPolicyLabel + (run.shadowPolicyDiffersFromLive ? ' (differs)' : ''));
+    }
     if (run.escalatedIncidentId) {
       pills.push('Incident: ' + run.escalatedIncidentId);
     }
@@ -2873,9 +3126,13 @@ function buildDemoScript() {
         tone = 'block';
         title = 'Blocked before agent release';
         body = run.decisionSummary || 'The request or model answer crossed policy thresholds. Nothing unsafe was released back to the agent.';
+      } else if (run.reviewRequired && !run.reviewReleased) {
+        tone = 'warn';
+        title = 'Held for reviewer release';
+        body = run.decisionSummary || 'A governed draft was created, but customer-send remains on hold until the agent records a reviewer acknowledgment note.';
       } else if (run.decision === 'warn' || run.decision === 'escalate') {
         tone = 'warn';
-        title = run.decision === 'escalate' ? 'Released with escalation' : 'Released with warning';
+        title = run.decision === 'escalate' ? 'Released after reviewer acknowledgment' : 'Released with warning';
         body = run.decisionSummary || 'The workspace returned an answer, but AI Control Tower recorded governance signals that should be reviewed.';
       } else {
         tone = 'allow';
@@ -2913,12 +3170,18 @@ function buildDemoScript() {
       setText(statusStage, '-');
       setText(statusRulesEngine, '-');
       setText(statusCritic, 'not run');
+      setText(statusFacts, 'none');
+      setText(statusActions, 'none');
+      setText(statusSources, 'none');
+      setText(statusShadow, 'disabled');
       setText(statusThresholds, 'none');
       setText(statusReasons, 'none');
       setText(statusIncident, 'none');
       setText(statusCorrelation, '-');
+      setText(statusRelease, 'not required');
       setText(statusSummary, errorMessage);
       setText(statusCriticSummary, 'AI critic details unavailable because the turn did not complete.');
+      if (releasePanel) releasePanel.style.display = 'none';
       return;
     }
     if (!run) return;
@@ -2927,10 +3190,30 @@ function buildDemoScript() {
     setText(statusStage, run.decisionStage || '-');
     setText(statusRulesEngine, run.rulesEngineDecision ? String(run.rulesEngineDecision).toUpperCase() : '-');
     setText(statusCritic, run.criticVerdict || 'not run');
+    setText(statusFacts, run.factReviewRequired ? 'review required: ' + (run.missingFactKeys || []).join(', ') : 'grounded');
+    setText(statusActions, run.actionConfirmationRequired ? 'missing: ' + (run.missingConfirmedActions || []).join(', ') : 'none');
+    setText(
+      statusSources,
+      run.sourceVerificationRequired
+        ? (run.citationBackedRequired ? 'citation-backed mode required' : 'verification required')
+        : 'clear',
+    );
+    setText(
+      statusShadow,
+      run.shadowPolicyLabel
+        ? run.shadowPolicyLabel + (run.shadowPolicyDecision ? ': ' + run.shadowPolicyDecision : '') + (run.shadowPolicyDiffersFromLive ? ' (differs)' : '')
+        : 'disabled',
+    );
     setText(statusThresholds, run.thresholdBreaches && run.thresholdBreaches.length ? run.thresholdBreaches.join(', ') : 'none');
     setText(statusReasons, run.reasonCodes && run.reasonCodes.length ? run.reasonCodes.join(', ') : 'none');
     setText(statusIncident, run.escalatedIncidentId || 'none');
     setText(statusCorrelation, run.correlationId || '-');
+    setText(
+      statusRelease,
+      run.reviewRequired
+        ? (run.reviewReleased ? 'released by ' + (run.reviewAcknowledgedBy || 'reviewer') : 'pending reviewer note')
+        : 'not required',
+    );
     setText(statusSummary, run.decisionSummary || run.runtimeSummary || '');
     setText(
       statusCriticSummary,
@@ -2940,6 +3223,22 @@ function buildDemoScript() {
           ? 'AI critic recommended ' + run.criticRecommendedDecision + (run.criticChangedDecision ? ' and changed the final outcome.' : '.')
           : 'AI critic details will appear here when enabled.',
     );
+    if (releasePanel) {
+      releasePanel.style.display = run.reviewRequired ? 'block' : 'none';
+    }
+    if (releaseCopy && run.reviewRequired) {
+      releaseCopy.textContent = run.reviewReleased
+        ? 'Released by ' + (run.reviewAcknowledgedBy || 'reviewer') + (run.reviewAcknowledgedAt ? ' at ' + new Date(run.reviewAcknowledgedAt).toLocaleString() + '.' : '.')
+        : 'Escalated drafts stay on hold until the agent records why releasing the answer is still appropriate.';
+    }
+    if (releaseNoteInput) {
+      releaseNoteInput.value = run.reviewAcknowledgmentNote || '';
+      releaseNoteInput.disabled = !run.reviewRequired || Boolean(run.reviewReleased);
+    }
+    if (releaseButton) {
+      releaseButton.disabled = !run.reviewRequired || Boolean(run.reviewReleased);
+      releaseButton.textContent = run.reviewReleased ? 'Draft released' : 'Acknowledge & release draft';
+    }
   }
 
   function bumpCounter(el, increment) {
@@ -2982,11 +3281,18 @@ function buildDemoScript() {
         content: 'AI Control Tower blocked this request before it could be safely released. Rephrase without restricted content, internal policy details, or sensitive identifiers.',
       };
     }
+    if (run.reviewRequired && !run.reviewReleased) {
+      return {
+        label: 'northstar assist · review held',
+        style: 'warn',
+        content: (run.response || 'A governed draft is ready.') + '\\n\\n' + (run.decisionSummary || 'AI Control Tower held this draft for reviewer acknowledgment before customer-send.'),
+      };
+    }
     if (run.decision === 'warn' || run.decision === 'escalate') {
       return {
         label: run.decision === 'escalate' ? 'northstar assist · escalated' : 'northstar assist · warning',
         style: 'warn',
-        content: (run.response || 'The answer was released.') + '\\n\\nThis turn was released with governance signals. Review before reuse or customer send.',
+        content: (run.response || 'The answer was released.') + '\\n\\n' + (run.decisionSummary || 'This turn was released with governance signals. Review before reuse or customer send.'),
       };
     }
     return {
@@ -3004,6 +3310,74 @@ function buildDemoScript() {
       textarea.focus();
     });
   });
+
+  async function releaseHeldDraft() {
+    if (!releaseButton || !releaseNoteInput) return;
+    const note = releaseNoteInput.value.trim();
+    if (!note) {
+      if (releaseCopy) {
+        releaseCopy.textContent = 'Add a reviewer note before releasing the draft.';
+      }
+      return;
+    }
+
+    const runId =
+      (window.__northstarActiveRun && window.__northstarActiveRun.id) ||
+      form.getAttribute('data-active-run-id') ||
+      '';
+    if (!runId) {
+      if (releaseCopy) {
+        releaseCopy.textContent = 'No held draft is available to release.';
+      }
+      return;
+    }
+
+    releaseButton.disabled = true;
+    releaseButton.textContent = 'Releasing...';
+    try {
+      const response = await fetch('/api/runs/' + encodeURIComponent(runId) + '/release', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ note }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload && payload.message ? payload.message : 'Release failed.');
+      }
+      const run = payload.run;
+      window.__northstarActiveRun = run;
+      form.setAttribute('data-active-run-id', run.id || '');
+      setDecision(run, '');
+      setStatus(run, '');
+      if (transcript) {
+        const systemMessage = createMessage(
+          'assistant',
+          'northstar assist · release recorded',
+          'Reviewer acknowledgment recorded. The escalated draft is now marked as released for controlled reuse.',
+          'allow',
+        );
+        transcript.appendChild(systemMessage.wrapper);
+        transcript.scrollTop = transcript.scrollHeight;
+      }
+    } catch (error) {
+      const message = error && error.message ? error.message : 'Release failed.';
+      if (releaseCopy) {
+        releaseCopy.textContent = message;
+      }
+    } finally {
+      if (releaseButton) {
+        const latestRun = window.__northstarActiveRun || null;
+        releaseButton.textContent = latestRun && latestRun.reviewReleased ? 'Draft released' : 'Acknowledge & release draft';
+        releaseButton.disabled = Boolean(latestRun ? latestRun.reviewReleased : false);
+      }
+    }
+  }
+
+  if (releaseButton) {
+    releaseButton.addEventListener('click', function () {
+      releaseHeldDraft();
+    });
+  }
 
   form.addEventListener('submit', async function (event) {
     event.preventDefault();
@@ -3049,6 +3423,8 @@ function buildDemoScript() {
       if (!run) {
         throw new Error('No governed run returned.');
       }
+      window.__northstarActiveRun = run;
+      form.setAttribute('data-active-run-id', run.id || '');
 
       const assistant = buildAssistantMessage(run);
       pendingMessage.labelEl.textContent = assistant.label;

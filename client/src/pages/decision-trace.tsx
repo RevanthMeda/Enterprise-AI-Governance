@@ -7,6 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatDateTime } from "@/lib/date-format";
+import {
+  formatLawPackLabel,
+  formatLegalProfileLabel,
+} from "@/lib/governance-display";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { AiSystem } from "@shared/schema";
@@ -21,6 +25,7 @@ type DecisionAudit = {
   modelVersion: string | null;
   promptText: string | null;
   inputSources: string[];
+  inputSnapshot: Record<string, unknown>;
   decisionConstraints: string[];
   confidenceScore: number | null;
   uncertaintyScore: number | null;
@@ -483,6 +488,47 @@ export default function DecisionTracePage() {
                     .join("\n") || "No model evidence captured."}
                 />
               </div>
+
+              {(() => {
+                const governance =
+                  selectedTrace.inputSnapshot?.governance &&
+                  typeof selectedTrace.inputSnapshot.governance === "object" &&
+                  !Array.isArray(selectedTrace.inputSnapshot.governance)
+                    ? (selectedTrace.inputSnapshot.governance as Record<string, unknown>)
+                    : null;
+                if (!governance) {
+                  return null;
+                }
+
+                const legalProfileApplied =
+                  typeof governance.legalProfileApplied === "string" ? governance.legalProfileApplied : null;
+                const lawPackIdsApplied = Array.isArray(governance.lawPackIdsApplied)
+                  ? governance.lawPackIdsApplied.filter((entry): entry is string => typeof entry === "string")
+                  : [];
+                const lawPackSources = Array.isArray(governance.lawPackSources)
+                  ? governance.lawPackSources.filter((entry): entry is string => typeof entry === "string")
+                  : [];
+                return (
+                  <div className="mt-4 rounded-lg border bg-muted/20 p-3">
+                    <div className="text-sm font-medium">Governance snapshot</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {legalProfileApplied ? (
+                        <Badge variant="outline">{formatLegalProfileLabel(legalProfileApplied)}</Badge>
+                      ) : null}
+                      {lawPackIdsApplied.map((packId) => (
+                        <Badge key={packId} variant="secondary">
+                          {formatLawPackLabel(packId)}
+                        </Badge>
+                      ))}
+                    </div>
+                    {lawPackSources.length > 0 ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Sources: {lawPackSources.join(", ")}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">

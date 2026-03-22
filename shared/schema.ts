@@ -177,6 +177,8 @@ export const portfolioTelemetryPolicies = pgTable("portfolio_telemetry_policies"
   blockOnSafetyCritical: boolean("block_on_safety_critical").notNull().default(true),
   blockOnRestrictedPrompt: boolean("block_on_restricted_prompt").notNull().default(true),
   restrictedPromptPatterns: jsonb("restricted_prompt_patterns").notNull().default(sql`'[]'::jsonb`),
+  shadowModeEnabled: boolean("shadow_mode_enabled").notNull().default(false),
+  shadowModeLabel: text("shadow_mode_label").notNull().default("stricter-preview"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
@@ -358,6 +360,8 @@ export const organizationTelemetryPolicies = pgTable("organization_telemetry_pol
   blockOnSafetyCritical: boolean("block_on_safety_critical").notNull().default(true),
   blockOnRestrictedPrompt: boolean("block_on_restricted_prompt").notNull().default(true),
   restrictedPromptPatterns: jsonb("restricted_prompt_patterns").notNull().default(sql`'[]'::jsonb`),
+  shadowModeEnabled: boolean("shadow_mode_enabled").notNull().default(false),
+  shadowModeLabel: text("shadow_mode_label").notNull().default("stricter-preview"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
@@ -395,6 +399,8 @@ export const systemTelemetryPolicies = pgTable("system_telemetry_policies", {
   blockOnSafetyCritical: boolean("block_on_safety_critical").notNull().default(true),
   blockOnRestrictedPrompt: boolean("block_on_restricted_prompt").notNull().default(true),
   restrictedPromptPatterns: jsonb("restricted_prompt_patterns").notNull().default(sql`'[]'::jsonb`),
+  shadowModeEnabled: boolean("shadow_mode_enabled").notNull().default(false),
+  shadowModeLabel: text("shadow_mode_label").notNull().default("stricter-preview"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
@@ -708,6 +714,10 @@ export const aiSystems = pgTable("ai_systems", {
   geography: text("geography"),
   legalProfile: text("legal_profile").notNull().default("global"),
   lawPackIds: jsonb("law_pack_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  sourceCatalog: jsonb("source_catalog").$type<Record<string, unknown>[]>().notNull().default(sql`'[]'::jsonb`),
+  authoritativeFactCatalog: jsonb("authoritative_fact_catalog").$type<Record<string, unknown>[]>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
   purpose: text("purpose"),
   usersImpacted: integer("users_impacted").default(0),
   lastAssessment: timestamp("last_assessment"),
@@ -724,6 +734,29 @@ export const insertAiSystemSchema = createInsertSchema(aiSystems)
   .extend({
     legalProfile: z.enum(aiSystemLegalProfiles).default("global"),
     lawPackIds: z.array(z.enum(lawPackIds)).default([]),
+    sourceCatalog: z.array(
+      z.object({
+        id: z.string().trim().min(1).max(120).optional(),
+        label: z.string().trim().min(1).max(300),
+        authority: z.string().trim().max(200).nullable().optional(),
+        citation: z.string().trim().max(500).nullable().optional(),
+        url: z.string().trim().url().max(1000).nullable().optional(),
+        jurisdictions: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
+        tags: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+        notes: z.string().trim().max(1000).nullable().optional(),
+      }),
+    ).max(50).default([]),
+    authoritativeFactCatalog: z.array(
+      z.object({
+        key: z.string().trim().min(1).max(120),
+        label: z.string().trim().min(1).max(200).optional(),
+        value: z.unknown(),
+        source: z.string().trim().max(500).nullable().optional(),
+        verifiedAt: z.string().trim().datetime().nullable().optional(),
+        tags: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+        notes: z.string().trim().max(1000).nullable().optional(),
+      }),
+    ).max(100).default([]),
   });
 
 export type InsertAiSystem = z.infer<typeof insertAiSystemSchema>;
@@ -784,6 +817,10 @@ export const approvalWorkflows = pgTable("approval_workflows", {
   safetyCritical: boolean("safety_critical").notNull().default(false),
   legalProfile: text("legal_profile").notNull().default("global"),
   lawPackIds: jsonb("law_pack_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  sourceCatalog: jsonb("source_catalog").$type<Record<string, unknown>[]>().notNull().default(sql`'[]'::jsonb`),
+  authoritativeFactCatalog: jsonb("authoritative_fact_catalog").$type<Record<string, unknown>[]>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
   decisionTier: text("decision_tier").notNull().default("tier_1"),
   committeeType: text("committee_type").notNull().default("technical_team"),
   blockedReason: text("blocked_reason"),
@@ -806,10 +843,72 @@ export const insertApprovalWorkflowSchema = createInsertSchema(approvalWorkflows
   .extend({
     legalProfile: z.enum(aiSystemLegalProfiles).default("global"),
     lawPackIds: z.array(z.enum(lawPackIds)).default(["global_baseline"]),
+    sourceCatalog: z.array(
+      z.object({
+        id: z.string().trim().min(1).max(120).optional(),
+        label: z.string().trim().min(1).max(300),
+        authority: z.string().trim().max(200).nullable().optional(),
+        citation: z.string().trim().max(500).nullable().optional(),
+        url: z.string().trim().url().max(1000).nullable().optional(),
+        jurisdictions: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
+        tags: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+        notes: z.string().trim().max(1000).nullable().optional(),
+      }),
+    ).max(50).default([]),
+    authoritativeFactCatalog: z.array(
+      z.object({
+        key: z.string().trim().min(1).max(120),
+        label: z.string().trim().min(1).max(200).optional(),
+        value: z.unknown(),
+        source: z.string().trim().max(500).nullable().optional(),
+        verifiedAt: z.string().trim().datetime().nullable().optional(),
+        tags: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+        notes: z.string().trim().max(1000).nullable().optional(),
+      }),
+    ).max(100).default([]),
   });
 
 export type InsertApprovalWorkflow = z.infer<typeof insertApprovalWorkflowSchema>;
 export type ApprovalWorkflow = typeof approvalWorkflows.$inferSelect;
+
+export const agentGovernanceProfiles = pgTable("agent_governance_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  actorId: text("actor_id").notNull(),
+  actorLabel: text("actor_label"),
+  systemId: varchar("system_id").references(() => aiSystems.id, { onDelete: "cascade" }),
+  workflowId: varchar("workflow_id").references(() => approvalWorkflows.id, { onDelete: "cascade" }),
+  legalProfile: text("legal_profile").notNull().default("global"),
+  lawPackIds: jsonb("law_pack_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  orgActorIdx: index("agent_governance_profiles_org_actor_idx").on(table.organizationId, table.actorId),
+  orgSystemIdx: index("agent_governance_profiles_org_system_idx").on(table.organizationId, table.systemId),
+  orgWorkflowIdx: index("agent_governance_profiles_org_workflow_idx").on(table.organizationId, table.workflowId),
+  scopeLookupIdx: index("agent_governance_profiles_scope_lookup_idx").on(
+    table.organizationId,
+    table.actorId,
+    table.systemId,
+    table.workflowId,
+  ),
+}));
+
+export const insertAgentGovernanceProfileSchema = createInsertSchema(agentGovernanceProfiles)
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  })
+  .extend({
+    legalProfile: z.enum(aiSystemLegalProfiles).default("global"),
+    lawPackIds: z.array(z.enum(lawPackIds)).default(["global_baseline"]),
+  });
+
+export type InsertAgentGovernanceProfile = z.infer<typeof insertAgentGovernanceProfileSchema>;
+export type AgentGovernanceProfile = typeof agentGovernanceProfiles.$inferSelect;
 
 export const auditLogs = pgTable("audit_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

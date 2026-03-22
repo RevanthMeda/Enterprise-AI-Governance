@@ -289,7 +289,7 @@ export function normalizeLegalProfile(value: string | null | undefined): LegalPr
   return "global";
 }
 
-function inferFinanceDomain(system: {
+export function inferFinanceDomain(system: {
   name?: string | null;
   department?: string | null;
   purpose?: string | null;

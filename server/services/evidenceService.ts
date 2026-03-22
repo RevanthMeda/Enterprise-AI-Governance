@@ -1,9 +1,7 @@
 import { storage, type EvidenceFileFilters } from "../storage";
+import { agentGovernanceService } from "./agentGovernanceService";
 import {
   compileLawPackRuntimeOverlay,
-  resolveSystemLawPackIds,
-  resolveWorkflowLawPackIds,
-  resolveWorkflowLegalProfile,
 } from "@shared/law-packs";
 
 type Actor = {
@@ -58,20 +56,26 @@ export class EvidenceService {
       }
     }
 
-    let legalProfileApplied = resolveWorkflowLegalProfile({}, system);
-    let lawPackIdsApplied = resolveSystemLawPackIds(system);
+    let effectiveGovernanceScope = await agentGovernanceService.resolveEffectiveScope({
+      organizationId: params.organizationId,
+      system,
+      actor: params.actor,
+    });
 
     if (params.input.workflowId) {
       const workflow = await storage.getApprovalWorkflowById(params.organizationId, params.input.workflowId);
       if (!workflow || workflow.systemId !== params.input.systemId) {
         throw new Error("Workflow not found for this system in the active organization");
       }
-
-      legalProfileApplied = resolveWorkflowLegalProfile(workflow, system);
-      lawPackIdsApplied = resolveWorkflowLawPackIds(workflow, system);
+      effectiveGovernanceScope = await agentGovernanceService.resolveEffectiveScope({
+        organizationId: params.organizationId,
+        system,
+        workflow,
+        actor: params.actor,
+      });
     }
 
-    const overlay = compileLawPackRuntimeOverlay(lawPackIdsApplied);
+    const overlay = compileLawPackRuntimeOverlay(effectiveGovernanceScope.lawPackIdsApplied);
 
     return storage.createEvidenceFileForOrg(params.organizationId, {
       systemId: params.input.systemId,
@@ -83,8 +87,9 @@ export class EvidenceService {
       filePath: params.input.filePath,
       uploadedBy: params.actor.fullName,
       metadata: {
-        legalProfileApplied,
-        lawPackIdsApplied,
+        legalProfileApplied: effectiveGovernanceScope.legalProfileApplied,
+        lawPackIdsApplied: effectiveGovernanceScope.lawPackIdsApplied,
+        governanceScopeSource: effectiveGovernanceScope.source,
         lawPackDecisionConstraints: overlay.decisionConstraints,
         lawPackSources: overlay.sourceRefs,
       },

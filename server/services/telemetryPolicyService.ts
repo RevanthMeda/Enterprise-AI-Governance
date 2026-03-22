@@ -33,6 +33,8 @@ export const defaultTelemetryPolicy = {
   blockOnSafetyCritical: true,
   blockOnRestrictedPrompt: true,
   restrictedPromptPatterns: [] as string[],
+  shadowModeEnabled: false,
+  shadowModeLabel: "stricter-preview",
 };
 
 export type EffectiveTelemetryPolicy = {
@@ -144,6 +146,8 @@ export class TelemetryPolicyService {
           restrictedPromptPatterns: Array.isArray(override.restrictedPromptPatterns)
             ? override.restrictedPromptPatterns.filter((entry): entry is string => typeof entry === "string")
             : [],
+          shadowModeEnabled: override.shadowModeEnabled,
+          shadowModeLabel: override.shadowModeLabel,
         },
       });
     }
@@ -179,6 +183,8 @@ export class TelemetryPolicyService {
           restrictedPromptPatterns: Array.isArray(inherited.policy.restrictedPromptPatterns)
             ? inherited.policy.restrictedPromptPatterns.filter((entry): entry is string => typeof entry === "string")
             : [],
+          shadowModeEnabled: inherited.policy.shadowModeEnabled,
+          shadowModeLabel: inherited.policy.shadowModeLabel,
         },
       });
     }
@@ -223,6 +229,8 @@ export class TelemetryPolicyService {
           restrictedPromptPatterns: Array.isArray(override.restrictedPromptPatterns)
             ? override.restrictedPromptPatterns.filter((entry): entry is string => typeof entry === "string")
             : [],
+          shadowModeEnabled: override.shadowModeEnabled,
+          shadowModeLabel: override.shadowModeLabel,
         },
       });
     }

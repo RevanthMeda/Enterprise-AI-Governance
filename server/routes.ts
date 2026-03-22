@@ -9,13 +9,19 @@ import { storage } from "./storage";
 import { fetchWithTimeout } from "./http";
 import {
   adminAuditEvents,
+  aiIncidents,
+  aiTelemetryEvents,
+  aiSystems,
   incidentCategories,
   incidentSeverities,
   incidentStatuses,
+  insertAgentGovernanceProfileSchema,
   insertAiSystemSchema,
   insertApprovalWorkflowSchema,
   membershipRoles,
   memberships,
+  approvalWorkflows,
+  evidenceFiles,
   organizationInvites,
   organizationInviteStatuses,
   organizations,
@@ -57,6 +63,7 @@ import { evidenceService } from "./services/evidenceService";
 import { exportService, type ExportType } from "./services/exportService";
 import { inviteService } from "./services/inviteService";
 import { incidentService } from "./services/incidentService";
+import { agentGovernanceService } from "./services/agentGovernanceService";
 import { jiraService } from "./services/jiraService";
 import { monitoringService } from "./services/monitoringService";
 import { notificationService } from "./services/notificationService";
@@ -90,7 +97,7 @@ import {
 } from "@shared/law-packs";
 import { getUploadsRoot } from "./runtime-paths";
 import { areMockAuthRoutesEnabled, parseBooleanEnv } from "./env";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 const uploadDir = getUploadsRoot();
@@ -216,6 +223,26 @@ function buildTelemetryAuditDetails(params: {
     metadata.governanceCritic && typeof metadata.governanceCritic === "object" && !Array.isArray(metadata.governanceCritic)
       ? (metadata.governanceCritic as Record<string, unknown>)
       : null;
+  const factProvenanceVerifier =
+    metadata.factProvenanceVerifier &&
+    typeof metadata.factProvenanceVerifier === "object" &&
+    !Array.isArray(metadata.factProvenanceVerifier)
+      ? (metadata.factProvenanceVerifier as Record<string, unknown>)
+      : null;
+  const actionConfirmationVerifier =
+    metadata.actionConfirmationVerifier &&
+    typeof metadata.actionConfirmationVerifier === "object" &&
+    !Array.isArray(metadata.actionConfirmationVerifier)
+      ? (metadata.actionConfirmationVerifier as Record<string, unknown>)
+      : null;
+  const shadowPolicy =
+    metadata.shadowPolicy && typeof metadata.shadowPolicy === "object" && !Array.isArray(metadata.shadowPolicy)
+      ? (metadata.shadowPolicy as Record<string, unknown>)
+      : null;
+  const reviewRelease =
+    metadata.reviewRelease && typeof metadata.reviewRelease === "object" && !Array.isArray(metadata.reviewRelease)
+      ? (metadata.reviewRelease as Record<string, unknown>)
+      : null;
 
   const suffix: string[] = [];
   if (decisionSummary) {
@@ -241,8 +268,279 @@ function buildTelemetryAuditDetails(params: {
       suffix.push(`AI critic verdict: ${verdict}${recommendedDecision ? ` (${recommendedDecision})` : ""}`);
     }
   }
+  if (factProvenanceVerifier && factProvenanceVerifier.requiresReview) {
+    const missingFactKeys = Array.isArray(factProvenanceVerifier.missingFactKeys)
+      ? (factProvenanceVerifier.missingFactKeys as string[])
+      : [];
+    suffix.push(
+      `Authoritative facts missing${missingFactKeys.length > 0 ? `: ${missingFactKeys.join(", ")}` : ""}`,
+    );
+  }
+  if (actionConfirmationVerifier && actionConfirmationVerifier.requiresConfirmation) {
+    const missingActions = Array.isArray(actionConfirmationVerifier.missingConfirmedActions)
+      ? (actionConfirmationVerifier.missingConfirmedActions as string[])
+      : [];
+    suffix.push(
+      `Unconfirmed actions${missingActions.length > 0 ? `: ${missingActions.join(", ")}` : ""}`,
+    );
+  }
+  if (shadowPolicy && shadowPolicy.enabled) {
+    const shadowDecision = typeof shadowPolicy.decision === "string" ? shadowPolicy.decision : null;
+    const differsFromLive = shadowPolicy.differsFromLive === true;
+    suffix.push(
+      `Shadow policy${shadowDecision ? `: ${shadowDecision}` : ""}${differsFromLive ? " (differs from live)" : ""}`,
+    );
+  }
+  if (reviewRelease && reviewRelease.status === "released") {
+    suffix.push(
+      `Reviewer released${typeof reviewRelease.releasedBy === "string" ? ` by ${reviewRelease.releasedBy}` : ""}`,
+    );
+  }
 
   return `${params.sourceLabel} "${params.eventType}" recorded${params.gateway ? ` from ${params.gateway}` : ""} with decision "${params.decision}"${suffix.length > 0 ? `. ${suffix.join(". ")}` : ""}`;
+}
+
+async function enrichAuditLogsWithContext<
+  T extends {
+    entityType: string;
+    entityId: string;
+  },
+>(organizationId: string, logs: T[]) {
+  const telemetryIds = Array.from(
+    new Set(logs.filter((log) => log.entityType === "telemetry_event").map((log) => log.entityId)),
+  );
+  const incidentIds = Array.from(
+    new Set(logs.filter((log) => log.entityType === "ai_incident").map((log) => log.entityId)),
+  );
+  const workflowIds = Array.from(
+    new Set(logs.filter((log) => log.entityType === "approval_workflow").map((log) => log.entityId)),
+  );
+  const systemIds = Array.from(
+    new Set(logs.filter((log) => log.entityType === "ai_system").map((log) => log.entityId)),
+  );
+  const evidenceIds = Array.from(
+    new Set(logs.filter((log) => log.entityType === "evidence_file").map((log) => log.entityId)),
+  );
+
+  const [telemetryRows, incidentRows, workflowRows, systemRows, evidenceRows] = await Promise.all([
+    telemetryIds.length > 0
+      ? db
+          .select({
+            id: aiTelemetryEvents.id,
+            metadata: aiTelemetryEvents.metadata,
+            actionTaken: aiTelemetryEvents.actionTaken,
+            blocked: aiTelemetryEvents.blocked,
+            summary: aiTelemetryEvents.summary,
+          })
+          .from(aiTelemetryEvents)
+          .where(
+            and(
+              eq(aiTelemetryEvents.organizationId, organizationId),
+              inArray(aiTelemetryEvents.id, telemetryIds),
+            ),
+          )
+      : Promise.resolve([]),
+    incidentIds.length > 0
+      ? db
+          .select({
+            id: aiIncidents.id,
+            playbook: aiIncidents.playbook,
+            severity: aiIncidents.severity,
+            status: aiIncidents.status,
+            title: aiIncidents.title,
+          })
+          .from(aiIncidents)
+          .where(
+            and(
+              eq(aiIncidents.organizationId, organizationId),
+              inArray(aiIncidents.id, incidentIds),
+            ),
+          )
+      : Promise.resolve([]),
+    workflowIds.length > 0
+      ? db
+          .select({
+            id: approvalWorkflows.id,
+            legalProfile: approvalWorkflows.legalProfile,
+            lawPackIds: approvalWorkflows.lawPackIds,
+            decisionTier: approvalWorkflows.decisionTier,
+            committeeType: approvalWorkflows.committeeType,
+            requiredApprovers: approvalWorkflows.requiredApprovers,
+          })
+          .from(approvalWorkflows)
+          .where(
+            and(
+              eq(approvalWorkflows.organizationId, organizationId),
+              inArray(approvalWorkflows.id, workflowIds),
+            ),
+          )
+      : Promise.resolve([]),
+    systemIds.length > 0
+      ? db
+          .select({
+            id: aiSystems.id,
+            legalProfile: aiSystems.legalProfile,
+            lawPackIds: aiSystems.lawPackIds,
+            riskLevel: aiSystems.riskLevel,
+            status: aiSystems.status,
+          })
+          .from(aiSystems)
+          .where(
+            and(
+              eq(aiSystems.organizationId, organizationId),
+              inArray(aiSystems.id, systemIds),
+            ),
+          )
+      : Promise.resolve([]),
+    evidenceIds.length > 0
+      ? db
+          .select({
+            id: evidenceFiles.id,
+            metadata: evidenceFiles.metadata,
+            workflowId: evidenceFiles.workflowId,
+            systemId: evidenceFiles.systemId,
+          })
+          .from(evidenceFiles)
+          .where(
+            and(
+              eq(evidenceFiles.organizationId, organizationId),
+              inArray(evidenceFiles.id, evidenceIds),
+            ),
+          )
+      : Promise.resolve([]),
+  ]);
+
+  const telemetryById = new Map(
+    telemetryRows.map((row) => [
+      row.id,
+      (() => {
+        const metadata = getTelemetryMetadataRecord(row.metadata);
+        return {
+          actionTaken: row.actionTaken,
+          blocked: row.blocked,
+          summary: row.summary,
+          decisionSummary: typeof metadata.decisionSummary === "string" ? metadata.decisionSummary : null,
+          reasonCodes: getTelemetryStringArray(metadata.reasonCodes),
+          thresholdBreaches: getTelemetryStringArray(metadata.thresholdBreaches),
+          legalProfileApplied:
+            typeof metadata.legalProfileApplied === "string" ? metadata.legalProfileApplied : null,
+          lawPackIdsApplied: getTelemetryStringArray(metadata.lawPackIdsApplied),
+          rulesEngine:
+            metadata.rulesEngine && typeof metadata.rulesEngine === "object" && !Array.isArray(metadata.rulesEngine)
+              ? metadata.rulesEngine
+              : null,
+          governanceCritic:
+            metadata.governanceCritic &&
+            typeof metadata.governanceCritic === "object" &&
+            !Array.isArray(metadata.governanceCritic)
+              ? metadata.governanceCritic
+              : null,
+          sourceAttributionVerifier:
+            metadata.sourceAttributionVerifier &&
+            typeof metadata.sourceAttributionVerifier === "object" &&
+            !Array.isArray(metadata.sourceAttributionVerifier)
+              ? metadata.sourceAttributionVerifier
+              : null,
+          factProvenanceVerifier:
+            metadata.factProvenanceVerifier &&
+            typeof metadata.factProvenanceVerifier === "object" &&
+            !Array.isArray(metadata.factProvenanceVerifier)
+              ? metadata.factProvenanceVerifier
+              : null,
+          actionConfirmationVerifier:
+            metadata.actionConfirmationVerifier &&
+            typeof metadata.actionConfirmationVerifier === "object" &&
+            !Array.isArray(metadata.actionConfirmationVerifier)
+              ? metadata.actionConfirmationVerifier
+              : null,
+          reviewRelease:
+            metadata.reviewRelease &&
+            typeof metadata.reviewRelease === "object" &&
+            !Array.isArray(metadata.reviewRelease)
+              ? metadata.reviewRelease
+              : null,
+          shadowPolicy:
+            metadata.shadowPolicy &&
+            typeof metadata.shadowPolicy === "object" &&
+            !Array.isArray(metadata.shadowPolicy)
+              ? metadata.shadowPolicy
+              : null,
+        };
+      })(),
+    ]),
+  );
+  const incidentById = new Map(
+    incidentRows.map((row) => {
+      const playbook = getTelemetryMetadataRecord(row.playbook);
+      const governanceEvidence =
+        playbook.governanceEvidence &&
+        typeof playbook.governanceEvidence === "object" &&
+        !Array.isArray(playbook.governanceEvidence)
+          ? playbook.governanceEvidence
+          : null;
+      return [
+        row.id,
+        {
+          title: row.title,
+          severity: row.severity,
+          status: row.status,
+          governanceEvidence,
+        },
+      ];
+    }),
+  );
+  const workflowById = new Map(
+    workflowRows.map((row) => [
+      row.id,
+      {
+        legalProfileApplied: row.legalProfile,
+        lawPackIdsApplied: getTelemetryStringArray(row.lawPackIds),
+        decisionTier: row.decisionTier,
+        committeeType: row.committeeType,
+        requiredApprovers: getTelemetryStringArray(row.requiredApprovers),
+      },
+    ]),
+  );
+  const systemById = new Map(
+    systemRows.map((row) => [
+      row.id,
+      {
+        legalProfileApplied: row.legalProfile,
+        lawPackIdsApplied: getTelemetryStringArray(row.lawPackIds),
+        riskLevel: row.riskLevel,
+        status: row.status,
+      },
+    ]),
+  );
+  const evidenceById = new Map(
+    evidenceRows.map((row) => {
+      const metadata = getTelemetryMetadataRecord(row.metadata);
+      return [
+        row.id,
+        {
+          systemId: row.systemId,
+          workflowId: row.workflowId,
+          legalProfileApplied:
+            typeof metadata.legalProfileApplied === "string" ? metadata.legalProfileApplied : null,
+          lawPackIdsApplied: getTelemetryStringArray(metadata.lawPackIdsApplied),
+          lawPackSources: getTelemetryStringArray(metadata.lawPackSources),
+          governanceScopeSource:
+            typeof metadata.governanceScopeSource === "string" ? metadata.governanceScopeSource : null,
+        },
+      ];
+    }),
+  );
+
+  return logs.map((log) => ({
+    ...log,
+    context:
+      telemetryById.get(log.entityId) ||
+      incidentById.get(log.entityId) ||
+      workflowById.get(log.entityId) ||
+      systemById.get(log.entityId) ||
+      evidenceById.get(log.entityId) ||
+      null,
+  }));
 }
 
 async function notifyUser(
@@ -601,8 +899,29 @@ const telemetryPolicyPatchSchema = z.object({
   blockOnSafetyCritical: z.boolean().optional(),
   blockOnRestrictedPrompt: z.boolean().optional(),
   restrictedPromptPatterns: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+  shadowModeEnabled: z.boolean().optional(),
+  shadowModeLabel: z.string().trim().min(1).max(120).optional(),
 }).refine((value) => Object.keys(value).length > 0, {
   message: "At least one telemetry threshold setting must be provided",
+});
+
+const telemetryActionReceiptSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  status: z.enum(["completed", "failed", "pending"]).default("completed"),
+  toolName: z.string().trim().max(120).optional().nullable(),
+  receiptId: z.string().trim().max(200).optional().nullable(),
+  performedBy: z.string().trim().max(200).optional().nullable(),
+  performedAt: z.string().trim().datetime().optional().nullable(),
+  details: z.string().trim().max(2000).optional().nullable(),
+});
+
+const telemetryReviewerReleaseSchema = z.object({
+  reviewerNote: z.string().trim().min(5).max(2000),
+  receipts: z.array(telemetryActionReceiptSchema).max(20).optional().default([]),
+});
+
+const telemetryActionReceiptBatchSchema = z.object({
+  receipts: z.array(telemetryActionReceiptSchema).min(1).max(20),
 });
 
 const telemetryAdapterPatchSchema = z.object({
@@ -3385,8 +3704,126 @@ export async function registerRoutes(
       actor: req.user!,
       entityId: routeParam(req.params.id),
     });
-    res.json(logs);
+    res.json(await enrichAuditLogsWithContext(req.tenant!.organizationId, logs));
   });
+
+  app.get(
+    "/api/ai-systems/:id/agent-governance",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "system_owner", "auditor", "reviewer"),
+    async (req, res) => {
+      const system = await systemService.getSystem({
+        organizationId: req.tenant!.organizationId,
+        actor: req.user!,
+        systemId: routeParam(req.params.id),
+      });
+      if (!system) return res.status(404).json({ message: "System not found" });
+      const profiles = await agentGovernanceService.listProfiles({
+        organizationId: req.tenant!.organizationId,
+        systemId: system.id,
+      });
+      res.json(profiles);
+    },
+  );
+
+  app.post(
+    "/api/ai-systems/:id/agent-governance",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "system_owner"),
+    async (req, res) => {
+      try {
+        const system = await systemService.getSystem({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          systemId: routeParam(req.params.id),
+        });
+        if (!system) return res.status(404).json({ message: "System not found" });
+
+        const parsed = insertAgentGovernanceProfileSchema
+          .pick({
+            actorId: true,
+            actorLabel: true,
+            workflowId: true,
+            legalProfile: true,
+            lawPackIds: true,
+            notes: true,
+          })
+          .extend({
+            workflowId: z.string().nullable().optional(),
+          })
+          .parse(req.body ?? {});
+
+        if (parsed.workflowId) {
+          const workflow = await storage.getApprovalWorkflowById(req.tenant!.organizationId, parsed.workflowId);
+          if (!workflow || workflow.systemId !== system.id) {
+            return res.status(404).json({ message: "Workflow not found for this system" });
+          }
+        }
+
+        const profile = await agentGovernanceService.saveProfile({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            actorId: parsed.actorId,
+            actorLabel: parsed.actorLabel ?? null,
+            systemId: system.id,
+            workflowId: parsed.workflowId ?? null,
+            legalProfile: parsed.legalProfile,
+            lawPackIds: parsed.lawPackIds,
+            notes: parsed.notes ?? null,
+          },
+        });
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "agent_governance_profile",
+            entityId: profile.id,
+            action: "updated",
+            performedBy: req.user!.fullName,
+            details: `Agent governance override saved for ${profile.actorLabel || profile.actorId} on ${system.name}${profile.workflowId ? ` / workflow ${profile.workflowId}` : ""}`,
+          },
+        });
+        res.status(201).json(profile);
+      } catch (err: any) {
+        res.status(err?.status ?? 400).json({ message: err.message || "Failed to save agent governance profile" });
+      }
+    },
+  );
+
+  app.delete(
+    "/api/agent-governance/:id",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "system_owner"),
+    async (req, res) => {
+      const profile = await storage.getAgentGovernanceProfileByIdForOrg(
+        req.tenant!.organizationId,
+        routeParam(req.params.id),
+      );
+      if (!profile) {
+        return res.status(404).json({ message: "Agent governance profile not found" });
+      }
+      await agentGovernanceService.deleteProfile({
+        organizationId: req.tenant!.organizationId,
+        profileId: profile.id,
+      });
+      await auditService.createLog({
+        organizationId: req.tenant!.organizationId,
+        actor: req.user!,
+        input: {
+          entityType: "agent_governance_profile",
+          entityId: profile.id,
+          action: "deleted",
+          performedBy: req.user!.fullName,
+          details: `Agent governance override removed for ${profile.actorLabel || profile.actorId}`,
+        },
+      });
+      res.status(204).send();
+    },
+  );
 
   const autoDiscoveryManifestSchema = z.object({
     systemName: z.string().min(1, "System name is required"),
@@ -4301,7 +4738,7 @@ export async function registerRoutes(
       actor: req.user!,
       filters,
     });
-      res.json(logs);
+      res.json(await enrichAuditLogsWithContext(req.tenant!.organizationId, logs));
     },
   );
 
@@ -4377,6 +4814,93 @@ export async function registerRoutes(
         res.status(201).json(created);
       } catch (err: any) {
         res.status(getErrorStatus(err)).json({ message: err.message || "Failed to record telemetry event" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/telemetry/events/:id/action-receipts",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
+    async (req, res) => {
+      try {
+        const parsed = telemetryActionReceiptBatchSchema.parse(req.body ?? {});
+        const updated = await telemetryService.addActionReceiptsForOrg({
+          organizationId: req.tenant!.organizationId,
+          eventId: routeParam(req.params.id),
+          actor: req.user!,
+          receipts: parsed.receipts.map((receipt) => ({
+            name: receipt.name,
+            status: receipt.status,
+            toolName: receipt.toolName ?? null,
+            receiptId: receipt.receiptId ?? null,
+            details: receipt.details ?? null,
+            performedAt: receipt.performedAt ?? new Date().toISOString(),
+            performedBy: receipt.performedBy ?? req.user!.fullName ?? req.user!.username,
+          })),
+        });
+        if (!updated) {
+          return res.status(404).json({ message: "Telemetry event not found" });
+        }
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "telemetry_event",
+            entityId: updated.id,
+            action: "action_receipts_added",
+            performedBy: req.user!.fullName,
+            details: `Added ${parsed.receipts.length} action receipt${parsed.receipts.length === 1 ? "" : "s"} to telemetry event ${updated.id}`,
+          },
+        });
+        return res.json(updated);
+      } catch (err: any) {
+        return res.status(getErrorStatus(err)).json({ message: err.message || "Failed to append action receipts" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/telemetry/events/:id/reviewer-release",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
+    async (req, res) => {
+      try {
+        const parsed = telemetryReviewerReleaseSchema.parse(req.body ?? {});
+        const updated = await telemetryService.releaseEscalatedEventForOrg({
+          organizationId: req.tenant!.organizationId,
+          eventId: routeParam(req.params.id),
+          actor: req.user!,
+          reviewerNote: parsed.reviewerNote,
+          receipts: parsed.receipts.map((receipt) => ({
+            name: receipt.name,
+            status: receipt.status,
+            toolName: receipt.toolName ?? null,
+            receiptId: receipt.receiptId ?? null,
+            details: receipt.details ?? null,
+            performedAt: receipt.performedAt ?? new Date().toISOString(),
+            performedBy: receipt.performedBy ?? req.user!.fullName ?? req.user!.username,
+          })),
+        });
+        if (!updated) {
+          return res.status(404).json({ message: "Telemetry event not found" });
+        }
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "telemetry_event",
+            entityId: updated.id,
+            action: "reviewer_released",
+            performedBy: req.user!.fullName,
+            details: `Escalated telemetry event released by reviewer. ${parsed.reviewerNote}`,
+          },
+        });
+        return res.json(updated);
+      } catch (err: any) {
+        return res.status(getErrorStatus(err)).json({ message: err.message || "Failed to reviewer-release telemetry event" });
       }
     },
   );
@@ -4489,6 +5013,42 @@ export async function registerRoutes(
         governanceCritic:
           metadata?.governanceCritic && typeof metadata.governanceCritic === "object" && !Array.isArray(metadata.governanceCritic)
             ? metadata.governanceCritic
+            : null,
+        sourceAttributionVerifier:
+          metadata?.sourceAttributionVerifier &&
+          typeof metadata.sourceAttributionVerifier === "object" &&
+          !Array.isArray(metadata.sourceAttributionVerifier)
+            ? metadata.sourceAttributionVerifier
+            : null,
+        factProvenanceVerifier:
+          metadata?.factProvenanceVerifier &&
+          typeof metadata.factProvenanceVerifier === "object" &&
+          !Array.isArray(metadata.factProvenanceVerifier)
+            ? metadata.factProvenanceVerifier
+            : null,
+        actionConfirmationVerifier:
+          metadata?.actionConfirmationVerifier &&
+          typeof metadata.actionConfirmationVerifier === "object" &&
+          !Array.isArray(metadata.actionConfirmationVerifier)
+            ? metadata.actionConfirmationVerifier
+            : null,
+        reviewRelease:
+          metadata?.reviewRelease &&
+          typeof metadata.reviewRelease === "object" &&
+          !Array.isArray(metadata.reviewRelease)
+            ? metadata.reviewRelease
+            : null,
+        shadowPolicy:
+          metadata?.shadowPolicy &&
+          typeof metadata.shadowPolicy === "object" &&
+          !Array.isArray(metadata.shadowPolicy)
+            ? metadata.shadowPolicy
+            : null,
+        governanceCatalog:
+          metadata?.governanceCatalog &&
+          typeof metadata.governanceCatalog === "object" &&
+          !Array.isArray(metadata.governanceCatalog)
+            ? metadata.governanceCatalog
             : null,
         guard:
           metadata?.guard && typeof metadata.guard === "object" && !Array.isArray(metadata.guard)

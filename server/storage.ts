@@ -7,12 +7,13 @@ import {
   type ComplianceControl, type InsertComplianceControl,
   type SystemControl, type InsertSystemControl,
   type ApprovalWorkflow, type InsertApprovalWorkflow,
+  type AgentGovernanceProfile, type InsertAgentGovernanceProfile,
   type AuditLog, type InsertAuditLog,
   type Notification, type InsertNotification,
   type EvidenceFile, type InsertEvidenceFile,
   type RiskAssessment, type InsertRiskAssessment,
   organizations, memberships, organizationDomains,
-  users, aiSystems, complianceControls, systemControls, approvalWorkflows, auditLogs,
+  users, aiSystems, complianceControls, systemControls, approvalWorkflows, agentGovernanceProfiles, auditLogs,
   notifications, evidenceFiles, riskAssessments,
 } from "@shared/schema";
 import { db } from "./db";
@@ -162,6 +163,25 @@ export interface IStorage {
   createApprovalWorkflow(wf: InsertApprovalWorkflow): Promise<ApprovalWorkflow>;
   updateApprovalWorkflow(id: string, data: Partial<InsertApprovalWorkflow>): Promise<ApprovalWorkflow | undefined>;
 
+  getAgentGovernanceProfilesByOrg(
+    organizationId: string,
+    filters?: AgentGovernanceProfileFilters,
+  ): Promise<AgentGovernanceProfile[]>;
+  getAgentGovernanceProfileByIdForOrg(
+    organizationId: string,
+    id: string,
+  ): Promise<AgentGovernanceProfile | undefined>;
+  createAgentGovernanceProfileForOrg(
+    organizationId: string,
+    profile: Omit<InsertAgentGovernanceProfile, "organizationId">,
+  ): Promise<AgentGovernanceProfile>;
+  updateAgentGovernanceProfileByOrg(
+    organizationId: string,
+    id: string,
+    data: Partial<Omit<InsertAgentGovernanceProfile, "organizationId">>,
+  ): Promise<AgentGovernanceProfile | undefined>;
+  deleteAgentGovernanceProfileByOrg(organizationId: string, id: string): Promise<void>;
+
   getAuditLogs(filters?: AuditLogFilters): Promise<AuditLog[]>;
   getAuditLogsByOrg(organizationId: string, filters?: AuditLogFilters): Promise<AuditLog[]>;
   getAuditLogsByEntityForOrg(organizationId: string, entityId: string): Promise<AuditLog[]>;
@@ -252,6 +272,12 @@ export interface SystemControlFilters {
 export interface EvidenceFileFilters {
   systemId?: string;
   controlId?: string;
+  workflowId?: string;
+}
+
+export interface AgentGovernanceProfileFilters {
+  actorId?: string;
+  systemId?: string;
   workflowId?: string;
 }
 
@@ -925,6 +951,68 @@ export class DatabaseStorage implements IStorage {
 
   async updateApprovalWorkflow(_id: string, _data: Partial<InsertApprovalWorkflow>): Promise<ApprovalWorkflow | undefined> {
     throwUnscopedTenantMethod("updateApprovalWorkflow", "updateApprovalWorkflowByOrg");
+  }
+
+  async getAgentGovernanceProfilesByOrg(
+    organizationId: string,
+    filters?: AgentGovernanceProfileFilters,
+  ): Promise<AgentGovernanceProfile[]> {
+    const conditions: SQL[] = [eq(agentGovernanceProfiles.organizationId, organizationId)];
+    if (filters?.actorId) {
+      conditions.push(eq(agentGovernanceProfiles.actorId, filters.actorId));
+    }
+    if (filters?.systemId) {
+      conditions.push(eq(agentGovernanceProfiles.systemId, filters.systemId));
+    }
+    if (filters?.workflowId) {
+      conditions.push(eq(agentGovernanceProfiles.workflowId, filters.workflowId));
+    }
+    return db
+      .select()
+      .from(agentGovernanceProfiles)
+      .where(and(...conditions))
+      .orderBy(desc(agentGovernanceProfiles.updatedAt), desc(agentGovernanceProfiles.createdAt));
+  }
+
+  async getAgentGovernanceProfileByIdForOrg(
+    organizationId: string,
+    id: string,
+  ): Promise<AgentGovernanceProfile | undefined> {
+    const [profile] = await db
+      .select()
+      .from(agentGovernanceProfiles)
+      .where(and(eq(agentGovernanceProfiles.organizationId, organizationId), eq(agentGovernanceProfiles.id, id)));
+    return profile;
+  }
+
+  async createAgentGovernanceProfileForOrg(
+    organizationId: string,
+    profile: Omit<InsertAgentGovernanceProfile, "organizationId">,
+  ): Promise<AgentGovernanceProfile> {
+    const [created] = await db
+      .insert(agentGovernanceProfiles)
+      .values({ ...profile, organizationId })
+      .returning();
+    return created;
+  }
+
+  async updateAgentGovernanceProfileByOrg(
+    organizationId: string,
+    id: string,
+    data: Partial<Omit<InsertAgentGovernanceProfile, "organizationId">>,
+  ): Promise<AgentGovernanceProfile | undefined> {
+    const [updated] = await db
+      .update(agentGovernanceProfiles)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(agentGovernanceProfiles.organizationId, organizationId), eq(agentGovernanceProfiles.id, id)))
+      .returning();
+    return updated;
+  }
+
+  async deleteAgentGovernanceProfileByOrg(organizationId: string, id: string): Promise<void> {
+    await db
+      .delete(agentGovernanceProfiles)
+      .where(and(eq(agentGovernanceProfiles.organizationId, organizationId), eq(agentGovernanceProfiles.id, id)));
   }
 
   async getAuditLogs(_filters?: AuditLogFilters): Promise<AuditLog[]> {

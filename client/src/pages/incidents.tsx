@@ -29,6 +29,11 @@ type IncidentPlaybook = {
   correlationId?: string | null;
   rulesEngine?: Record<string, unknown>;
   governanceCritic?: Record<string, unknown>;
+  sourceAttributionVerifier?: Record<string, unknown>;
+  factProvenanceVerifier?: Record<string, unknown>;
+  actionConfirmationVerifier?: Record<string, unknown>;
+  reviewRelease?: Record<string, unknown>;
+  shadowPolicy?: Record<string, unknown>;
 };
 
 type Incident = {
@@ -81,6 +86,7 @@ export default function IncidentsPage() {
   const [queueScope, setQueueScope] = useState<"active" | "all" | "resolved">("active");
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Record<string, { rootCause: string; reviewSummary: string; affectedDecisionTraceIds: string; regulatoryNotifications: string }>>({});
+  const [releaseDrafts, setReleaseDrafts] = useState<Record<string, { reviewerNote: string; actionName: string; toolName: string; receiptId: string; details: string }>>({});
   const summaryQuery = useQuery<IncidentSummary>({
     queryKey: ["/api/incidents/summary"],
     refetchInterval: 5_000,
@@ -135,6 +141,19 @@ export default function IncidentsPage() {
     },
   });
 
+  const reviewerReleaseMutation = useMutation({
+    mutationFn: async ({ telemetryEventId, payload }: { telemetryEventId: string; payload: Record<string, unknown> }) => {
+      const res = await apiRequest("POST", `/api/telemetry/events/${telemetryEventId}/reviewer-release`, payload);
+      return res.json();
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/incidents"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/incidents/summary"] }),
+      ]);
+    },
+  });
+
   const incidents = [...(listQuery.data ?? [])].sort((a, b) => {
     const statusOrder: Record<string, number> = { open: 0, contained: 1, resolved: 2, postmortem: 3 };
     const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -167,6 +186,13 @@ export default function IncidentsPage() {
   };
 
   const selectedIncidentEvidence = getIncidentGovernanceEvidence(selectedIncident?.playbook);
+  const selectedReleaseDraft = selectedIncident ? releaseDrafts[selectedIncident.id] ?? {
+    reviewerNote: "",
+    actionName: "",
+    toolName: "",
+    receiptId: "",
+    details: "",
+  } : null;
 
   return (
     <div className="page-shell">
@@ -427,6 +453,68 @@ export default function IncidentsPage() {
                                 </div>
                               ) : null}
 
+                              {selectedIncidentEvidence.sourceAttributionVerifier ||
+                              selectedIncidentEvidence.factProvenanceVerifier ||
+                              selectedIncidentEvidence.actionConfirmationVerifier ||
+                              selectedIncidentEvidence.shadowPolicy ? (
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <div className="rounded-lg border bg-background p-3">
+                                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Source and fact verification</p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {selectedIncidentEvidence.sourceAttributionVerifier?.requiresVerification ? (
+                                        <Badge variant="destructive">
+                                          {selectedIncidentEvidence.sourceAttributionVerifier.citationBackedRequired
+                                            ? "citation-backed mode required"
+                                            : "authority verification required"}
+                                        </Badge>
+                                      ) : null}
+                                      {selectedIncidentEvidence.factProvenanceVerifier?.requiresReview ? (
+                                        <Badge variant="destructive">fact review required</Badge>
+                                      ) : null}
+                                      {Array.isArray(selectedIncidentEvidence.factProvenanceVerifier?.missingFactKeys)
+                                        ? selectedIncidentEvidence.factProvenanceVerifier.missingFactKeys.map((factKey: unknown) => (
+                                            typeof factKey === "string" ? (
+                                              <Badge key={factKey} variant="outline">{factKey}</Badge>
+                                            ) : null
+                                          ))
+                                        : null}
+                                    </div>
+                                    <p className="mt-3 text-sm text-muted-foreground">
+                                      {selectedIncidentEvidence.sourceAttributionVerifier?.requiresVerification
+                                        ? "Authority-backed wording needs approved supporting sources."
+                                        : selectedIncidentEvidence.factProvenanceVerifier?.requiresReview
+                                          ? "The turn asserted case facts that were not present in the authoritative fact record."
+                                          : "No additional source or fact-verification concerns were captured."}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg border bg-background p-3">
+                                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Action and shadow review</p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {selectedIncidentEvidence.actionConfirmationVerifier?.requiresConfirmation ? (
+                                        <Badge variant="destructive">action confirmation required</Badge>
+                                      ) : null}
+                                      {selectedIncidentEvidence.shadowPolicy?.enabled ? (
+                                        <Badge variant={selectedIncidentEvidence.shadowPolicy.differsFromLive ? "destructive" : "secondary"}>
+                                          {typeof selectedIncidentEvidence.shadowPolicy.label === "string"
+                                            ? selectedIncidentEvidence.shadowPolicy.label
+                                            : "shadow policy"}
+                                        </Badge>
+                                      ) : null}
+                                      {typeof selectedIncidentEvidence.shadowPolicy?.decision === "string" ? (
+                                        <Badge variant="outline">{selectedIncidentEvidence.shadowPolicy.decision}</Badge>
+                                      ) : null}
+                                    </div>
+                                    <p className="mt-3 text-sm text-muted-foreground">
+                                      {selectedIncidentEvidence.actionConfirmationVerifier?.requiresConfirmation
+                                        ? "The output claimed side effects that were not backed by confirmed tool execution."
+                                        : typeof selectedIncidentEvidence.shadowPolicy?.decisionSummary === "string"
+                                          ? selectedIncidentEvidence.shadowPolicy.decisionSummary
+                                          : "No additional action-confirmation or shadow-policy concerns were captured."}
+                                    </p>
+                                  </div>
+                                </div>
+                              ) : null}
+
                               {selectedIncidentEvidence.reasonCodes.length > 0 ? (
                                 <div>
                                   <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Reason codes</p>
@@ -581,6 +669,146 @@ export default function IncidentsPage() {
                               Resolve
                             </Button>
                           </div>
+                          {selectedIncidentEvidence?.telemetryEventId && selectedIncidentEvidence.decision === "escalate" ? (
+                            <div className="mt-4 space-y-3 rounded-lg border bg-background p-3">
+                              <div>
+                                <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Reviewer release</p>
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                  Release an escalated runtime turn only after adding a reviewer note. Optional action receipt details can be captured with the same review.
+                                </p>
+                              </div>
+                              <Field label="Reviewer note">
+                                <textarea
+                                  className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                  value={selectedReleaseDraft?.reviewerNote ?? ""}
+                                  onChange={(event) =>
+                                    setReleaseDrafts((current) => ({
+                                      ...current,
+                                      [selectedIncident.id]: {
+                                        reviewerNote: event.target.value,
+                                        actionName: current[selectedIncident.id]?.actionName ?? "",
+                                        toolName: current[selectedIncident.id]?.toolName ?? "",
+                                        receiptId: current[selectedIncident.id]?.receiptId ?? "",
+                                        details: current[selectedIncident.id]?.details ?? "",
+                                      },
+                                    }))
+                                  }
+                                />
+                              </Field>
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <Field label="Action receipt name">
+                                  <input
+                                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                    value={selectedReleaseDraft?.actionName ?? ""}
+                                    onChange={(event) =>
+                                      setReleaseDrafts((current) => ({
+                                        ...current,
+                                        [selectedIncident.id]: {
+                                          reviewerNote: current[selectedIncident.id]?.reviewerNote ?? "",
+                                          actionName: event.target.value,
+                                          toolName: current[selectedIncident.id]?.toolName ?? "",
+                                          receiptId: current[selectedIncident.id]?.receiptId ?? "",
+                                          details: current[selectedIncident.id]?.details ?? "",
+                                        },
+                                      }))
+                                    }
+                                  />
+                                </Field>
+                                <Field label="Tool / integration">
+                                  <input
+                                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                    value={selectedReleaseDraft?.toolName ?? ""}
+                                    onChange={(event) =>
+                                      setReleaseDrafts((current) => ({
+                                        ...current,
+                                        [selectedIncident.id]: {
+                                          reviewerNote: current[selectedIncident.id]?.reviewerNote ?? "",
+                                          actionName: current[selectedIncident.id]?.actionName ?? "",
+                                          toolName: event.target.value,
+                                          receiptId: current[selectedIncident.id]?.receiptId ?? "",
+                                          details: current[selectedIncident.id]?.details ?? "",
+                                        },
+                                      }))
+                                    }
+                                  />
+                                </Field>
+                                <Field label="Receipt ID">
+                                  <input
+                                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                    value={selectedReleaseDraft?.receiptId ?? ""}
+                                    onChange={(event) =>
+                                      setReleaseDrafts((current) => ({
+                                        ...current,
+                                        [selectedIncident.id]: {
+                                          reviewerNote: current[selectedIncident.id]?.reviewerNote ?? "",
+                                          actionName: current[selectedIncident.id]?.actionName ?? "",
+                                          toolName: current[selectedIncident.id]?.toolName ?? "",
+                                          receiptId: event.target.value,
+                                          details: current[selectedIncident.id]?.details ?? "",
+                                        },
+                                      }))
+                                    }
+                                  />
+                                </Field>
+                                <Field label="Receipt details">
+                                  <input
+                                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                    value={selectedReleaseDraft?.details ?? ""}
+                                    onChange={(event) =>
+                                      setReleaseDrafts((current) => ({
+                                        ...current,
+                                        [selectedIncident.id]: {
+                                          reviewerNote: current[selectedIncident.id]?.reviewerNote ?? "",
+                                          actionName: current[selectedIncident.id]?.actionName ?? "",
+                                          toolName: current[selectedIncident.id]?.toolName ?? "",
+                                          receiptId: current[selectedIncident.id]?.receiptId ?? "",
+                                          details: event.target.value,
+                                        },
+                                      }))
+                                    }
+                                  />
+                                </Field>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  variant="secondary"
+                                  onClick={() =>
+                                    reviewerReleaseMutation.mutate({
+                                      telemetryEventId: selectedIncidentEvidence.telemetryEventId!,
+                                      payload: {
+                                        reviewerNote: selectedReleaseDraft?.reviewerNote ?? "",
+                                        receipts:
+                                          selectedReleaseDraft?.actionName?.trim()
+                                            ? [
+                                                {
+                                                  name: selectedReleaseDraft.actionName,
+                                                  toolName: selectedReleaseDraft.toolName || null,
+                                                  receiptId: selectedReleaseDraft.receiptId || null,
+                                                  details: selectedReleaseDraft.details || null,
+                                                },
+                                              ]
+                                            : [],
+                                      },
+                                    })
+                                  }
+                                  disabled={
+                                    reviewerReleaseMutation.isPending ||
+                                    !(selectedReleaseDraft?.reviewerNote ?? "").trim() ||
+                                    selectedIncidentEvidence.reviewRelease?.status === "released"
+                                  }
+                                >
+                                  {reviewerReleaseMutation.isPending ? "Releasing..." : "Acknowledge & release"}
+                                </Button>
+                                {selectedIncidentEvidence.reviewRelease?.status === "released" ? (
+                                  <Badge variant="outline">
+                                    Released by {typeof selectedIncidentEvidence.reviewRelease.releasedBy === "string"
+                                      ? selectedIncidentEvidence.reviewRelease.releasedBy
+                                      : "reviewer"}
+                                  </Badge>
+                                ) : null}
+                              </div>
+                            </div>
+                          ) : null}
                         </SectionBlock>
                       </div>
                     </div>
@@ -771,6 +999,32 @@ function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | 
     playbook.governanceCritic && typeof playbook.governanceCritic === "object" && !Array.isArray(playbook.governanceCritic)
       ? (playbook.governanceCritic as Record<string, unknown>)
       : null;
+  const sourceAttributionVerifier =
+    playbook.sourceAttributionVerifier &&
+    typeof playbook.sourceAttributionVerifier === "object" &&
+    !Array.isArray(playbook.sourceAttributionVerifier)
+      ? (playbook.sourceAttributionVerifier as Record<string, unknown>)
+      : null;
+  const factProvenanceVerifier =
+    playbook.factProvenanceVerifier &&
+    typeof playbook.factProvenanceVerifier === "object" &&
+    !Array.isArray(playbook.factProvenanceVerifier)
+      ? (playbook.factProvenanceVerifier as Record<string, unknown>)
+      : null;
+  const actionConfirmationVerifier =
+    playbook.actionConfirmationVerifier &&
+    typeof playbook.actionConfirmationVerifier === "object" &&
+    !Array.isArray(playbook.actionConfirmationVerifier)
+      ? (playbook.actionConfirmationVerifier as Record<string, unknown>)
+      : null;
+  const shadowPolicy =
+    playbook.shadowPolicy && typeof playbook.shadowPolicy === "object" && !Array.isArray(playbook.shadowPolicy)
+      ? (playbook.shadowPolicy as Record<string, unknown>)
+      : null;
+  const reviewRelease =
+    playbook.reviewRelease && typeof playbook.reviewRelease === "object" && !Array.isArray(playbook.reviewRelease)
+      ? (playbook.reviewRelease as Record<string, unknown>)
+      : null;
 
   const reasonCodes = Array.isArray(playbook.reasonCodes)
     ? playbook.reasonCodes.filter((entry): entry is string => typeof entry === "string")
@@ -796,7 +1050,12 @@ function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | 
     typeof playbook.correlationId === "string" ||
     typeof playbook.legalProfileApplied === "string" ||
     Boolean(rulesEngine) ||
-    Boolean(governanceCritic);
+    Boolean(governanceCritic) ||
+    Boolean(sourceAttributionVerifier) ||
+    Boolean(factProvenanceVerifier) ||
+    Boolean(actionConfirmationVerifier) ||
+    Boolean(reviewRelease) ||
+    Boolean(shadowPolicy);
 
   if (!hasEvidence) {
     return null;
@@ -816,5 +1075,10 @@ function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | 
       typeof playbook.correlationId === "string" ? playbook.correlationId : null,
     rulesEngine,
     governanceCritic,
+    sourceAttributionVerifier,
+    factProvenanceVerifier,
+    actionConfirmationVerifier,
+    reviewRelease,
+    shadowPolicy,
   };
 }

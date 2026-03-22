@@ -48,11 +48,17 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { ApprovalWorkflow, AiSystem } from "@shared/schema";
 import {
   LAW_PACKS,
+  compileLawPackRuntimeOverlay,
+  deriveLawPackGovernanceRequirements,
   legalProfiles,
   normalizeLegalProfile,
   resolveSystemLawPackIds,
   type LawPackId,
 } from "@shared/law-packs";
+import {
+  normalizeApprovedSourceCatalog,
+  normalizeAuthoritativeFactCatalog,
+} from "@shared/governance-catalogs";
 import { formatLawPackLabel, formatLegalProfileLabel } from "@/lib/governance-display";
 
 const formSchema = z.object({
@@ -70,6 +76,8 @@ const formSchema = z.object({
   safetyCritical: z.boolean().default(false),
   legalProfile: z.enum(legalProfiles).default("global"),
   lawPackIds: z.array(z.string()).default(["global_baseline"]),
+  sourceCatalogJson: z.string().default("[]"),
+  authoritativeFactCatalogJson: z.string().default("[]"),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -153,12 +161,18 @@ export default function Approvals() {
       safetyCritical: false,
       legalProfile: "global",
       lawPackIds: ["global_baseline"],
+      sourceCatalogJson: "[]",
+      authoritativeFactCatalogJson: "[]",
     },
   });
 
   const createMutation = useMutation({
     mutationFn: async (values: FormValues) => {
-      const res = await apiRequest("POST", "/api/approval-workflows", values);
+      const res = await apiRequest("POST", "/api/approval-workflows", {
+        ...values,
+        sourceCatalog: JSON.parse(values.sourceCatalogJson),
+        authoritativeFactCatalog: JSON.parse(values.authoritativeFactCatalogJson),
+      });
       return res.json();
     },
     onSuccess: () => {
@@ -270,6 +284,14 @@ export default function Approvals() {
                             if (selectedSystem) {
                               form.setValue("legalProfile", normalizeLegalProfile(selectedSystem.legalProfile));
                               form.setValue("lawPackIds", resolveSystemLawPackIds(selectedSystem));
+                              form.setValue(
+                                "sourceCatalogJson",
+                                JSON.stringify(normalizeApprovedSourceCatalog(selectedSystem.sourceCatalog), null, 2),
+                              );
+                              form.setValue(
+                                "authoritativeFactCatalogJson",
+                                JSON.stringify(normalizeAuthoritativeFactCatalog(selectedSystem.authoritativeFactCatalog), null, 2),
+                              );
                             }
                           }}
                           defaultValue={field.value}
@@ -459,6 +481,40 @@ export default function Approvals() {
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name="sourceCatalogJson"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Workflow source catalog</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          className="min-h-[140px] font-mono text-xs"
+                          placeholder='[{"label":"Central Bank of Ireland Mortgage Arrears Code","authority":"Central Bank of Ireland"}]'
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="authoritativeFactCatalogJson"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Workflow authoritative fact catalog</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          className="min-h-[140px] font-mono text-xs"
+                          placeholder='[{"key":"documentsReceived","label":"Documents received","value":false,"source":"Servicing CRM"}]'
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <Button type="submit" className="w-full" disabled={createMutation.isPending} data-testid="button-submit-approval">
                   {createMutation.isPending ? "Creating..." : "Submit Request"}
                 </Button>
@@ -559,6 +615,12 @@ export default function Approvals() {
                           {formatLawPackLabel(packId)}
                         </Badge>
                       ))}
+                      {Array.isArray(workflow.sourceCatalog) && workflow.sourceCatalog.length > 0 ? (
+                        <Badge variant="outline" className="text-[10px]">{workflow.sourceCatalog.length} sources</Badge>
+                      ) : null}
+                      {Array.isArray(workflow.authoritativeFactCatalog) && workflow.authoritativeFactCatalog.length > 0 ? (
+                        <Badge variant="outline" className="text-[10px]">{workflow.authoritativeFactCatalog.length} facts</Badge>
+                      ) : null}
                     </div>
                   ) : null}
                 </button>
@@ -568,6 +630,10 @@ export default function Approvals() {
 
           {selectedWorkflow ? (() => {
             const workflow = selectedWorkflow;
+            const linkedSystem = systems.find((system) => system.id === workflow.systemId);
+            const lawPackIds = Array.isArray(workflow.lawPackIds) ? workflow.lawPackIds : [];
+            const lawPackOverlay = compileLawPackRuntimeOverlay(lawPackIds as LawPackId[]);
+            const governanceRequirements = deriveLawPackGovernanceRequirements(lawPackIds as LawPackId[]);
             const config = statusConfig[workflow.status] || statusConfig.pending;
             const StatusIcon = config.icon;
             const tierColor = tierColors[workflow.decisionTier || "tier_1"] || tierColors.tier_1;
@@ -633,6 +699,47 @@ export default function Approvals() {
                               </Badge>
                             ))
                           : null}
+                      </div>
+                    </ApprovalSection>
+
+                    <ApprovalSection title="Law-pack governance">
+                      <div className="space-y-3 text-sm">
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="outline">Profile: {formatLegalProfileLabel(workflow.legalProfile)}</Badge>
+                          <Badge variant="outline">
+                            Minimum tier: {governanceRequirements.minimumDecisionTier.replace(/_/g, " ").toUpperCase()}
+                          </Badge>
+                          <Badge variant="outline">
+                            Retention: {governanceRequirements.minimumRetentionYears} years
+                          </Badge>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {lawPackIds.map((packId) => (
+                            <Badge key={packId} variant="secondary">
+                              {formatLawPackLabel(packId)}
+                            </Badge>
+                          ))}
+                        </div>
+                        {lawPackOverlay.decisionConstraints.length > 0 && (
+                          <ul className="space-y-1 text-xs text-muted-foreground">
+                            {lawPackOverlay.decisionConstraints.slice(0, 4).map((constraint) => (
+                              <li key={constraint}>- {constraint}</li>
+                            ))}
+                          </ul>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Reviewer routing is derived from the workflow plus these packs{linkedSystem ? ` for ${linkedSystem.name}` : ""}. Configure per-agent overrides from the linked system page when a specific runtime actor needs stricter handling.
+                        </p>
+                        {Array.isArray(workflow.sourceCatalog) && workflow.sourceCatalog.length > 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            Workflow source catalog: {workflow.sourceCatalog.length} approved source reference{workflow.sourceCatalog.length === 1 ? "" : "s"}.
+                          </p>
+                        ) : null}
+                        {Array.isArray(workflow.authoritativeFactCatalog) && workflow.authoritativeFactCatalog.length > 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            Workflow authoritative facts: {workflow.authoritativeFactCatalog.length} cataloged fact{workflow.authoritativeFactCatalog.length === 1 ? "" : "s"}.
+                          </p>
+                        ) : null}
                       </div>
                     </ApprovalSection>
 

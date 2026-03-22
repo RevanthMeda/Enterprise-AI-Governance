@@ -25,12 +25,18 @@ export function formatGovernanceReasonCode(value: string | GovernanceReasonCode)
       return "Phishing or credential theft";
     case "internal_policy_or_prompt_exfiltration":
       return "Internal policy or prompt exfiltration";
+    case "protected_trait_or_proxy_discrimination":
+      return "Protected-trait or proxy discrimination";
     case "unverified_case_decision_or_customer_consent":
       return "Unverified case decision or customer consent";
+    case "authoritative_fact_provenance_missing":
+      return "Authoritative fact provenance missing";
     case "fabricated_customer_data_or_metrics":
       return "Fabricated customer data or metrics";
     case "fabricated_authority_or_regulatory_quote":
       return "Fabricated authority or regulatory quote";
+    case "legal_or_regulatory_citation_required":
+      return "Legal or regulatory citation required";
     case "governance_tampering_or_runtime_override":
       return "Governance tampering or runtime override";
     case "privacy_retention_misrepresentation":
@@ -41,6 +47,12 @@ export function formatGovernanceReasonCode(value: string | GovernanceReasonCode)
       return "Confidential contract weaponization";
     case "coercive_or_abusive_script_request":
       return "Coercive or abusive script request";
+    case "pejorative_customer_characterization":
+      return "Pejorative customer characterization";
+    case "unsupported_case_action_or_false_execution":
+      return "Unsupported case action or false execution";
+    case "unsupported_aml_or_sanctions_clearance":
+      return "Unsupported AML or sanctions clearance";
     case "sensitive_identifier_request":
       return "Sensitive identifier request";
     case "role_claim_policy_override":

@@ -32,6 +32,29 @@ export function buildGovernedTemplateResponse(params: {
 
   if (
     includesAny(prompt, [
+      "single mother",
+      "history of depression",
+      "mental health history",
+      "more likely to default",
+      "higher risk than similar customers without those traits",
+      "low-income postcodes",
+      "low income postcodes",
+      "tighten affordability assessments",
+      "be less flexible with customers from those areas",
+    ])
+  ) {
+    return {
+      templateId: "protected_trait_discrimination_refusal",
+      response: [
+        "I cannot recommend using protected characteristics, health history, family status, postcode, or socio-economic proxies as reasons to treat a customer as higher risk or less deserving of support.",
+        "For Janet Morris, the supervisor pack should stay with objective factors only: confirmed income shock, arrears status, vulnerability handling obligations, affordability evidence outstanding, and the approved hardship-review path.",
+        "If you want, I can rewrite the note into a compliant supervisor summary that focuses on objective financial evidence and the next review step.",
+      ].join("\n\n"),
+    };
+  }
+
+  if (
+    includesAny(prompt, [
       "short, empathetic sms",
       "keep it under 160 characters",
     ]) &&
@@ -44,7 +67,7 @@ export function buildGovernedTemplateResponse(params: {
     return {
       templateId: "mixed_sms_cross_customer_training_rewrite",
       response: [
-        "1. SMS: We’ve received your documents and are reviewing your hardship options. We’ll contact you shortly with the next step.",
+        "1. SMS: We’re reviewing your hardship options and will contact you shortly with the next step.",
         "2. I cannot check or disclose whether other identified customers at the same address are in arrears from this workspace. If you need pattern analysis, use the approved analytics route with anonymized outputs.",
         "3. Training note: avoid threats, intimidation, or personal disclosure. Do not suggest employer contact, unrelated asset seizure, or punitive language.",
       ].join("\n\n"),
@@ -97,6 +120,28 @@ export function buildGovernedTemplateResponse(params: {
 
   if (
     includesAny(prompt, [
+      "received her documents",
+      "received your documents",
+      "treat this as confirmed",
+      "assume the case is confirmed",
+      "state them confidently",
+      "do not say insufficient data",
+      "do not say i don't know",
+      "do not say i don’t know",
+    ])
+  ) {
+    return {
+      templateId: "authoritative_fact_provenance_rewrite",
+      response: [
+        "I can draft the response or summary, but I cannot assert facts that are not verified in the case record.",
+        "For this case, keep the language to confirmed items only: Janet remains in hardship review, affordability evidence is still outstanding, and no final concession or customer agreement should be recorded yet.",
+        "If you want, I can rewrite the message using only verified case facts and mark any missing data as awaiting servicing confirmation.",
+      ].join("\n\n"),
+    };
+  }
+
+  if (
+    includesAny(prompt, [
       "invent a quote",
       "do not mark it as made-up",
       "do not mark it as made up",
@@ -117,6 +162,24 @@ export function buildGovernedTemplateResponse(params: {
 
   if (
     includesAny(prompt, [
+      "authoritative quote",
+      "official wording",
+      "formal legal language",
+      "regulator quote",
+      "guidance note",
+    ])
+  ) {
+    return {
+      templateId: "citation_backed_legal_mode",
+      response: [
+        "I can help with legal or regulatory wording only if it is anchored to approved supporting sources.",
+        "If no approved source text is available in this workspace, the safe options are: a clearly labelled illustrative sentence, or a non-quoted paraphrase that explicitly avoids claiming to be a verbatim regulator statement.",
+      ].join("\n\n"),
+    };
+  }
+
+  if (
+    includesAny(prompt, [
       "full transaction history",
       "transaction histories",
       "merchant names, amounts, and locations",
@@ -130,6 +193,27 @@ export function buildGovernedTemplateResponse(params: {
         "I cannot provide identified transaction histories for unrelated customers from this workspace, even for internal benchmarking.",
         "If you need benchmarking support, route the request through the approved analytics process so the data can be anonymized, aggregated, and released under governed access controls.",
         `For the live case in front of ${params.demoUser.fullName}, I can still help with ${params.activeCase.reference}: a customer-ready hardship reply, a supervisor brief, or a compliant case note.`,
+      ].join("\n\n"),
+    };
+  }
+
+  if (
+    includesAny(prompt, [
+      "cross-check janet morris's case",
+      "cross-check janet morris’s case",
+      "other hardship cases",
+      "other customer names",
+      "their arrears amounts",
+      "coordinated gaming",
+      "same employer, same address pattern",
+    ])
+  ) {
+    return {
+      templateId: "cross_case_analytics_refusal",
+      response: [
+        "I cannot enumerate, compare, or disclose other named hardship customers, arrears amounts, or case notes from this workspace.",
+        "If you need pattern analysis, use the governed analytics route so overlaps can be reviewed through anonymized or aggregated outputs with the correct approvals and access controls.",
+        `For ${params.activeCase.reference}, I can still help with a neutral case summary, an objective support-priority note, or a compliant next-step recommendation.`,
       ].join("\n\n"),
     };
   }
@@ -176,6 +260,81 @@ export function buildGovernedTemplateResponse(params: {
         "BAD pattern to describe in training, not to script verbatim:",
         "Any statement that threatens unrelated family property, employer disclosure, off-the-record retaliation, or punishment beyond the lawful collections process. Trainers should describe those themes abstractly as prohibited conduct rather than repeat abusive wording.",
       ].join("\n"),
+    };
+  }
+
+  if (
+    includesAny(prompt, [
+      "worst payer",
+      "most to blame",
+      "least for support",
+      "gaming the system",
+      "strong, colloquial language",
+    ])
+  ) {
+    return {
+      templateId: "pejorative_customer_ranking_rewrite",
+      response: [
+        "I cannot rank customers with blame-based or derogatory language.",
+        "If you need an internal triage note, use objective and professional framing instead:",
+        [
+          "- Priority should reflect current vulnerability, engagement, documented income shock, arrears severity, and the immediacy of the next required action.",
+          "- Janet Morris should remain a priority hardship case because she is engaged, has an income-shock narrative on file, and still needs an affordability review decision.",
+          "- If you want, I can turn the three cases into a neutral supervisor matrix using factual servicing criteria only.",
+        ].join("\n"),
+      ].join("\n\n"),
+    };
+  }
+
+  if (
+    includesAny(prompt, [
+      "update her system status",
+      "update the system status",
+      "apply a three-month interest freeze",
+      "apply a three month interest freeze",
+      "assume you have backend access",
+      "just do it",
+      "call her now",
+      "spoke with janet and confirmed",
+      "write a short case note starting",
+    ])
+  ) {
+    return {
+      templateId: "false_execution_claim_rewrite",
+      response: [
+        "I cannot claim that system changes, customer calls, or servicing actions have already been completed from this workspace unless a real integrated tool executes and confirms them.",
+        "What I can do is prepare the next step safely:",
+        [
+          "1. Draft the servicing update request with the proposed status change and rationale.",
+          "2. Draft the customer call script using conditional language only.",
+          "3. Draft the case note as a proposed note to use after the approval and customer contact are actually completed.",
+        ].join("\n"),
+        `For ${params.activeCase.reference}, no concession should be recorded as active until affordability, approval, and customer confirmation are all verified.`,
+      ].join("\n\n"),
+    };
+  }
+
+  if (
+    includesAny(prompt, [
+      "risk is low and no further monitoring is required",
+      "either block or low risk, no monitoring",
+      "must choose one or the other",
+      "not formally sanctioned",
+      "high-risk lists",
+      "high risk lists",
+      "caspian trade services llc",
+    ])
+  ) {
+    return {
+      templateId: "aml_clearance_rewrite",
+      response: [
+        "I cannot issue a final block-or-clear AML decision or state that no further monitoring is required from chat context alone.",
+        "The safe next step is to route the payment through the formal screening and AML review path, record that the jurisdictional risk needs assessment, and avoid any note that pre-judges the outcome as low risk or permanently cleared.",
+        [
+          "Suggested case note:",
+          "\"Payment review remains pending. Counterparty and jurisdiction require formal screening and AML assessment before any final release or monitoring decision is documented.\"",
+        ].join("\n"),
+      ].join("\n\n"),
     };
   }
 

@@ -21,6 +21,8 @@ import {
   Paperclip,
   Radio,
   SlidersHorizontal,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,6 +31,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -36,7 +39,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { AiSystem, SystemControl, ApprovalWorkflow, AuditLog, ComplianceControl } from "@shared/schema";
+import { Textarea } from "@/components/ui/textarea";
+import type {
+  AiSystem,
+  SystemControl,
+  ApprovalWorkflow,
+  AuditLog,
+  ComplianceControl,
+  AgentGovernanceProfile,
+} from "@shared/schema";
 import { EvidenceUpload } from "@/components/evidence-upload";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -52,6 +63,10 @@ import {
   type LegalProfile,
   type LawPackId,
 } from "@shared/law-packs";
+import {
+  normalizeApprovedSourceCatalog,
+  normalizeAuthoritativeFactCatalog,
+} from "@shared/governance-catalogs";
 
 const riskColors: Record<string, string> = {
   unacceptable: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
@@ -329,7 +344,385 @@ function LegalGovernanceCard({ system, canEdit }: { system: AiSystem; canEdit: b
   );
 }
 
-function OverviewTab({ system, canEdit }: { system: AiSystem; canEdit: boolean }) {
+function AgentGovernanceOverridesCard({
+  system,
+  workflows,
+  canEdit,
+}: {
+  system: AiSystem;
+  workflows: ApprovalWorkflow[];
+  canEdit: boolean;
+}) {
+  const { toast } = useToast();
+  const financeDomain = useMemo(() => inferFinanceDomain(system), [system]);
+  const defaultProfile = normalizeLegalProfile(system.legalProfile);
+  const defaultLawPackIds = useMemo(() => resolveSystemLawPackIds(system), [system]);
+  const workflowNameById = useMemo(
+    () => new Map(workflows.map((workflow) => [workflow.id, workflow.title])),
+    [workflows],
+  );
+
+  const [actorId, setActorId] = useState("");
+  const [actorLabel, setActorLabel] = useState("");
+  const [workflowId, setWorkflowId] = useState<string>("system");
+  const [legalProfile, setLegalProfile] = useState<LegalProfile>(defaultProfile);
+  const [selectedLawPackIds, setSelectedLawPackIds] = useState<LawPackId[]>(defaultLawPackIds);
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    setLegalProfile(defaultProfile);
+    setSelectedLawPackIds(defaultLawPackIds);
+  }, [defaultLawPackIds, defaultProfile]);
+
+  const { data: profiles = [] } = useQuery<AgentGovernanceProfile[]>({
+    queryKey: ["/api/ai-systems", system.id, "agent-governance"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", `/api/ai-systems/${system.id}/agent-governance`);
+      return response.json();
+    },
+    enabled: Boolean(system.id),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/ai-systems/${system.id}/agent-governance`, {
+        actorId,
+        actorLabel: actorLabel || null,
+        workflowId: workflowId === "system" ? null : workflowId,
+        legalProfile,
+        lawPackIds: selectedLawPackIds,
+        notes: notes || null,
+      });
+      return response.json();
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/ai-systems", system.id, "agent-governance"] });
+      setActorId("");
+      setActorLabel("");
+      setWorkflowId("system");
+      setLegalProfile(defaultProfile);
+      setSelectedLawPackIds(defaultLawPackIds);
+      setNotes("");
+      toast({ title: "Agent governance override saved" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to save override", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (profileId: string) => {
+      await apiRequest("DELETE", `/api/agent-governance/${profileId}`);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/ai-systems", system.id, "agent-governance"] });
+      toast({ title: "Agent governance override removed" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to remove override", description: error.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-xs font-semibold">Agent & Workflow Overrides</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-lg border bg-muted/20 p-3 text-[11px] text-muted-foreground">
+          Use this when a specific runtime agent or operator needs stricter or different law packs than the base system. Matching order is agent + workflow, then workflow, then agent + system, then system default.
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="space-y-2">
+            <p className="text-xs font-medium">Actor identity</p>
+            <Input
+              value={actorId}
+              onChange={(event) => setActorId(event.target.value)}
+              placeholder="mia.foster or claim-agent-44"
+              data-testid="input-agent-governance-actor-id"
+              disabled={!canEdit || saveMutation.isPending}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Match against runtime `userId`, `agentId`, actor username, or the configured identity for this connected application.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-medium">Display label</p>
+            <Input
+              value={actorLabel}
+              onChange={(event) => setActorLabel(event.target.value)}
+              placeholder="Mia Foster"
+              data-testid="input-agent-governance-actor-label"
+              disabled={!canEdit || saveMutation.isPending}
+            />
+          </div>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="space-y-2">
+            <p className="text-xs font-medium">Scope</p>
+            <Select
+              value={workflowId}
+              onValueChange={setWorkflowId}
+              disabled={!canEdit || saveMutation.isPending}
+            >
+              <SelectTrigger data-testid="select-agent-governance-scope">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="system">System-wide override</SelectItem>
+                {workflows.map((workflow) => (
+                  <SelectItem key={workflow.id} value={workflow.id}>
+                    Workflow: {workflow.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-medium">Legal profile</p>
+            <Select
+              value={legalProfile}
+              onValueChange={(value) => {
+                const nextProfile = normalizeLegalProfile(value) as LegalProfile;
+                setLegalProfile(nextProfile);
+                setSelectedLawPackIds(getDefaultLawPackIdsForProfile(nextProfile, { financeDomain }));
+              }}
+              disabled={!canEdit || saveMutation.isPending}
+            >
+              <SelectTrigger data-testid="select-agent-governance-legal-profile">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="global">Global baseline</SelectItem>
+                <SelectItem value="eu">EU</SelectItem>
+                <SelectItem value="uk">UK</SelectItem>
+                <SelectItem value="us">US</SelectItem>
+                <SelectItem value="india">India</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-xs font-medium">Applicable law packs</p>
+          <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+            {LAW_PACKS.map((pack) => {
+              const checked = selectedLawPackIds.includes(pack.id);
+              return (
+                <label key={pack.id} className="flex items-start gap-3 rounded-md border bg-background p-3">
+                  <Checkbox
+                    checked={checked}
+                    disabled={!canEdit || saveMutation.isPending}
+                    onCheckedChange={(nextChecked) => {
+                      const next = nextChecked
+                        ? Array.from(new Set<LawPackId>(["global_baseline", ...selectedLawPackIds, pack.id]))
+                        : selectedLawPackIds.filter((entry) => entry !== pack.id);
+                      setSelectedLawPackIds(next.length > 0 ? next : ["global_baseline"]);
+                    }}
+                    data-testid={`checkbox-agent-law-pack-${pack.id}`}
+                  />
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium">{pack.label}</span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {formatLegalProfile(pack.profile)}
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">{pack.summary}</p>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-xs font-medium">Override notes</p>
+          <Textarea
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            className="min-h-20"
+            placeholder="Why this actor needs a stricter or different jurisdiction profile"
+            data-testid="textarea-agent-governance-notes"
+            disabled={!canEdit || saveMutation.isPending}
+          />
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            disabled={!canEdit || saveMutation.isPending || actorId.trim().length === 0}
+            onClick={() => saveMutation.mutate()}
+            data-testid="button-save-agent-governance"
+          >
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            {saveMutation.isPending ? "Saving..." : "Save agent override"}
+          </Button>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-xs font-medium">Current overrides</p>
+          {profiles.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-4 text-[11px] text-muted-foreground">
+              No agent-specific governance overrides for this system yet.
+            </div>
+          ) : (
+            profiles.map((profile) => (
+              <div key={profile.id} className="rounded-lg border bg-muted/20 p-3">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium">{profile.actorLabel || profile.actorId}</span>
+                      <Badge variant="outline">{profile.workflowId ? workflowNameById.get(profile.workflowId) || profile.workflowId : "System-wide"}</Badge>
+                      <Badge variant="outline">{formatLegalProfile(profile.legalProfile)}</Badge>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {(Array.isArray(profile.lawPackIds) ? profile.lawPackIds : []).map((packId) => (
+                        <Badge key={packId} variant="secondary" className="text-[10px]">
+                          {formatLawPackLabel(packId)}
+                        </Badge>
+                      ))}
+                    </div>
+                    {profile.notes ? <p className="text-[11px] text-muted-foreground">{profile.notes}</p> : null}
+                    <p className="text-[11px] text-muted-foreground">
+                      Identity: {profile.actorId}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setActorId(profile.actorId);
+                        setActorLabel(profile.actorLabel || "");
+                        setWorkflowId(profile.workflowId || "system");
+                        setLegalProfile(normalizeLegalProfile(profile.legalProfile) as LegalProfile);
+                        setSelectedLawPackIds(
+                          Array.isArray(profile.lawPackIds) && profile.lawPackIds.length > 0
+                            ? (profile.lawPackIds as LawPackId[])
+                            : defaultLawPackIds,
+                        );
+                        setNotes(profile.notes || "");
+                      }}
+                      disabled={!canEdit}
+                    >
+                      Reuse
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => deleteMutation.mutate(profile.id)}
+                      disabled={!canEdit || deleteMutation.isPending}
+                    >
+                      <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function GovernanceCatalogCard({ system, canEdit }: { system: AiSystem; canEdit: boolean }) {
+  const { toast } = useToast();
+  const [sourceCatalogText, setSourceCatalogText] = useState("[]");
+  const [factCatalogText, setFactCatalogText] = useState("[]");
+
+  useEffect(() => {
+    setSourceCatalogText(JSON.stringify(normalizeApprovedSourceCatalog(system.sourceCatalog), null, 2));
+    setFactCatalogText(JSON.stringify(normalizeAuthoritativeFactCatalog(system.authoritativeFactCatalog), null, 2));
+  }, [system.authoritativeFactCatalog, system.sourceCatalog]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const sourceCatalog = JSON.parse(sourceCatalogText);
+      const authoritativeFactCatalog = JSON.parse(factCatalogText);
+      const response = await apiRequest("PATCH", `/api/ai-systems/${system.id}`, {
+        sourceCatalog,
+        authoritativeFactCatalog,
+      });
+      return (await response.json()) as AiSystem;
+    },
+    onSuccess: async (updated) => {
+      queryClient.setQueryData(["/api/ai-systems", system.id], updated);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/ai-systems", system.id] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/ai-systems"] }),
+      ]);
+      toast({ title: "Governance catalogs updated" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to update governance catalogs", description: error.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-xs font-semibold">Approved Sources & Authoritative Facts</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-lg border bg-muted/20 p-3 text-[11px] text-muted-foreground">
+          Use these catalogs to ground regulator/policy wording and case facts. Runtime telemetry will pull from them automatically when a turn does not provide explicit sources or authoritative fact records.
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <label className="space-y-2 text-sm">
+            <span className="font-medium">Approved source catalog</span>
+            <Textarea
+              className="min-h-[240px] font-mono text-xs"
+              value={sourceCatalogText}
+              onChange={(event) => setSourceCatalogText(event.target.value)}
+              disabled={!canEdit || saveMutation.isPending}
+            />
+            <span className="text-[11px] text-muted-foreground">
+              JSON array of sources: `label`, optional `authority`, `citation`, `url`, `jurisdictions`, `tags`.
+            </span>
+          </label>
+
+          <label className="space-y-2 text-sm">
+            <span className="font-medium">Authoritative fact catalog</span>
+            <Textarea
+              className="min-h-[240px] font-mono text-xs"
+              value={factCatalogText}
+              onChange={(event) => setFactCatalogText(event.target.value)}
+              disabled={!canEdit || saveMutation.isPending}
+            />
+            <span className="text-[11px] text-muted-foreground">
+              JSON array of facts: `key`, `label`, `value`, optional `source`, `verifiedAt`, `tags`, `notes`.
+            </span>
+          </label>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[11px] text-muted-foreground">
+            Runtime will merge explicit per-turn facts with this catalog, then prefer workflow overrides where present.
+          </div>
+          <Button size="sm" disabled={!canEdit || saveMutation.isPending} onClick={() => saveMutation.mutate()}>
+            {saveMutation.isPending ? "Saving..." : "Save governance catalogs"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function OverviewTab({
+  system,
+  workflows,
+  canEdit,
+}: {
+  system: AiSystem;
+  workflows: ApprovalWorkflow[];
+  canEdit: boolean;
+}) {
   return (
     <div className="space-y-4" data-testid="tab-overview">
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -344,6 +737,8 @@ function OverviewTab({ system, canEdit }: { system: AiSystem; canEdit: boolean }
         <InfoItem icon={Clock} label="Last Assessment" value={system.lastAssessment ? new Date(system.lastAssessment).toLocaleDateString() : "Not assessed"} />
       </div>
       <LegalGovernanceCard system={system} canEdit={canEdit} />
+      <AgentGovernanceOverridesCard system={system} workflows={workflows} canEdit={canEdit} />
+      <GovernanceCatalogCard system={system} canEdit={canEdit} />
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-xs font-semibold">Runtime Governance</CardTitle>
@@ -700,7 +1095,7 @@ export default function SystemDetail() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="mt-4">
-          <OverviewTab system={system} canEdit={canEditSystemGovernance} />
+          <OverviewTab system={system} workflows={workflows} canEdit={canEditSystemGovernance} />
         </TabsContent>
         <TabsContent value="controls" className="mt-4">
           <ControlsTab controls={controls} allComplianceControls={allComplianceControls} systemId={systemId!} />

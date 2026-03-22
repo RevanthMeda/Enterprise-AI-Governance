@@ -195,6 +195,8 @@ export const autoDiscoveryService = {
       geography: this.mapGeographyLabel(manifest.geography),
       legalProfile: normalizeLegalProfile(manifest.geography),
       lawPackIds: this.inferLawPackIds(manifest),
+      sourceCatalog: [],
+      authoritativeFactCatalog: [],
       purpose: manifest.purpose,
       usersImpacted: this.mapUsersImpacted(manifest.usersImpacted),
     };

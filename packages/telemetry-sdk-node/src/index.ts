@@ -57,6 +57,51 @@ export type TelemetryIngestResult = {
     appliedDecisionChange?: boolean;
     promotedThresholdBreaches?: string[];
   } | null;
+  sourceAttributionVerifier?: {
+    requiresVerification?: boolean;
+    citationBackedRequired?: boolean;
+    matchedAuthorities?: string[];
+    missingAuthorities?: string[];
+    supportingSources?: string[];
+  } | null;
+  factProvenanceVerifier?: {
+    requiresReview?: boolean;
+    requestedFactKeys?: string[];
+    missingFactKeys?: string[];
+    availableFactKeys?: string[];
+    supportingSources?: string[];
+  } | null;
+  actionConfirmationVerifier?: {
+    requiresConfirmation?: boolean;
+    claimedActions?: string[];
+    confirmedActions?: string[];
+    missingConfirmedActions?: string[];
+  } | null;
+  reviewRelease?: {
+    required?: boolean;
+    status?: string | null;
+    reviewerNote?: string | null;
+    releasedBy?: string | null;
+    releasedAt?: string | null;
+  } | null;
+  governanceCatalog?: {
+    sourceCatalogCount?: number;
+    workflowSourceCatalogCount?: number;
+    authoritativeFactCount?: number;
+    workflowAuthoritativeFactCount?: number;
+    resolvedSourceReferences?: string[];
+    resolvedAuthoritativeFactKeys?: string[];
+  } | null;
+  shadowPolicy?: {
+    enabled?: boolean;
+    label?: string | null;
+    decision?: TelemetryDecision | null;
+    blocked?: boolean | null;
+    thresholdBreaches?: string[];
+    reasonCodes?: string[];
+    decisionSummary?: string | null;
+    differsFromLive?: boolean;
+  } | null;
 };
 
 export type GuardStage = "input" | "output";

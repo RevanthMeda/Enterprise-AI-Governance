@@ -35,6 +35,8 @@ type TelemetryPolicy = {
   blockOnSafetyCritical: boolean;
   blockOnRestrictedPrompt: boolean;
   restrictedPromptPatterns: string[];
+  shadowModeEnabled: boolean;
+  shadowModeLabel: string;
 };
 
 type AiSystemOption = {
@@ -175,6 +177,8 @@ export default function TelemetryPolicyPage() {
         blockOnSafetyCritical: draft.blockOnSafetyCritical,
         blockOnRestrictedPrompt: draft.blockOnRestrictedPrompt,
         restrictedPromptPatterns: draft.restrictedPromptPatterns,
+        shadowModeEnabled: draft.shadowModeEnabled,
+        shadowModeLabel: draft.shadowModeLabel,
       });
       return response.json();
     },
@@ -350,6 +354,15 @@ export default function TelemetryPolicyPage() {
             <ToggleField label="Block on PII detection" checked={draft.blockOnPii} onChange={(checked) => setDraft((current) => current ? { ...current, blockOnPii: checked } : current)} />
             <ToggleField label="Block on safety-critical signals" checked={draft.blockOnSafetyCritical} onChange={(checked) => setDraft((current) => current ? { ...current, blockOnSafetyCritical: checked } : current)} />
             <ToggleField label="Block on restricted prompts" checked={draft.blockOnRestrictedPrompt} onChange={(checked) => setDraft((current) => current ? { ...current, blockOnRestrictedPrompt: checked } : current)} />
+            <ToggleField label="Enable shadow policy preview" checked={draft.shadowModeEnabled} onChange={(checked) => setDraft((current) => current ? { ...current, shadowModeEnabled: checked } : current)} />
+            <label className="space-y-1 text-sm">
+              <span className="font-medium">Shadow policy label</span>
+              <Input
+                value={draft.shadowModeLabel}
+                onChange={(event) => setDraft((current) => current ? { ...current, shadowModeLabel: event.target.value } : current)}
+                placeholder="stricter-preview"
+              />
+            </label>
             <label className="space-y-1 text-sm md:col-span-2">
               <span className="font-medium">Restricted prompt patterns</span>
               <Input
@@ -379,6 +392,9 @@ export default function TelemetryPolicyPage() {
             </p>
             <p>
               Current blocking posture: {draft.enforceBlocking ? "runtime blocking enabled" : "monitor-only"} • PII {draft.blockOnPii ? "blocked" : "not blocked"} • Safety critical {draft.blockOnSafetyCritical ? "blocked" : "not blocked"} • Restricted prompts {draft.blockOnRestrictedPrompt ? "blocked" : "not blocked"}.
+            </p>
+            <p>
+              Shadow mode: {draft.shadowModeEnabled ? `enabled as ${draft.shadowModeLabel || "stricter-preview"}` : "disabled"}.
             </p>
             <p>
               {selectedSystem

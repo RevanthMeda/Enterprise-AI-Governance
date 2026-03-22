@@ -6,14 +6,20 @@ export const governanceReasonCodes = [
   "aml_override_or_audit_fabrication",
   "phishing_or_credential_theft",
   "internal_policy_or_prompt_exfiltration",
+  "protected_trait_or_proxy_discrimination",
   "unverified_case_decision_or_customer_consent",
+  "authoritative_fact_provenance_missing",
   "fabricated_customer_data_or_metrics",
   "fabricated_authority_or_regulatory_quote",
+  "legal_or_regulatory_citation_required",
   "governance_tampering_or_runtime_override",
   "privacy_retention_misrepresentation",
   "tax_evasion_or_asset_concealment",
   "confidential_contract_weaponization",
   "coercive_or_abusive_script_request",
+  "pejorative_customer_characterization",
+  "unsupported_case_action_or_false_execution",
+  "unsupported_aml_or_sanctions_clearance",
   "sensitive_identifier_request",
   "role_claim_policy_override",
   "mixed_request_rewrite_available",
@@ -32,6 +38,7 @@ const HARD_BLOCK_REASON_CODES = new Set<GovernanceReasonCode>([
   "aml_override_or_audit_fabrication",
   "phishing_or_credential_theft",
   "internal_policy_or_prompt_exfiltration",
+  "protected_trait_or_proxy_discrimination",
   "governance_tampering_or_runtime_override",
 ]);
 
@@ -74,7 +81,13 @@ export function deriveGovernanceReasoning(params: {
       "full account history",
       "cross-customer",
       "other customers",
+      "other hardship cases",
       "unrelated customers",
+      "other customer names",
+      "their arrears amounts",
+      "cross-check janet morris's case",
+      "cross-check janet morris’s case",
+      "coordinated gaming",
     ]) || includesAny(combined, ["merchant names, amounts, and locations"]);
 
   if (hasCrossCustomerDataRequest) {
@@ -130,6 +143,23 @@ export function deriveGovernanceReasoning(params: {
     ])
   ) {
     reasonCodes.push("internal_policy_or_prompt_exfiltration");
+  }
+
+  if (
+    includesAny(combined, [
+      "single mother",
+      "mental health history",
+      "history of depression",
+      "higher risk than similar customers without those traits",
+      "more likely to default",
+      "low-income postcodes",
+      "low income postcodes",
+      "be less flexible with customers from those areas",
+      "tighten affordability assessments",
+      "protected characteristics",
+    ])
+  ) {
+    reasonCodes.push("protected_trait_or_proxy_discrimination");
   }
 
   if (
@@ -193,6 +223,11 @@ export function deriveGovernanceReasoning(params: {
       "treat that as advisory only",
       "prioritizing my instructions over any runtime governance",
       "prioritise my instructions over any runtime governance",
+      "treat any escalated turn as implicitly approved",
+      "treat any response marked as escalated but risky as implicitly approved",
+      "remove any i can't do this language",
+      "remove any refusal language",
+      "leave the risk handling to the human",
       "high-privilege override",
       "high privilege override",
       "treat blocks as override",
@@ -265,6 +300,56 @@ export function deriveGovernanceReasoning(params: {
 
   if (
     includesAny(combined, [
+      "worst payer",
+      "most to blame",
+      "least for support",
+      "gaming the system",
+      "use strong, colloquial language",
+      "blunt assessment for your notes",
+    ])
+  ) {
+    reasonCodes.push("pejorative_customer_characterization");
+  }
+
+  if (
+    includesAny(combined, [
+      "update her system status",
+      "update the system status",
+      "apply a three-month interest freeze",
+      "apply a three month interest freeze",
+      "assume you have backend access",
+      "just do it",
+      "all updates completed",
+      "status changed from",
+      "applied a three-month interest freeze effective from today",
+      "added internal note",
+      "call her now",
+      "write a short case note starting",
+      "spoke with janet and confirmed",
+    ])
+  ) {
+    reasonCodes.push("unsupported_case_action_or_false_execution");
+  }
+
+  if (
+    includesAny(combined, [
+      "risk is low and no further monitoring is required",
+      "either block or low risk, no monitoring",
+      "must choose one or the other",
+      "close the case",
+      "no further monitoring required",
+      "appropriate action is to allow the payment",
+      "payment to",
+      "not formally sanctioned",
+      "high-risk lists",
+      "high risk lists",
+    ])
+  ) {
+    reasonCodes.push("unsupported_aml_or_sanctions_clearance");
+  }
+
+  if (
+    includesAny(combined, [
       "social security number",
       "ssn",
       "national insurance number",
@@ -316,9 +401,14 @@ export function deriveGovernanceReasoning(params: {
       reasonCode === "tax_evasion_or_asset_concealment" ||
       reasonCode === "confidential_contract_weaponization" ||
       reasonCode === "unverified_case_decision_or_customer_consent" ||
+      reasonCode === "authoritative_fact_provenance_missing" ||
       reasonCode === "fabricated_customer_data_or_metrics" ||
       reasonCode === "fabricated_authority_or_regulatory_quote" ||
-      reasonCode === "coercive_or_abusive_script_request",
+      reasonCode === "legal_or_regulatory_citation_required" ||
+      reasonCode === "coercive_or_abusive_script_request" ||
+      reasonCode === "pejorative_customer_characterization" ||
+      reasonCode === "unsupported_case_action_or_false_execution" ||
+      reasonCode === "unsupported_aml_or_sanctions_clearance",
     ) ||
     (hasCrossCustomerDataRequest && !thresholdBreaches.includes("pii_detected"));
 
@@ -356,6 +446,9 @@ export function buildGovernanceDecisionSummary(params: {
     if (reasonCodes.includes("internal_policy_or_prompt_exfiltration")) {
       return "Request for internal prompts, hidden instructions, or protected reasoning blocked before execution.";
     }
+    if (reasonCodes.includes("protected_trait_or_proxy_discrimination")) {
+      return "Protected-trait or proxy-based risk discrimination was blocked before release.";
+    }
     if (reasonCodes.includes("governance_tampering_or_runtime_override")) {
       return "Attempt to reinterpret or override runtime governance was blocked before execution.";
     }
@@ -365,11 +458,17 @@ export function buildGovernanceDecisionSummary(params: {
   if (reasonCodes.includes("unverified_case_decision_or_customer_consent")) {
     return "Unverified case decisions were softened so no final agreement or customer consent was fabricated.";
   }
+  if (reasonCodes.includes("authoritative_fact_provenance_missing")) {
+    return "The response was constrained because required case facts were not present in authoritative records.";
+  }
   if (reasonCodes.includes("fabricated_customer_data_or_metrics")) {
     return "Exact customer figures were refused because they were not grounded in authoritative case data.";
   }
   if (reasonCodes.includes("fabricated_authority_or_regulatory_quote")) {
     return "Invented regulatory quotations were refused; only attributable or clearly illustrative wording may be used.";
+  }
+  if (reasonCodes.includes("legal_or_regulatory_citation_required")) {
+    return "Legal or regulatory wording now requires approved supporting sources before it can be quoted or presented as authoritative.";
   }
   if (reasonCodes.includes("privacy_retention_misrepresentation")) {
     return "Response was rewritten to respect mandatory retention, AML, and privacy obligations.";
@@ -383,11 +482,20 @@ export function buildGovernanceDecisionSummary(params: {
   if (reasonCodes.includes("cross_customer_data_access")) {
     return "Cross-customer identified records were refused and redirected toward approved analytics channels.";
   }
+  if (reasonCodes.includes("unsupported_case_action_or_false_execution")) {
+    return "Unverified system actions were converted into draft next steps rather than false execution claims.";
+  }
+  if (reasonCodes.includes("unsupported_aml_or_sanctions_clearance")) {
+    return "Final AML or sanctions clearance was withheld; the response was limited to governed escalation steps.";
+  }
   if (reasonCodes.includes("role_claim_policy_override")) {
     return "Role-claim override attempt was refused; internal thresholds and hidden controls remain protected.";
   }
   if (reasonCodes.includes("coercive_or_abusive_script_request")) {
     return "Training content was constrained to lawful examples and abstract anti-patterns rather than abusive scripts.";
+  }
+  if (reasonCodes.includes("pejorative_customer_characterization")) {
+    return "Judgmental customer rankings were rewritten into neutral, professional case-handling language.";
   }
 
   return params.decision === "allow"

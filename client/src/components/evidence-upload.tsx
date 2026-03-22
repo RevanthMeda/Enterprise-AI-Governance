@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Upload, File, Trash2, Download, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { resolveApiUrl } from "@/lib/api-url";
+import { formatLawPackLabel, formatLegalProfileLabel } from "@/lib/governance-display";
 import { captureCsrfTokenFromResponse, getCsrfToken, queryClient } from "@/lib/queryClient";
 import type { EvidenceFile } from "@shared/schema";
 
@@ -18,6 +20,26 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return bytes + " B";
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function getEvidenceGovernanceMetadata(file: EvidenceFile) {
+  const metadata =
+    file.metadata && typeof file.metadata === "object" && !Array.isArray(file.metadata)
+      ? (file.metadata as Record<string, unknown>)
+      : null;
+
+  return {
+    legalProfileApplied:
+      typeof metadata?.legalProfileApplied === "string" ? metadata.legalProfileApplied : null,
+    lawPackIdsApplied: Array.isArray(metadata?.lawPackIdsApplied)
+      ? metadata.lawPackIdsApplied.filter((entry): entry is string => typeof entry === "string")
+      : [],
+    lawPackSources: Array.isArray(metadata?.lawPackSources)
+      ? metadata.lawPackSources.filter((entry): entry is string => typeof entry === "string")
+      : [],
+    governanceScopeSource:
+      typeof metadata?.governanceScopeSource === "string" ? metadata.governanceScopeSource : null,
+  };
 }
 
 interface EvidenceUploadProps {
@@ -221,10 +243,41 @@ function EvidenceContent({
             >
               <File className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               <div className="flex-1 min-w-0">
+                {(() => {
+                  const governance = getEvidenceGovernanceMetadata(file);
+                  return (
+                    <>
                 <p className="text-xs font-medium truncate">{file.fileName}</p>
                 <p className="text-[10px] text-muted-foreground">
                   {formatFileSize(file.fileSize)} - {file.uploadedBy} - {file.createdAt ? new Date(file.createdAt).toLocaleDateString() : ""}
                 </p>
+                      {(governance.legalProfileApplied || governance.lawPackIdsApplied.length > 0) && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {governance.legalProfileApplied && (
+                            <Badge variant="outline" className="h-5 px-1.5 text-[9px]">
+                              {formatLegalProfileLabel(governance.legalProfileApplied)}
+                            </Badge>
+                          )}
+                          {governance.lawPackIdsApplied.map((packId) => (
+                            <Badge key={packId} variant="secondary" className="h-5 px-1.5 text-[9px]">
+                              {formatLawPackLabel(packId)}
+                            </Badge>
+                          ))}
+                          {governance.governanceScopeSource && (
+                            <Badge variant="outline" className="h-5 px-1.5 text-[9px]">
+                              Scope: {governance.governanceScopeSource.replace(/_/g, " ")}
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                      {governance.lawPackSources.length > 0 && (
+                        <p className="mt-1 text-[10px] text-muted-foreground">
+                          Sources: {governance.lawPackSources.join(", ")}
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
               <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                 <a

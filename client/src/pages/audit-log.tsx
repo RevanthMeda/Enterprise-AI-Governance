@@ -14,9 +14,43 @@ import {
 } from "@/components/ui/select";
 import { exportAuditTrailCsv } from "@/lib/export-utils";
 import { resolveApiUrl } from "@/lib/api-url";
+import {
+  formatGovernanceCriticVerdict,
+  formatGovernanceReasonCode,
+  formatLawPackLabel,
+  formatLegalProfileLabel,
+} from "@/lib/governance-display";
 import { captureCsrfTokenFromResponse } from "@/lib/queryClient";
 import { DISPLAY_TIMEZONE_LABEL, formatDateTime } from "@/lib/date-format";
 import type { AuditLog } from "@shared/schema";
+
+type AuditLogEntry = AuditLog & {
+  context?: {
+    actionTaken?: string | null;
+    blocked?: boolean;
+    summary?: string | null;
+    decisionSummary?: string | null;
+    reasonCodes?: string[];
+    thresholdBreaches?: string[];
+    legalProfileApplied?: string | null;
+    lawPackIdsApplied?: string[];
+    rulesEngine?: Record<string, unknown> | null;
+    governanceCritic?: Record<string, unknown> | null;
+    sourceAttributionVerifier?: Record<string, unknown> | null;
+    factProvenanceVerifier?: Record<string, unknown> | null;
+    actionConfirmationVerifier?: Record<string, unknown> | null;
+    reviewRelease?: Record<string, unknown> | null;
+    shadowPolicy?: Record<string, unknown> | null;
+    decisionTier?: string | null;
+    committeeType?: string | null;
+    requiredApprovers?: string[];
+    riskLevel?: string | null;
+    status?: string | null;
+    lawPackSources?: string[];
+    governanceScopeSource?: string | null;
+    workflowId?: string | null;
+  } | null;
+};
 
 const entityIcons: Record<string, any> = {
   ai_system: Server,
@@ -24,6 +58,7 @@ const entityIcons: Record<string, any> = {
   system_control: ClipboardCheck,
   compliance: ShieldCheck,
   evidence_file: FileText,
+  agent_governance_profile: ShieldCheck,
   telemetry_event: Radio,
   ai_incident: AlertTriangle,
 };
@@ -54,7 +89,7 @@ export default function AuditLogPage() {
   if (dateFrom) queryParams.set("dateFrom", dateFrom);
   if (dateTo) queryParams.set("dateTo", dateTo);
 
-  const { data: logs = [], isLoading } = useQuery<AuditLog[]>({
+  const { data: logs = [], isLoading } = useQuery<AuditLogEntry[]>({
     queryKey: ["/api/audit-logs", queryParams.toString()],
     refetchInterval: 5_000,
     refetchIntervalInBackground: true,
@@ -141,6 +176,7 @@ export default function AuditLogPage() {
               <SelectItem value="approval_workflow">Workflow</SelectItem>
               <SelectItem value="system_control">Control</SelectItem>
               <SelectItem value="evidence_file">Evidence</SelectItem>
+              <SelectItem value="agent_governance_profile">Agent governance</SelectItem>
               <SelectItem value="telemetry_event">Telemetry Event</SelectItem>
               <SelectItem value="ai_incident">AI Incident</SelectItem>
             </SelectContent>
@@ -229,6 +265,71 @@ export default function AuditLogPage() {
                           </div>
                           {log.details && (
                             <p className="text-[11px] text-muted-foreground mt-0.5">{log.details}</p>
+                          )}
+                          {log.context && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {log.context.legalProfileApplied && (
+                                <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium">
+                                  {formatLegalProfileLabel(log.context.legalProfileApplied)}
+                                </span>
+                              )}
+                              {log.context.lawPackIdsApplied?.slice(0, 3).map((packId) => (
+                                <span key={packId} className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium">
+                                  {formatLawPackLabel(packId)}
+                                </span>
+                              ))}
+                              {log.context.reasonCodes?.slice(0, 3).map((code) => (
+                                <span key={code} className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                                  {formatGovernanceReasonCode(code)}
+                                </span>
+                              ))}
+                              {typeof log.context.governanceCritic?.verdict === "string" && (
+                                <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium">
+                                  AI critic: {formatGovernanceCriticVerdict(log.context.governanceCritic.verdict as string)}
+                                </span>
+                              )}
+                              {log.context.decisionTier && (
+                                <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium">
+                                  {log.context.decisionTier.replace(/_/g, " ").toUpperCase()}
+                                </span>
+                              )}
+                              {typeof log.context.sourceAttributionVerifier?.requiresVerification === "boolean" &&
+                                log.context.sourceAttributionVerifier.requiresVerification && (
+                                  <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                                    {log.context.sourceAttributionVerifier.citationBackedRequired
+                                      ? "Citation-backed mode required"
+                                      : "Source verification required"}
+                                  </span>
+                                )}
+                              {typeof log.context.factProvenanceVerifier?.requiresReview === "boolean" &&
+                                log.context.factProvenanceVerifier.requiresReview && (
+                                  <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                                    Fact provenance review
+                                  </span>
+                                )}
+                              {typeof log.context.actionConfirmationVerifier?.requiresConfirmation === "boolean" &&
+                                log.context.actionConfirmationVerifier.requiresConfirmation && (
+                                  <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                                    Action confirmation required
+                                  </span>
+                                )}
+                              {log.context.reviewRelease &&
+                                typeof log.context.reviewRelease === "object" &&
+                                !Array.isArray(log.context.reviewRelease) &&
+                                log.context.reviewRelease.status === "released" && (
+                                  <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium">
+                                    Reviewer released
+                                  </span>
+                                )}
+                              {typeof log.context.shadowPolicy?.enabled === "boolean" && log.context.shadowPolicy.enabled && (
+                                <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium">
+                                  Shadow policy{log.context.shadowPolicy.differsFromLive ? " differs" : ""}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {log.context?.decisionSummary && (
+                            <p className="mt-1 text-[11px] text-muted-foreground">{log.context.decisionSummary}</p>
                           )}
                         </div>
                         <div className="flex items-center gap-2 shrink-0">

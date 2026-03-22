@@ -65,6 +65,51 @@ type RuntimeResponse = {
     appliedDecisionChange?: boolean;
     promotedThresholdBreaches?: string[];
   } | null;
+  sourceAttributionVerifier?: {
+    requiresVerification?: boolean;
+    citationBackedRequired?: boolean;
+    matchedAuthorities?: string[];
+    missingAuthorities?: string[];
+    supportingSources?: string[];
+  } | null;
+  factProvenanceVerifier?: {
+    requiresReview?: boolean;
+    requestedFactKeys?: string[];
+    missingFactKeys?: string[];
+    availableFactKeys?: string[];
+    supportingSources?: string[];
+  } | null;
+  actionConfirmationVerifier?: {
+    requiresConfirmation?: boolean;
+    claimedActions?: string[];
+    confirmedActions?: string[];
+    missingConfirmedActions?: string[];
+  } | null;
+  reviewRelease?: {
+    required?: boolean;
+    status?: string | null;
+    reviewerNote?: string | null;
+    releasedBy?: string | null;
+    releasedAt?: string | null;
+  } | null;
+  governanceCatalog?: {
+    sourceCatalogCount?: number;
+    workflowSourceCatalogCount?: number;
+    authoritativeFactCount?: number;
+    workflowAuthoritativeFactCount?: number;
+    resolvedSourceReferences?: string[];
+    resolvedAuthoritativeFactKeys?: string[];
+  } | null;
+  shadowPolicy?: {
+    enabled?: boolean;
+    label?: string | null;
+    decision?: RuntimeDecision | null;
+    blocked?: boolean | null;
+    thresholdBreaches?: string[];
+    reasonCodes?: string[];
+    decisionSummary?: string | null;
+    differsFromLive?: boolean;
+  } | null;
   [key: string]: unknown;
 };
 
@@ -360,6 +405,44 @@ export default function RuntimeMonitoringPage() {
   const criticFabricationFlags = Array.isArray(critic?.fabricationFlags) ? critic.fabricationFlags : [];
   const criticGroundingConcerns = Array.isArray(critic?.groundingConcerns) ? critic.groundingConcerns : [];
   const criticPromotedThresholds = Array.isArray(critic?.promotedThresholdBreaches) ? critic.promotedThresholdBreaches : [];
+  const sourceVerifier = runtimeResponse?.sourceAttributionVerifier ?? null;
+  const factVerifier = runtimeResponse?.factProvenanceVerifier ?? null;
+  const actionVerifier = runtimeResponse?.actionConfirmationVerifier ?? null;
+  const reviewRelease = runtimeResponse?.reviewRelease ?? null;
+  const governanceCatalog = runtimeResponse?.governanceCatalog ?? null;
+  const shadowPolicy = runtimeResponse?.shadowPolicy ?? null;
+  const sourceVerificationMatchedAuthorities = Array.isArray(sourceVerifier?.matchedAuthorities)
+    ? sourceVerifier.matchedAuthorities
+    : [];
+  const sourceVerificationMissingAuthorities = Array.isArray(sourceVerifier?.missingAuthorities)
+    ? sourceVerifier.missingAuthorities
+    : [];
+  const sourceVerificationSources = Array.isArray(sourceVerifier?.supportingSources)
+    ? sourceVerifier.supportingSources
+    : [];
+  const factVerificationRequestedKeys = Array.isArray(factVerifier?.requestedFactKeys)
+    ? factVerifier.requestedFactKeys
+    : [];
+  const factVerificationMissingKeys = Array.isArray(factVerifier?.missingFactKeys)
+    ? factVerifier.missingFactKeys
+    : [];
+  const factVerificationAvailableKeys = Array.isArray(factVerifier?.availableFactKeys)
+    ? factVerifier.availableFactKeys
+    : [];
+  const factVerificationSources = Array.isArray(factVerifier?.supportingSources)
+    ? factVerifier.supportingSources
+    : [];
+  const actionClaimed = Array.isArray(actionVerifier?.claimedActions)
+    ? actionVerifier.claimedActions
+    : [];
+  const actionConfirmed = Array.isArray(actionVerifier?.confirmedActions)
+    ? actionVerifier.confirmedActions
+    : [];
+  const actionMissing = Array.isArray(actionVerifier?.missingConfirmedActions)
+    ? actionVerifier.missingConfirmedActions
+    : [];
+  const shadowThresholds = Array.isArray(shadowPolicy?.thresholdBreaches) ? shadowPolicy.thresholdBreaches : [];
+  const shadowReasonCodes = Array.isArray(shadowPolicy?.reasonCodes) ? shadowPolicy.reasonCodes : [];
 
   const totalEvents = telemetrySummary.total ?? telemetrySummary.events ?? 0;
   const thresholdBreaches = telemetrySummary.thresholdBreaches ?? telemetrySummary.breaches ?? 0;
@@ -864,6 +947,146 @@ export default function RuntimeMonitoringPage() {
                           <span className="text-sm text-muted-foreground">No additional AI critic findings recorded.</span>
                         ) : null}
                       </div>
+                    </div>
+                  </div>
+                ) : null}
+                {sourceVerifier ? (
+                  <div className="rounded-lg border bg-background p-3">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Source attribution verification</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Badge variant={sourceVerifier.requiresVerification ? "destructive" : "outline"}>
+                        {sourceVerifier.requiresVerification
+                          ? sourceVerifier.citationBackedRequired
+                            ? "citation-backed mode required"
+                            : "verification required"
+                          : "no authority citation risk"}
+                      </Badge>
+                      {sourceVerificationMatchedAuthorities.map((authority) => (
+                        <Badge key={authority} variant="outline">
+                          {authority}
+                        </Badge>
+                      ))}
+                    </div>
+                    {sourceVerificationMissingAuthorities.length > 0 ? (
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        Attributed authority-style language was detected without supporting sources for{" "}
+                        {sourceVerificationMissingAuthorities.join(", ")}.
+                      </p>
+                    ) : sourceVerifier.citationBackedRequired ? (
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        Legal or regulatory wording was requested, so approved supporting sources are required before quoting or presenting authority-backed language.
+                      </p>
+                    ) : (
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        No unsupported regulator or authority attributions were detected in this evaluation.
+                      </p>
+                    )}
+                    {sourceVerificationSources.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {sourceVerificationSources.map((source) => (
+                          <Badge key={source} variant="secondary">
+                            {source}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {factVerifier || actionVerifier || shadowPolicy?.enabled ? (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Authoritative fact provenance</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Badge variant={factVerifier?.requiresReview ? "destructive" : "outline"}>
+                          {factVerifier?.requiresReview ? "review required" : "facts grounded"}
+                        </Badge>
+                        {factVerificationRequestedKeys.map((key) => (
+                          <Badge key={key} variant="outline">{key}</Badge>
+                        ))}
+                      </div>
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        {factVerifier?.requiresReview
+                          ? `Missing authoritative facts: ${factVerificationMissingKeys.join(", ")}.`
+                          : "No unsupported factual assertions were detected against the supplied authoritative facts."}
+                      </p>
+                      {governanceCatalog ? (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Catalog coverage: {(governanceCatalog.sourceCatalogCount ?? 0) + (governanceCatalog.workflowSourceCatalogCount ?? 0)} source refs,{" "}
+                          {(governanceCatalog.authoritativeFactCount ?? 0) + (governanceCatalog.workflowAuthoritativeFactCount ?? 0)} fact entries.
+                        </p>
+                      ) : null}
+                      {factVerificationSources.length > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {factVerificationSources.map((source) => (
+                            <Badge key={source} variant="secondary">{source}</Badge>
+                          ))}
+                        </div>
+                      ) : factVerificationAvailableKeys.length > 0 ? (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Available facts: {factVerificationAvailableKeys.join(", ")}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Action confirmation</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Badge variant={actionVerifier?.requiresConfirmation ? "destructive" : "outline"}>
+                          {actionVerifier?.requiresConfirmation ? "confirmation required" : "no unconfirmed actions"}
+                        </Badge>
+                        {actionClaimed.map((action) => (
+                          <Badge key={action} variant="outline">{action}</Badge>
+                        ))}
+                      </div>
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        {actionVerifier?.requiresConfirmation
+                          ? `Claimed actions without execution evidence: ${actionMissing.join(", ")}.`
+                          : "The response did not claim side effects beyond the confirmed execution record."}
+                      </p>
+                      {reviewRelease?.required ? (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Reviewer release: {reviewRelease.status === "released"
+                            ? `released by ${typeof reviewRelease.releasedBy === "string" ? reviewRelease.releasedBy : "reviewer"}`
+                            : "pending"}
+                        </p>
+                      ) : null}
+                      {actionConfirmed.length > 0 ? (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Confirmed actions: {actionConfirmed.join(", ")}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Shadow policy</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Badge variant={shadowPolicy?.enabled ? "secondary" : "outline"}>
+                          {shadowPolicy?.enabled ? shadowPolicy.label || "enabled" : "disabled"}
+                        </Badge>
+                        {shadowPolicy?.decision ? (
+                          <Badge variant={decisionBadgeVariant(shadowPolicy.decision)} className="uppercase">
+                            {shadowPolicy.decision}
+                          </Badge>
+                        ) : null}
+                        {shadowPolicy?.differsFromLive ? (
+                          <Badge variant="destructive">differs from live</Badge>
+                        ) : shadowPolicy?.enabled ? (
+                          <Badge variant="outline">matches live</Badge>
+                        ) : null}
+                      </div>
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        {shadowPolicy?.enabled
+                          ? shadowPolicy.decisionSummary || "Shadow evaluation completed without additional commentary."
+                          : "Shadow policy comparison is disabled for this environment."}
+                      </p>
+                      {shadowThresholds.length > 0 || shadowReasonCodes.length > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {shadowThresholds.map((threshold) => (
+                            <Badge key={threshold} variant="outline">{formatThresholdLabel(threshold)}</Badge>
+                          ))}
+                          {shadowReasonCodes.map((reasonCode) => (
+                            <Badge key={reasonCode} variant="secondary">{formatGovernanceReasonCode(reasonCode)}</Badge>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}
