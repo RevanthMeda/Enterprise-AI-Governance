@@ -54,6 +54,7 @@ import { useToast } from "@/hooks/use-toast";
 import { resolveApiUrl } from "@/lib/api-url";
 import { apiRequest, captureCsrfTokenFromResponse, queryClient } from "@/lib/queryClient";
 import { exportSystemRegistryCsv } from "@/lib/export-utils";
+import { usePageCopy } from "@/lib/page-copy";
 import type { AiSystem } from "@shared/schema";
 import {
   LAW_PACKS,
@@ -120,6 +121,7 @@ function inferFinanceDomain(values: Partial<FormValues>) {
 }
 
 export default function Registry() {
+  const pageCopy = usePageCopy();
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -199,9 +201,9 @@ export default function Registry() {
     <div className="page-shell" data-testid="page-registry">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">AI System Registry</h1>
+          <h1 className="text-xl font-bold tracking-tight">{pageCopy.registry.title}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Record the systems in scope, who owns them, what they do, and how they are governed.
+            {pageCopy.registry.description}
           </p>
         </div>
         <div className="flex items-center gap-2">

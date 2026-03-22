@@ -12,6 +12,7 @@ import {
   formatLegalProfileLabel,
 } from "@/lib/governance-display";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { usePageCopy } from "@/lib/page-copy";
 import { useToast } from "@/hooks/use-toast";
 import type { AiSystem } from "@shared/schema";
 
@@ -108,6 +109,7 @@ const emptyForm = {
 };
 
 export default function DecisionTracePage() {
+  const pageCopy = usePageCopy();
   const [form, setForm] = useState(emptyForm);
   const [editingTraceId, setEditingTraceId] = useState<string | null>(null);
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
@@ -198,13 +200,13 @@ export default function DecisionTracePage() {
     <div className="page-shell">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Decision Trace</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">{pageCopy.decisionTrace.title}</h1>
           <p className="text-sm text-muted-foreground">
-            Capture decision context, model evidence, override rationale, audit state, and outcome tracking in one trace record.
+            {pageCopy.decisionTrace.description}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge variant="outline" className="w-fit">Traces {summaryQuery.data?.total ?? 0}</Badge>
+          <Badge variant="outline" className="w-fit">{pageCopy.decisionTrace.badges?.traces} {summaryQuery.data?.total ?? 0}</Badge>
           <Badge variant={hasNoTraces ? "outline" : chainQuery.data?.verified ? "default" : "destructive"} className="w-fit">
             {hasNoTraces ? "Chain pending" : chainQuery.data?.verified ? "Chain verified" : "Chain attention"}
           </Badge>

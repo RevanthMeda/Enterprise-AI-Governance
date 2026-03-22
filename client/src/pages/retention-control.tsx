@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePageCopy } from "@/lib/page-copy";
 
 type DecisionAudit = {
   id: string;
@@ -28,6 +29,7 @@ type RetentionSummary = {
 };
 
 export default function RetentionControlPage() {
+  const pageCopy = usePageCopy();
   const { toast } = useToast();
   const [reasons, setReasons] = useState<Record<string, string>>({});
 
@@ -109,13 +111,13 @@ export default function RetentionControlPage() {
     <div className="space-y-6 p-6">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Retention Control</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">{pageCopy.retentionControl.title}</h1>
           <p className="text-sm text-muted-foreground">
-            Enforce 7-year retention on decision traces, apply legal holds, and archive records that are past retention.
+            {pageCopy.retentionControl.description}
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Badge variant="outline">{summary.workerEnabled ? "Retention worker enabled" : "Retention worker disabled"}</Badge>
+          <Badge variant="outline">{summary.workerEnabled ? pageCopy.retentionControl.badges?.workerEnabled : pageCopy.retentionControl.badges?.workerDisabled}</Badge>
           <Button onClick={() => enforceMutation.mutate()} disabled={enforceMutation.isPending}>
             {enforceMutation.isPending ? "Archiving..." : "Run retention now"}
           </Button>

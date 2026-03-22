@@ -10,10 +10,18 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { NotificationBell } from "@/components/notification-bell";
+import { GlobalCommandCenter } from "@/components/global-command-center";
+import { RouteHelpPanel } from "@/components/route-help-panel";
+import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getAppAccess, getDisplayRole } from "@/lib/permissions";
+import { resolvePageCopy } from "@/lib/page-copy";
+import { resolveWorkspaceCopy } from "@/lib/workspace-copy";
 import NotFound from "@/pages/not-found";
 const Dashboard = lazy(() => import("@/pages/dashboard"));
+const AnalyticsCenterPage = lazy(() => import("@/pages/analytics-center"));
+const GovernanceMaturityPage = lazy(() => import("@/pages/governance-maturity"));
+const KnowledgeCenterPage = lazy(() => import("@/pages/knowledge-center"));
 const Registry = lazy(() => import("@/pages/registry"));
 const ConnectAiApplicationPage = lazy(() => import("@/pages/connect-ai-application"));
 const RiskAssessment = lazy(() => import("@/pages/risk-assessment"));
@@ -126,6 +134,9 @@ function AuthenticatedRouter({
         <Route path="/" component={Dashboard} />
         <Route path="/welcome" component={LandingPage} />
         <Route path="/dashboard" component={Dashboard} />
+        <Route path="/analytics" component={access.canAccessAnalytics ? AnalyticsCenterPage : Dashboard} />
+        <Route path="/governance-maturity" component={access.canAccessAnalytics ? GovernanceMaturityPage : Dashboard} />
+        <Route path="/knowledge-center" component={KnowledgeCenterPage} />
         <Route path="/activity" component={MyActivity} />
         <Route path="/account-security" component={AccountSecurityPage} />
         <Route path="/my-activity" component={ActivityAliasRedirect} />
@@ -267,48 +278,71 @@ function AuthenticatedApp() {
   const displayRole = getDisplayRole(user);
 
   useEffect(() => {
+    const copy = resolveWorkspaceCopy(user?.currentOrganizationOnboarding?.workspaceLocale);
+    const pageCopy = resolvePageCopy(user?.currentOrganizationOnboarding?.workspaceLocale);
     const routeTitles: Array<[string, string]> = [
-      ["/", user ? "Dashboard" : "Home"],
-      ["/welcome", "Welcome"],
-      ["/dashboard", "Dashboard"],
-      ["/activity", "My Activity"],
-      ["/account-security", "Account Security"],
-      ["/registry", "AI Registry"],
-      ["/registry/connect", "Connect AI Application"],
-      ["/risk", "Risk"],
-      ["/compliance", "Compliance"],
-      ["/calendar", "Compliance Calendar"],
-      ["/approvals", "Approval Workflows"],
-      ["/audit", "Audit Log"],
-      ["/decision-trace", "Decision Traces"],
-      ["/runtime-monitoring", "Runtime"],
-      ["/exit-readiness", "Evidence"],
-      ["/portfolio-control", "Portfolio"],
-      ["/telemetry-policy", "Telemetry Policy"],
-      ["/telemetry-adapter", "Telemetry Adapter"],
-      ["/retention-control", "Retention Control"],
-      ["/incidents", "Incident Response"],
-      ["/settings", "Settings"],
-      ["/integrations", "Integrations"],
-      ["/billing", "Billing"],
-      ["/auth", "Sign In"],
-      ["/auth/login", "Sign In"],
-      ["/auth/reset-password", "Reset Password"],
-      ["/reset-password", "Reset Password"],
-      ["/invite/accept", "Accept Invite"],
-      ["/book-demo", "Book Demo"],
-      ["/start-pilot", "Start Pilot"],
-      ["/thank-you", "Thank You"],
-      ["/privacy", "Privacy"],
-      ["/terms", "Terms"],
-      ["/security", "Security"],
-      ["/trust-center", "Trust Center"],
-      ["/api-docs", "API Docs"],
+      ["/", user ? copy.nav.dashboard : pageCopy.landing.title],
+      ["/welcome", pageCopy.landing.title],
+      ["/dashboard", copy.nav.dashboard],
+      ["/analytics", copy.nav.analytics],
+      ["/governance-maturity", copy.nav.maturity],
+      ["/knowledge-center", copy.knowledge.title],
+      ["/activity", copy.nav.myActivity],
+      ["/account-security", pageCopy.accountSecurity.title],
+      ["/registry", copy.nav.registry],
+      ["/systems", pageCopy.systemDetail.title],
+      ["/registry/connect", pageCopy.connectAiApplication.title],
+      ["/risk", copy.nav.risk],
+      ["/compliance", copy.nav.compliance],
+      ["/calendar", pageCopy.complianceCalendar.title],
+      ["/approvals", copy.nav.approvals],
+      ["/audit", copy.nav.auditLog],
+      ["/decision-trace", pageCopy.decisionTrace.title],
+      ["/runtime-monitoring", pageCopy.runtimeMonitoring.title],
+      ["/exit-readiness", pageCopy.exitReadiness.title],
+      ["/portfolio-control", pageCopy.portfolioControl.title],
+      ["/telemetry-policy", pageCopy.telemetryPolicy.title],
+      ["/telemetry-adapter", pageCopy.telemetryAdapter.title],
+      ["/retention-control", pageCopy.retentionControl.title],
+      ["/incidents", copy.nav.incidents],
+      ["/settings", copy.nav.settings],
+      ["/integrations", copy.nav.integrations],
+      ["/billing", copy.nav.billing],
+      ["/auth", pageCopy.auth.title],
+      ["/auth/login", pageCopy.auth.title],
+      ["/auth/reset-password", pageCopy.resetPassword.title],
+      ["/reset-password", pageCopy.resetPassword.title],
+      ["/invite/accept", pageCopy.inviteAccept.title],
+      ["/book-demo", pageCopy.bookDemo.title],
+      ["/start-pilot", pageCopy.startPilot.title],
+      ["/thank-you", pageCopy.thankYou.title],
+      ["/privacy", pageCopy.privacy.title],
+      ["/terms", pageCopy.terms.title],
+      ["/security", pageCopy.security.title],
+      ["/trust-center", pageCopy.trustCenter.badges?.trustCenter ?? pageCopy.trustCenter.title],
+      ["/api-docs", pageCopy.apiDocs.title],
     ];
 
     const match = routeTitles.find(([path]) => location === path || location.startsWith(`${path}/`));
-    document.title = `${match?.[1] ?? "AI Control Tower"} - AI Control Tower`;
+    document.title = `${match?.[1] ?? copy.appName} - ${copy.appName}`;
   }, [location, user]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const onboarding = user?.currentOrganizationOnboarding;
+    const prefs = onboarding?.accessibilityPreferences;
+    root.dataset.contrastMode = prefs?.highContrast ? "high" : "default";
+    root.dataset.motionMode = prefs?.reducedMotion ? "reduced" : "default";
+    root.dataset.fontScale = prefs?.fontScale ?? "default";
+    root.lang = onboarding?.workspaceLocale ?? "en-GB";
+
+    return () => {
+      delete root.dataset.contrastMode;
+      delete root.dataset.motionMode;
+      delete root.dataset.fontScale;
+      root.lang = "en-GB";
+    };
+  }, [user?.currentOrganizationOnboarding]);
 
   if (isLoading && !isPublic) {
     return (
@@ -337,11 +371,18 @@ function AuthenticatedApp() {
   return (
     <SidebarProvider style={style as React.CSSProperties}>
       <div className="flex h-screen w-full">
+        <a
+          href="#app-main-content"
+          className="absolute left-3 top-3 z-50 -translate-y-16 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-transform focus:translate-y-0"
+        >
+          Skip to main content
+        </a>
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0">
           <header className="flex items-center justify-between gap-1 p-2 border-b shrink-0">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
             <div className="flex items-center gap-2">
+              <GlobalCommandCenter />
               <a
                 href="/welcome"
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded"
@@ -349,7 +390,9 @@ function AuthenticatedApp() {
               >
                 Public site
               </a>
+              <RouteHelpPanel />
               <NotificationBell />
+              <PwaInstallPrompt />
               <div className="text-right hidden sm:block">
                 <p className="text-xs font-medium" data-testid="text-user-name">{user.fullName}</p>
                 <p className="text-[10px] text-muted-foreground capitalize" data-testid="text-user-role">{displayRole?.replace("_", " ") ?? "member"}</p>
@@ -364,7 +407,7 @@ function AuthenticatedApp() {
               <ThemeToggle />
             </div>
           </header>
-          <main className="flex-1 overflow-auto">
+          <main id="app-main-content" className="flex-1 overflow-auto" tabIndex={-1}>
             <AuthenticatedRouter access={access} />
           </main>
         </div>

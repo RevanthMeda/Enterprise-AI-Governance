@@ -965,6 +965,7 @@ export const notificationTypes = [
   "evidence_requested",
   "high_risk_created",
   "system_modified",
+  "automation_action",
 ] as const;
 
 export const notifications = pgTable("notifications", {

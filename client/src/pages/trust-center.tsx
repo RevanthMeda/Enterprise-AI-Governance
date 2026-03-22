@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ShieldCheck, DatabaseZap, Fingerprint, Building2, LifeBuoy, Lock } from "lucide-react";
 import { Link } from "wouter";
 import { PublicSiteHeader } from "@/components/public-site-header";
+import { usePageCopy } from "@/lib/page-copy";
 
 const pillars = [
   {
@@ -38,15 +39,16 @@ const controls = [
 ];
 
 export default function TrustCenterPage() {
+  const pageCopy = usePageCopy();
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,#f3f7ff_0%,#ffffff_52%,#eef4f8_100%)] text-slate-950">
       <PublicSiteHeader />
       <div className="mx-auto max-w-6xl px-6 py-16 sm:px-8 lg:px-10">
         <div className="max-w-3xl space-y-4">
-          <Badge variant="outline" className="rounded-full px-3 py-1 text-xs uppercase tracking-[0.2em]">Trust Center</Badge>
-          <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">Security, governance, and buyer diligence posture</h1>
+          <Badge variant="outline" className="rounded-full px-3 py-1 text-xs uppercase tracking-[0.2em]">{pageCopy.trustCenter.badges?.trustCenter}</Badge>
+          <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">{pageCopy.trustCenter.title}</h1>
           <p className="text-base leading-7 text-slate-600">
-            AI Control Tower is built to support enterprise deployment, portfolio rollout, and diligence-grade evidence collection across regulated AI programs.
+            {pageCopy.trustCenter.description}
           </p>
           <div className="flex flex-wrap gap-3">
             <Link href="/security"><Button>Review security practices</Button></Link>

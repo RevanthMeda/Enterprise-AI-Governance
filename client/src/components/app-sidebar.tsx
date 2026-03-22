@@ -1,6 +1,8 @@
 import { useLocation, Link } from "wouter";
 import {
   LayoutDashboard,
+  BarChart3,
+  BookOpen,
   Server,
   ShieldCheck,
   ClipboardCheck,
@@ -14,6 +16,7 @@ import {
   AlertTriangle,
   Fingerprint,
   Gauge,
+  TrendingUp,
   KeyRound,
   Building2,
   SlidersHorizontal,
@@ -38,6 +41,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { getAppAccess, getDisplayRole } from "@/lib/permissions";
+import { useWorkspaceCopy } from "@/lib/workspace-copy";
 import { BrandMark } from "@/components/brand-mark";
 import {
   Select,
@@ -50,6 +54,7 @@ import {
 type AccessKey = keyof ReturnType<typeof getAppAccess>;
 
 type NavItem = {
+  key: string;
   title: string;
   url: string;
   icon: typeof LayoutDashboard;
@@ -57,36 +62,40 @@ type NavItem = {
 };
 
 const mainNav: NavItem[] = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "AI Registry", url: "/registry", icon: Server, accessKey: "canAccessRegistry" },
-  { title: "Risk", url: "/risk", icon: ShieldCheck, accessKey: "canAccessRisk" },
-  { title: "Compliance", url: "/compliance", icon: ClipboardCheck, accessKey: "canAccessCompliance" },
-  { title: "Runtime", url: "/runtime-monitoring", icon: Radio, accessKey: "canAccessRuntimeMonitoring" },
-  { title: "Incidents", url: "/incidents", icon: AlertTriangle, accessKey: "canAccessIncidents" },
-  { title: "Approvals", url: "/approvals", icon: FileText, accessKey: "canAccessApprovals" },
-  { title: "Decision Traces", url: "/decision-trace", icon: Fingerprint, accessKey: "canAccessDecisionTrace" },
-  { title: "Audit Log", url: "/audit", icon: Activity, accessKey: "canAccessAuditLog" },
-  { title: "My Activity", url: "/activity", icon: UserCircle },
-  { title: "Account Security", url: "/account-security", icon: KeyRound },
-  { title: "Evidence", url: "/exit-readiness", icon: Gauge, accessKey: "canAccessExitReadiness" },
-  { title: "Portfolio", url: "/portfolio-control", icon: Building2, accessKey: "canAccessPortfolioControl" },
-  { title: "Calendar", url: "/calendar", icon: CalendarDays, accessKey: "canAccessCalendar" },
-  { title: "Bulk Controls", url: "/bulk-controls", icon: Layers, accessKey: "canAccessBulkControls" },
+  { key: "dashboard", title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { key: "analytics", title: "Analytics", url: "/analytics", icon: BarChart3, accessKey: "canAccessAnalytics" },
+  { key: "maturity", title: "Maturity", url: "/governance-maturity", icon: TrendingUp, accessKey: "canAccessAnalytics" },
+  { key: "knowledge", title: "Knowledge", url: "/knowledge-center", icon: BookOpen },
+  { key: "registry", title: "AI Registry", url: "/registry", icon: Server, accessKey: "canAccessRegistry" },
+  { key: "risk", title: "Risk", url: "/risk", icon: ShieldCheck, accessKey: "canAccessRisk" },
+  { key: "compliance", title: "Compliance", url: "/compliance", icon: ClipboardCheck, accessKey: "canAccessCompliance" },
+  { key: "runtime", title: "Runtime", url: "/runtime-monitoring", icon: Radio, accessKey: "canAccessRuntimeMonitoring" },
+  { key: "incidents", title: "Incidents", url: "/incidents", icon: AlertTriangle, accessKey: "canAccessIncidents" },
+  { key: "approvals", title: "Approvals", url: "/approvals", icon: FileText, accessKey: "canAccessApprovals" },
+  { key: "decisionTraces", title: "Decision Traces", url: "/decision-trace", icon: Fingerprint, accessKey: "canAccessDecisionTrace" },
+  { key: "auditLog", title: "Audit Log", url: "/audit", icon: Activity, accessKey: "canAccessAuditLog" },
+  { key: "myActivity", title: "My Activity", url: "/activity", icon: UserCircle },
+  { key: "accountSecurity", title: "Account Security", url: "/account-security", icon: KeyRound },
+  { key: "evidence", title: "Evidence", url: "/exit-readiness", icon: Gauge, accessKey: "canAccessExitReadiness" },
+  { key: "portfolio", title: "Portfolio", url: "/portfolio-control", icon: Building2, accessKey: "canAccessPortfolioControl" },
+  { key: "calendar", title: "Calendar", url: "/calendar", icon: CalendarDays, accessKey: "canAccessCalendar" },
+  { key: "bulkControls", title: "Bulk Controls", url: "/bulk-controls", icon: Layers, accessKey: "canAccessBulkControls" },
 ];
 
 const settingsNav: NavItem[] = [
-  { title: "Telemetry Adapter", url: "/telemetry-adapter", icon: Cable, accessKey: "canAccessTelemetryAdapter" },
-  { title: "Telemetry Policy", url: "/telemetry-policy", icon: SlidersHorizontal, accessKey: "canAccessTelemetryPolicy" },
-  { title: "Integrations", url: "/integrations", icon: PlugZap, accessKey: "canAccessIntegrations" },
-  { title: "Settings", url: "/settings", icon: Settings, accessKey: "canAccessSettings" },
-  { title: "Retention Control", url: "/retention-control", icon: Archive, accessKey: "canAccessRetentionControl" },
-  { title: "Billing", url: "/billing", icon: CreditCard, accessKey: "canAccessBilling" },
-  { title: "API Docs", url: "/api-docs", icon: FileText, accessKey: "canAccessSettings" },
+  { key: "telemetryAdapter", title: "Telemetry Adapter", url: "/telemetry-adapter", icon: Cable, accessKey: "canAccessTelemetryAdapter" },
+  { key: "telemetryPolicy", title: "Telemetry Policy", url: "/telemetry-policy", icon: SlidersHorizontal, accessKey: "canAccessTelemetryPolicy" },
+  { key: "integrations", title: "Integrations", url: "/integrations", icon: PlugZap, accessKey: "canAccessIntegrations" },
+  { key: "settings", title: "Settings", url: "/settings", icon: Settings, accessKey: "canAccessSettings" },
+  { key: "retentionControl", title: "Retention Control", url: "/retention-control", icon: Archive, accessKey: "canAccessRetentionControl" },
+  { key: "billing", title: "Billing", url: "/billing", icon: CreditCard, accessKey: "canAccessBilling" },
+  { key: "apiDocs", title: "API Docs", url: "/api-docs", icon: FileText, accessKey: "canAccessSettings" },
 ];
 
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, switchOrganization, switchOrganizationMutation } = useAuth();
+  const copy = useWorkspaceCopy();
   const access = getAppAccess(user);
   const displayRole = getDisplayRole(user);
   const sortedOrganizations = [...(user?.organizations ?? [])].sort((a, b) => {
@@ -111,8 +120,8 @@ export function AppSidebar() {
               <BrandMark className="h-4 w-4" />
             </div>
             <div className="flex flex-col">
-              <span className="text-sm font-semibold tracking-tight">AI Control Tower</span>
-              <span className="text-[10px] text-muted-foreground leading-none">Enterprise Governance</span>
+              <span className="text-sm font-semibold tracking-tight">{copy.appName}</span>
+              <span className="text-[10px] text-muted-foreground leading-none">{copy.appTagline}</span>
             </div>
           </div>
         </Link>
@@ -120,7 +129,7 @@ export function AppSidebar() {
           <div className="mt-4 space-y-2 rounded-lg border bg-muted/20 p-3">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                Active organization
+                {copy.labels.activeOrganization}
               </span>
               <Badge variant="outline" className="text-[10px]">
                 {user.organizations.find((organization) => organization.id === user.currentOrganizationId)?.role.replace("_", " ") ?? "member"}
@@ -145,26 +154,26 @@ export function AppSidebar() {
               </SelectContent>
             </Select>
             <div className="text-[11px] text-muted-foreground">
-              Cross-organization switching is limited to organization owners and admins.
+              {copy.labels.crossOrgHint}
             </div>
           </div>
         ) : null}
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Platform</SidebarGroupLabel>
+          <SidebarGroupLabel>{copy.sections.platform}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {visibleMainNav.map((item) => (
-                <SidebarMenuItem key={item.title}>
+                <SidebarMenuItem key={item.key}>
                   <SidebarMenuButton
                     asChild
                     data-active={location === item.url}
                     className="data-[active=true]:bg-sidebar-accent"
                   >
-                    <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s/g, "-")}`}>
+                    <Link href={item.url} data-testid={`link-${item.key}`}>
                       <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
+                      <span>{copy.nav[item.key as keyof typeof copy.nav] ?? item.title}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -174,19 +183,19 @@ export function AppSidebar() {
         </SidebarGroup>
         {visibleSettingsNav.length > 0 && (
           <SidebarGroup>
-            <SidebarGroupLabel>Configuration</SidebarGroupLabel>
+            <SidebarGroupLabel>{copy.sections.configuration}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {visibleSettingsNav.map((item) => (
-                  <SidebarMenuItem key={item.title}>
+                  <SidebarMenuItem key={item.key}>
                     <SidebarMenuButton
                       asChild
                       data-active={location === item.url}
                       className="data-[active=true]:bg-sidebar-accent"
                     >
-                      <Link href={item.url} data-testid={`link-${item.title.toLowerCase()}`}>
+                      <Link href={item.url} data-testid={`link-${item.key}`}>
                         <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
+                        <span>{copy.nav[item.key as keyof typeof copy.nav] ?? item.title}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -210,7 +219,7 @@ export function AppSidebar() {
         )}
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-[10px]" data-testid="badge-version">v2.0.0</Badge>
-          <span className="text-[10px] text-muted-foreground">EU AI Act Ready</span>
+          <span className="text-[10px] text-muted-foreground">{copy.labels.aiActReady}</span>
         </div>
         <a
           href="/welcome"

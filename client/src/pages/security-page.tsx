@@ -1,8 +1,10 @@
 import { useEffect } from "react";
 import { trackMarketingEvent } from "@/lib/marketing";
 import { PublicSiteHeader } from "@/components/public-site-header";
+import { usePageCopy } from "@/lib/page-copy";
 
 export default function SecurityPage() {
+  const pageCopy = usePageCopy();
   useEffect(() => {
     void trackMarketingEvent("page_view", { section: "security_page" });
   }, []);
@@ -11,7 +13,8 @@ export default function SecurityPage() {
     <div className="min-h-screen bg-background">
       <PublicSiteHeader />
       <div className="mx-auto max-w-4xl space-y-5 px-4 py-12 sm:px-6 lg:px-8">
-        <h1 className="text-3xl font-bold tracking-tight">Security Practices</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{pageCopy.security.title}</h1>
+        <p className="text-sm text-muted-foreground">{pageCopy.security.description}</p>
         <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
           <li>Role-based access control with deny-by-default authorization.</li>
           <li>Session hardening with secure cookies, idle timeout, and rotation.</li>

@@ -26,6 +26,7 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { usePageCopy } from "@/lib/page-copy";
 import {
   Select,
   SelectContent,
@@ -164,6 +165,7 @@ function OptionCard({
 }
 
 export default function RiskAssessment() {
+  const pageCopy = usePageCopy();
   const { toast } = useToast();
   const [currentStep, setCurrentStep] = useState(0);
   const [answers, setAnswers] = useState<WizardAnswers>(defaultAnswers);
@@ -320,9 +322,9 @@ export default function RiskAssessment() {
       <div className="page-shell-narrow" data-testid="page-risk-result">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
-            <h1 className="text-xl font-bold tracking-tight">Risk classification result</h1>
+            <h1 className="text-xl font-bold tracking-tight">{pageCopy.riskResult.title}</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Final governance classification for "{result.systemName}"
+              {pageCopy.riskResult.description} "{result.systemName}"
             </p>
           </div>
           <Button onClick={handleStartNew} data-testid="button-new-assessment">
@@ -430,9 +432,9 @@ export default function RiskAssessment() {
     return (
       <div className="page-shell-narrow" data-testid="page-risk-wizard">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">Risk Assessment Wizard</h1>
+          <h1 className="text-xl font-bold tracking-tight">{pageCopy.riskWizard.title}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Step {currentStep + 1} of {steps.length}: {steps[currentStep].title}
+            {pageCopy.riskWizard.description} Step {currentStep + 1} of {steps.length}: {steps[currentStep].title}
           </p>
         </div>
 
@@ -925,9 +927,9 @@ export default function RiskAssessment() {
     <div className="page-shell" data-testid="page-risk-assessment">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">Risk Assessment</h1>
+          <h1 className="text-xl font-bold tracking-tight">{pageCopy.riskAssessment.title}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Assess inherent system risk, compare answers against registry posture, and keep a clean history of classification decisions.
+            {pageCopy.riskAssessment.description}
           </p>
         </div>
         <Button onClick={handleStartNew} data-testid="button-start-wizard">

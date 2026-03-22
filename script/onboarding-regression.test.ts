@@ -140,6 +140,12 @@ test("onboarding state persists per active membership and round-trips through au
         snoozedAlerts: {
           high_risk_systems: "2099-01-01T00:00:00.000Z",
         },
+        accessibilityPreferences: {
+          highContrast: true,
+          reducedMotion: true,
+          fontScale: "large",
+        },
+        workspaceLocale: "fr-FR",
       },
     });
     assert.equal(saved.status, 200, "Expected onboarding state save to succeed");
@@ -149,6 +155,12 @@ test("onboarding state persists per active membership and round-trips through au
         completedSteps: string[];
         dismissedAlerts: string[];
         snoozedAlerts: Record<string, string>;
+        accessibilityPreferences: {
+          highContrast: boolean;
+          reducedMotion: boolean;
+          fontScale: string;
+        };
+        workspaceLocale: string;
       } | null;
     };
     assert.equal(savedBody.currentOrganizationOnboarding?.currentStep, 2, "Expected saved current step");
@@ -167,6 +179,12 @@ test("onboarding state persists per active membership and round-trips through au
       { high_risk_systems: "2099-01-01T00:00:00.000Z" },
       "Expected snoozed alerts in auth payload",
     );
+    assert.deepEqual(
+      savedBody.currentOrganizationOnboarding?.accessibilityPreferences,
+      { highContrast: true, reducedMotion: true, fontScale: "large" },
+      "Expected accessibility preferences in auth payload",
+    );
+    assert.equal(savedBody.currentOrganizationOnboarding?.workspaceLocale, "fr-FR", "Expected locale preference in auth payload");
 
     const [updatedMembership] = await db
       .select()
@@ -179,6 +197,12 @@ test("onboarding state persists per active membership and round-trips through au
         completedSteps: ["inventory", "controls"],
         dismissedAlerts: ["approval_backlog"],
         snoozedAlerts: { high_risk_systems: "2099-01-01T00:00:00.000Z" },
+        dashboardView: "executive",
+        dashboardWidgets: ["watchlist", "stats", "riskMix", "controlCoverage", "trends"],
+        notificationPreferences: { priorityOnly: false, mutedTypes: [], feedMode: "stream" },
+        accessibilityPreferences: { highContrast: true, reducedMotion: true, fontScale: "large" },
+        workspaceLocale: "fr-FR",
+        guidedMode: true,
         updatedAt: (updatedMembership.onboardingState as { updatedAt: string }).updatedAt,
       },
       "Expected onboarding state to persist on membership",
@@ -192,6 +216,12 @@ test("onboarding state persists per active membership and round-trips through au
         completedSteps: string[];
         dismissedAlerts: string[];
         snoozedAlerts: Record<string, string>;
+        accessibilityPreferences: {
+          highContrast: boolean;
+          reducedMotion: boolean;
+          fontScale: string;
+        };
+        workspaceLocale: string;
       } | null;
     };
     assert.equal(authBody.currentOrganizationOnboarding?.currentStep, 2, "Expected onboarding step to round-trip");
@@ -210,6 +240,12 @@ test("onboarding state persists per active membership and round-trips through au
       { high_risk_systems: "2099-01-01T00:00:00.000Z" },
       "Expected snoozed alerts to round-trip",
     );
+    assert.deepEqual(
+      authBody.currentOrganizationOnboarding?.accessibilityPreferences,
+      { highContrast: true, reducedMotion: true, fontScale: "large" },
+      "Expected accessibility preferences to round-trip",
+    );
+    assert.equal(authBody.currentOrganizationOnboarding?.workspaceLocale, "fr-FR", "Expected locale preference to round-trip");
   } finally {
     await server?.close();
     if (createdMembershipIds.length > 0) {

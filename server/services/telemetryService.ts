@@ -2,6 +2,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   aiTelemetryEvents,
+  type AiIncident,
   type AiSystem,
   type AiTelemetryEvent,
   type InsertAiSystem,
@@ -34,6 +35,7 @@ import {
   type ActionConfirmationVerificationResult,
   type FactProvenanceVerificationResult,
 } from "@shared/runtime-governance-verifiers";
+import { evaluateIncidentPriority } from "@shared/incident-prioritization";
 import { incidentService } from "./incidentService";
 import { notificationService } from "./notificationService";
 import { fetchWithTimeout } from "../http";
@@ -44,6 +46,7 @@ import { riskAssessmentService } from "./riskAssessmentService";
 import { auditService } from "./auditService";
 import { autoDiscoveryService } from "./autoDiscoveryService";
 import { telemetryReviewerExceptionService } from "./telemetryReviewerExceptionService";
+import { threatIntelligenceService } from "./threatIntelligenceService";
 
 type ThresholdEvaluation = {
   thresholdBreaches: string[];
@@ -156,6 +159,12 @@ const DECISION_PRIORITY: Record<TelemetryDecision, number> = {
   warn: 1,
   escalate: 2,
   block: 3,
+};
+
+const SEVERITY_PRIORITY: Record<TelemetrySeverity, number> = {
+  info: 0,
+  warning: 1,
+  critical: 2,
 };
 
 function isNonRecoverableReasonCode(reasonCode: GovernanceReasonCode) {
@@ -1327,6 +1336,28 @@ export class TelemetryService {
     evaluation = await this.applyReviewerExceptions(organizationId, governedInput, evaluation, policy);
     const guardResult = await this.applyAdvancedGuards(organizationId, governedInput, evaluation, policy);
     evaluation = guardResult.evaluation;
+    const threatIntel = await threatIntelligenceService.evaluateForEvent(organizationId, {
+      promptText: governedInput.promptText,
+      modelOutput: governedInput.modelOutput,
+      summary: governedInput.summary,
+    });
+    if (threatIntel.matches.length > 0) {
+      evaluation.thresholdBreaches = Array.from(new Set([...evaluation.thresholdBreaches, "threat_intelligence_match"]));
+      const highestMatch = [...threatIntel.matches].sort((a, b) => SEVERITY_PRIORITY[b.severity === "medium" ? "warning" : "critical"] - SEVERITY_PRIORITY[a.severity === "medium" ? "warning" : "critical"])[0];
+      const suggestedSeverity: TelemetrySeverity = highestMatch?.severity === "medium" ? "warning" : "critical";
+      if (SEVERITY_PRIORITY[suggestedSeverity] > SEVERITY_PRIORITY[evaluation.severity]) {
+        evaluation.severity = suggestedSeverity;
+      }
+      if (!threatIntel.advisoryMode) {
+        if (DECISION_PRIORITY[evaluation.decision] < DECISION_PRIORITY.escalate) {
+          evaluation.decision = "escalate";
+        }
+        evaluation.shouldNotify = true;
+        evaluation.shouldEscalateIncident = true;
+        evaluation.incidentCategory = "security";
+      }
+      evaluation.decisionSummary = `${evaluation.decisionSummary} Threat intelligence matched ${threatIntel.matches.length} known pattern${threatIntel.matches.length === 1 ? "" : "s"}.`.trim();
+    }
     const rulesEngineSnapshot = buildRulesEngineSnapshot(evaluation);
     const governanceCritic = this.applyGovernanceCritic({
       inputSeverity: normalizeTelemetrySeverity(governedInput.severity),
@@ -1468,6 +1499,14 @@ export class TelemetryService {
           : 0,
         resolvedSourceReferences,
         resolvedAuthoritativeFactKeys: Object.keys(resolvedAuthoritativeFacts),
+      },
+      threatIntelligence: {
+        enabled: threatIntel.enabled,
+        advisoryMode: threatIntel.advisoryMode,
+        remoteFeedConfigured: threatIntel.remoteFeedConfigured,
+        remoteProviderType: threatIntel.remoteProviderType,
+        remoteProviderLabel: threatIntel.remoteProviderLabel ?? null,
+        matches: threatIntel.matches,
       },
       ...(guardResult.guardMetadata ? { guard: guardResult.guardMetadata } : {}),
     };
@@ -2134,6 +2173,7 @@ export class TelemetryService {
       reviewRelease: getMetadataRecord(eventMetadata.reviewRelease),
       governanceCatalog: getMetadataRecord(eventMetadata.governanceCatalog),
       shadowPolicy: getMetadataRecord(eventMetadata.shadowPolicy),
+      threatIntelligence: getMetadataRecord(eventMetadata.threatIntelligence),
       legalProfileApplied:
         typeof eventMetadata.legalProfileApplied === "string" ? eventMetadata.legalProfileApplied : "global",
       lawPackIdsApplied: getStringArray(eventMetadata.lawPackIdsApplied),
@@ -2149,6 +2189,14 @@ export class TelemetryService {
       alwaysLogPolicyCategories: getStringArray(eventMetadata.alwaysLogPolicyCategories),
       requestedCapabilities: getStringArray(eventMetadata.requestedCapabilities),
       outOfScopeCapabilities: getStringArray(eventMetadata.outOfScopeCapabilities),
+      eventType: event.eventType,
+      eventSummary: event.summary,
+      gateway: event.gateway ?? null,
+      provider: event.provider ?? null,
+      modelName: event.modelName ?? null,
+      promptPreview: event.promptText ? event.promptText.slice(0, 1200) : null,
+      outputPreview: event.modelOutput ? event.modelOutput.slice(0, 1200) : null,
+      runtimeContextSnapshot: getMetadataRecord(event.runtimeContext),
       telemetryEventId: event.id,
       correlationId: event.correlationId ?? null,
     };
@@ -2161,13 +2209,31 @@ export class TelemetryService {
     );
 
     if (duplicate) {
-      await incidentService.updateForOrg(organizationId, duplicate.id, {
+      const resolvedAssignment = duplicate.owner
+        ? null
+        : await incidentService.resolveDefaultAssignmentForOrg(
+            organizationId,
+            evaluation.incidentCategory,
+            event.systemId ?? null,
+          );
+      const updatedIncident = await incidentService.updateForOrg(organizationId, duplicate.id, {
         severity: evaluation.severity === "critical" ? "critical" : "high",
         description: `${event.summary}\n\nThreshold breaches: ${evaluation.thresholdBreaches.join(", ")}`,
         playbook: {
           ...(duplicate.playbook ?? {}),
           targetContainmentHours: 4,
           ...incidentPlaybookEvidence,
+          ...(!incidentService.getAssignmentMetadata(duplicate.playbook) && resolvedAssignment
+            ? {
+                assignment: {
+                  autoAssigned: true,
+                  ownerUserId: resolvedAssignment.ownerUserId,
+                  owner: resolvedAssignment.owner,
+                  ownerRole: resolvedAssignment.ownerRole,
+                  assignedAt: new Date().toISOString(),
+                },
+              }
+            : {}),
           steps: [
             "Freeze or narrow the affected model release or gateway route.",
             "Review prompt, output, context, and threshold evidence captured with the event.",
@@ -2175,9 +2241,13 @@ export class TelemetryService {
             "Document containment and assign post-incident review owner.",
           ],
         },
-        escalatedTo: "System owner, compliance lead, and governance operations",
+        owner: duplicate.owner ?? resolvedAssignment?.owner ?? null,
+        escalatedTo: duplicate.escalatedTo ?? resolvedAssignment?.escalatedTo ?? "System owner, compliance lead, and governance operations",
         dueAt: new Date((event.detectedAt ?? new Date()).getTime() + 4 * 60 * 60 * 1000),
       });
+      if (!duplicate.owner && updatedIncident) {
+        await this.notifyAssignedIncidentOwner(organizationId, updatedIncident);
+      }
       return duplicate.id;
     }
 
@@ -2208,8 +2278,38 @@ export class TelemetryService {
       containedAt: null,
       resolvedAt: null,
     });
+    await this.notifyAssignedIncidentOwner(organizationId, created);
 
     return created.id;
+  }
+
+  private async notifyAssignedIncidentOwner(organizationId: string, incident: AiIncident) {
+    const assignment = incidentService.getAssignmentMetadata(incident.playbook);
+    if (!assignment?.ownerUserId) {
+      return;
+    }
+    const priority = evaluateIncidentPriority(incident);
+
+    await notificationService.createForUser({
+      organizationId,
+      userId: assignment.ownerUserId,
+      input: {
+        title: "AI incident assigned",
+        message: `${incident.severity.toUpperCase()} incident "${incident.title}" is now assigned to you.`,
+        type: "workflow_status_changed",
+        entityType: "ai_incident",
+        entityId: incident.id,
+        metadata: {
+          incidentId: incident.id,
+          assignmentRole: assignment.ownerRole,
+          autoAssigned: assignment.autoAssigned,
+          incidentPriorityLevel: priority.level,
+          incidentPriorityScore: priority.score,
+          incidentPriorityReasons: priority.reasons,
+        },
+        read: false,
+      },
+    });
   }
 
   private async maybeTriggerAutoReassessment(

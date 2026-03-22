@@ -12,6 +12,8 @@ import {
   Activity,
   BarChart3,
   FileText,
+  LayoutGrid,
+  BookOpen,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +28,15 @@ import type { AiSystem, ApprovalWorkflow, SystemControl } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth, type AuthOnboardingState, type AuthUser } from "@/hooks/use-auth";
 import { getAppAccess } from "@/lib/permissions";
+import { useWorkspaceCopy } from "@/lib/workspace-copy";
+import {
+  DEFAULT_GUIDED_MODE,
+  dashboardViewPresets,
+  dashboardWidgetMeta,
+  getDashboardPreset,
+  resolveDefaultDashboardView,
+  sanitizeDashboardWidgets,
+} from "@shared/operator-preferences";
 
 type DashboardAccess = ReturnType<typeof getAppAccess>;
 type DashboardAccessKey = keyof DashboardAccess;
@@ -56,6 +67,209 @@ type WatchlistAlert = {
   severity: "critical" | "warning" | "info";
   accessKey?: DashboardAccessKey;
 };
+
+function OperatorPathDeck({ access }: { access: DashboardAccess }) {
+  const copy = useWorkspaceCopy();
+  const paths = [
+    access.canAccessRegistry
+      ? {
+          title: "1. Register systems",
+          detail: "Start with AI Registry when a new application, agent, or model enters scope.",
+          href: "/registry",
+        }
+      : null,
+    access.canAccessCompliance
+      ? {
+          title: "2. Assess risk and controls",
+          detail: "Move from registry into Risk and Compliance to set the baseline posture.",
+          href: "/risk-assessment",
+        }
+      : null,
+    access.canAccessApprovals
+      ? {
+          title: "3. Route approvals",
+          detail: "Use Approvals for reviewer assignment, committee routing, and evidence-backed sign-off.",
+          href: "/approvals",
+        }
+      : null,
+    access.canAccessRuntimeMonitoring
+      ? {
+          title: "4. Monitor runtime",
+          detail: "Use Runtime Monitoring and Incidents once the system is live and generating governed traffic.",
+          href: "/runtime-monitoring",
+        }
+      : null,
+  ].filter(Boolean) as Array<{ title: string; detail: string; href: string }>;
+
+  if (paths.length === 0) {
+    return null;
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold">{copy.dashboard.suggestedPath}</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {paths.map((path) => (
+          <a key={path.title} href={path.href} className="rounded-lg border bg-muted/20 p-4 transition-colors hover:bg-muted/40">
+            <p className="text-sm font-medium">{path.title}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{path.detail}</p>
+          </a>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DashboardPreferencesCard({
+  onboarding,
+  roleForDefaults,
+}: {
+  onboarding: AuthOnboardingState | null;
+  roleForDefaults: string | null;
+}) {
+  const copy = useWorkspaceCopy();
+  const defaultView = resolveDefaultDashboardView(roleForDefaults);
+  const activeView = onboarding?.dashboardView ?? defaultView;
+  const activePreset = getDashboardPreset(activeView) ?? getDashboardPreset(defaultView);
+  const activeWidgets = sanitizeDashboardWidgets(onboarding?.dashboardWidgets, activePreset?.widgets ?? []);
+  const guidedMode = onboarding?.guidedMode ?? DEFAULT_GUIDED_MODE;
+
+  const persistPreferences = useMutation({
+    mutationFn: async (payload: {
+      dashboardView?: AuthOnboardingState["dashboardView"];
+      dashboardWidgets?: AuthOnboardingState["dashboardWidgets"];
+      guidedMode?: boolean;
+    }) => {
+      const res = await apiRequest("POST", "/api/auth/onboarding-state", payload);
+      return (await res.json()) as AuthUser;
+    },
+    onSuccess: (updatedUser) => {
+      queryClient.setQueryData(["/api/auth/user"], updatedUser);
+    },
+  });
+
+  const setPreset = (viewId: Exclude<AuthOnboardingState["dashboardView"], "custom">) => {
+    const preset = getDashboardPreset(viewId);
+    if (!preset) return;
+    persistPreferences.mutate({
+      dashboardView: viewId,
+      dashboardWidgets: preset.widgets,
+    });
+  };
+
+  const toggleWidget = (widgetId: keyof typeof dashboardWidgetMeta) => {
+    const nextSet = new Set(activeWidgets);
+    if (nextSet.has(widgetId)) {
+      nextSet.delete(widgetId);
+    } else {
+      nextSet.add(widgetId);
+    }
+    const nextWidgets = Array.from(nextSet);
+    if (nextWidgets.length === 0) {
+      return;
+    }
+    persistPreferences.mutate({
+      dashboardView: "custom",
+      dashboardWidgets: nextWidgets,
+    });
+  };
+
+  return (
+    <Card data-testid="card-dashboard-preferences">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <LayoutGrid className="h-4 w-4 text-muted-foreground" />
+          {copy.dashboard.workspaceLayout}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium">{copy.dashboard.savedViews}</p>
+              <p className="text-[11px] text-muted-foreground">{copy.dashboard.savedViewsHint}</p>
+            </div>
+            <Badge variant="outline">
+              {activeView === "custom" ? "Custom" : activePreset?.label ?? "Preset"}
+            </Badge>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {dashboardViewPresets.map((preset) => (
+              <Button
+                key={preset.id}
+                type="button"
+                size="sm"
+                variant={activeView === preset.id ? "default" : "outline"}
+                onClick={() => setPreset(preset.id)}
+              >
+                {preset.label}
+              </Button>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            {activeView === "custom"
+              ? "Custom mode is active because widget visibility no longer matches a saved preset."
+              : activePreset?.description}
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium">{copy.dashboard.visibleWidgets}</p>
+              <p className="text-[11px] text-muted-foreground">{copy.dashboard.visibleWidgetsHint}</p>
+            </div>
+            <Badge variant="secondary">{activeWidgets.length} shown</Badge>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {Object.entries(dashboardWidgetMeta).map(([widgetId, widget]) => {
+              const checked = activeWidgets.includes(widgetId as keyof typeof dashboardWidgetMeta);
+              return (
+                <label key={widgetId} className="flex items-start gap-2 rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleWidget(widgetId as keyof typeof dashboardWidgetMeta)}
+                  />
+                  <span>
+                    <span className="block font-medium">{widget.label}</span>
+                    <span className="text-muted-foreground">{widget.description}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-dashed border-border/70 bg-background/60 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-start gap-2">
+              <BookOpen className="mt-0.5 h-4 w-4 text-muted-foreground" />
+              <div>
+                <p className="text-xs font-medium">Guided mode</p>
+                <p className="text-[11px] text-muted-foreground">Keep navigation cues, launch guidance, and explanatory copy visible for operators.</p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant={guidedMode ? "default" : "outline"}
+              onClick={() => persistPreferences.mutate({ guidedMode: !guidedMode })}
+            >
+              {guidedMode ? "On" : "Off"}
+            </Button>
+          </div>
+        </div>
+
+        {persistPreferences.isSuccess ? (
+          <p className="text-xs text-muted-foreground">Workspace preferences are saved for your current organization.</p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
 
 function StatCard({
   title,
@@ -1094,6 +1308,10 @@ function OperationalWatchlist({
 export default function Dashboard() {
   const { user } = useAuth();
   const access = getAppAccess(user);
+  const currentOrgRole =
+    user?.organizations.find((organization) => organization.id === user.currentOrganizationId)?.role ??
+    user?.role ??
+    null;
   const { data: systems = [], isLoading: loadingSystems } = useQuery<AiSystem[]>({
     queryKey: ["/api/ai-systems"],
     refetchInterval: 30_000,
@@ -1125,6 +1343,17 @@ export default function Dashboard() {
 
   const isLoading = loadingSystems || loadingWorkflows || loadingControls;
 
+  const defaultDashboardView = resolveDefaultDashboardView(currentOrgRole);
+  const activeDashboardView = user?.currentOrganizationOnboarding?.dashboardView ?? defaultDashboardView;
+  const defaultWidgets =
+    getDashboardPreset(activeDashboardView)?.widgets ??
+    getDashboardPreset(defaultDashboardView)?.widgets ??
+    [];
+  const visibleWidgetSet = new Set(
+    sanitizeDashboardWidgets(user?.currentOrganizationOnboarding?.dashboardWidgets, defaultWidgets),
+  );
+  const guidedMode = user?.currentOrganizationOnboarding?.guidedMode ?? DEFAULT_GUIDED_MODE;
+
   if (isLoading) return (
     <div className="p-6">
       <DashboardSkeleton />
@@ -1154,7 +1383,7 @@ export default function Dashboard() {
 
   return (
     <div className="page-shell" data-testid="page-dashboard">
-      <div className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
+      <div className={visibleWidgetSet.has("watchlist") ? "grid gap-4 xl:grid-cols-[1.35fr_0.65fr]" : "grid gap-4"}>
         <Card className="overflow-hidden border-border/70 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.12),transparent_45%),linear-gradient(to_bottom,hsl(var(--background)),hsl(var(--muted)/0.18))]">
           <CardContent className="p-6">
             <div className="flex flex-col gap-5">
@@ -1227,76 +1456,98 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <OperationalWatchlist
-          ready={ready}
-          workflows={workflows}
-          systems={systems}
-          controls={systemControls}
+        {visibleWidgetSet.has("watchlist") ? (
+          <OperationalWatchlist
+            ready={ready}
+            workflows={workflows}
+            systems={systems}
+            controls={systemControls}
+            onboarding={user?.currentOrganizationOnboarding ?? null}
+            access={access}
+          />
+        ) : null}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[0.72fr_1.28fr]">
+        <DashboardPreferencesCard
           onboarding={user?.currentOrganizationOnboarding ?? null}
-          access={access}
+          roleForDefaults={currentOrgRole}
         />
+        {guidedMode && visibleWidgetSet.has("operatorPath") ? <OperatorPathDeck access={access} /> : null}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Total AI Systems"
-          value={systems.length}
-          subtitle={`${activeSystems} active`}
-          icon={Server}
-          trend="+3 this month"
-          testId="stat-total-systems"
-        />
-        <StatCard
-          title="High Risk Systems"
-          value={highRiskSystems}
-          subtitle="Require enhanced controls"
-          icon={AlertTriangle}
-          testId="stat-high-risk"
-        />
-        <StatCard
-          title="Pending Approvals"
-          value={pendingApprovals}
-          subtitle="Awaiting review"
-          icon={Clock}
-          testId="stat-pending-approvals"
-        />
-        <StatCard
-          title="Compliance Rate"
-          value={`${complianceRate}%`}
-          subtitle="Controls implemented"
-          icon={ShieldCheck}
-          trend="+5% this quarter"
-          testId="stat-compliance-rate"
-        />
-      </div>
+      {visibleWidgetSet.has("stats") ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            title="Total AI Systems"
+            value={systems.length}
+            subtitle={`${activeSystems} active`}
+            icon={Server}
+            trend="+3 this month"
+            testId="stat-total-systems"
+          />
+          <StatCard
+            title="High Risk Systems"
+            value={highRiskSystems}
+            subtitle="Require enhanced controls"
+            icon={AlertTriangle}
+            testId="stat-high-risk"
+          />
+          <StatCard
+            title="Pending Approvals"
+            value={pendingApprovals}
+            subtitle="Awaiting review"
+            icon={Clock}
+            testId="stat-pending-approvals"
+          />
+          <StatCard
+            title="Compliance Rate"
+            value={`${complianceRate}%`}
+            subtitle="Controls implemented"
+            icon={ShieldCheck}
+            trend="+5% this quarter"
+            testId="stat-compliance-rate"
+          />
+        </div>
+      ) : null}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <OperationalReadiness ready={ready} />
-        <ActionBoard workflows={workflows} systems={systems} controls={systemControls} access={access} />
-      </div>
+      {visibleWidgetSet.has("health") || visibleWidgetSet.has("actionBoard") ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {visibleWidgetSet.has("health") ? <OperationalReadiness ready={ready} /> : null}
+          {visibleWidgetSet.has("actionBoard") ? (
+            <ActionBoard workflows={workflows} systems={systems} controls={systemControls} access={access} />
+          ) : null}
+        </div>
+      ) : null}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <RiskDistribution systems={systems} />
-        <ComplianceOverview controls={systemControls} />
-      </div>
+      {visibleWidgetSet.has("riskMix") || visibleWidgetSet.has("controlCoverage") ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {visibleWidgetSet.has("riskMix") ? <RiskDistribution systems={systems} /> : null}
+          {visibleWidgetSet.has("controlCoverage") ? <ComplianceOverview controls={systemControls} /> : null}
+        </div>
+      ) : null}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <RecentSystems systems={systems} />
-        <RecentWorkflows workflows={workflows} />
-      </div>
+      {visibleWidgetSet.has("recentSystems") || visibleWidgetSet.has("recentWorkflows") ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {visibleWidgetSet.has("recentSystems") ? <RecentSystems systems={systems} /> : null}
+          {visibleWidgetSet.has("recentWorkflows") ? <RecentWorkflows workflows={workflows} /> : null}
+        </div>
+      ) : null}
 
-      <div className="grid grid-cols-1 gap-4">
-        <SetupGuide
-          systems={systems}
-          workflows={workflows}
-          controls={systemControls}
-          ready={ready}
-          onboarding={user?.currentOrganizationOnboarding ?? null}
-          access={access}
-        />
-      </div>
+      {guidedMode && visibleWidgetSet.has("setupGuide") ? (
+        <div className="grid grid-cols-1 gap-4">
+          <SetupGuide
+            systems={systems}
+            workflows={workflows}
+            controls={systemControls}
+            ready={ready}
+            onboarding={user?.currentOrganizationOnboarding ?? null}
+            access={access}
+          />
+        </div>
+      ) : null}
 
-      {trends && (
+      {trends && visibleWidgetSet.has("trends") && (
         <>
           <div>
             <h2 className="text-base font-semibold tracking-tight mb-1" data-testid="heading-trends">Platform Trendlines</h2>

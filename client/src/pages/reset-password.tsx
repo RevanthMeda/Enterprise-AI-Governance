@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiRequest } from "@/lib/queryClient";
 import { PublicSiteHeader } from "@/components/public-site-header";
+import { usePageCopy } from "@/lib/page-copy";
 
 export default function ResetPasswordPage() {
+  const pageCopy = usePageCopy();
   const [, setLocation] = useLocation();
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -55,10 +57,10 @@ export default function ResetPasswordPage() {
           <CardHeader className="space-y-2 pb-4">
             <CardTitle className="flex items-center gap-2 text-2xl">
               <KeyRound className="h-5 w-5" />
-              Reset password
+              {pageCopy.resetPassword.title}
             </CardTitle>
             <p className="text-sm leading-6 text-muted-foreground">
-              Create a new password for your local AI Control Tower account.
+              {pageCopy.resetPassword.description}
             </p>
           </CardHeader>
           <CardContent className="space-y-4">

@@ -17,7 +17,9 @@ import {
 } from "@/lib/governance-display";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatDateTime } from "@/lib/date-format";
+import { usePageCopy } from "@/lib/page-copy";
 import type { AiSystem } from "@shared/schema";
+import type { IncidentResolutionSuggestionResponse } from "@shared/incident-resolution-suggestions";
 
 type IncidentPlaybook = {
   targetContainmentHours?: number;
@@ -35,6 +37,15 @@ type IncidentPlaybook = {
   policyCategories?: string[];
   requestedCapabilities?: string[];
   outOfScopeCapabilities?: string[];
+  eventType?: string;
+  eventSummary?: string;
+  gateway?: string | null;
+  provider?: string | null;
+  modelName?: string | null;
+  promptPreview?: string | null;
+  outputPreview?: string | null;
+  runtimeContextSnapshot?: Record<string, unknown>;
+  assignment?: Record<string, unknown>;
   telemetryEventId?: string;
   correlationId?: string | null;
   rulesEngine?: Record<string, unknown>;
@@ -44,6 +55,7 @@ type IncidentPlaybook = {
   actionConfirmationVerifier?: Record<string, unknown>;
   reviewRelease?: Record<string, unknown>;
   shadowPolicy?: Record<string, unknown>;
+  threatIntelligence?: Record<string, unknown>;
 };
 
 type Incident = {
@@ -71,6 +83,16 @@ type Incident = {
   resolvedAt: string | null;
   postmortemCompletedAt: string | null;
   playbook: IncidentPlaybook;
+  priority?: {
+    score: number;
+    level: string;
+    reasons: string[];
+    breached: boolean;
+    needsAssignment: boolean;
+    active: boolean;
+    ageHours: number;
+    timeToDueHours: number | null;
+  } | null;
 };
 
 type IncidentSummary = {
@@ -79,6 +101,19 @@ type IncidentSummary = {
   highSeverity: number;
   breached: number;
   postmortemPending: number;
+  urgent: number;
+  highPriority: number;
+  normalPriority: number;
+  monitor: number;
+  unassignedActive: number;
+};
+
+type IncidentAssigneeCandidate = {
+  userId: string;
+  fullName: string;
+  email: string | null;
+  membershipRole: string;
+  label: string;
 };
 
 const initialForm = {
@@ -92,19 +127,37 @@ const initialForm = {
 };
 
 export default function IncidentsPage() {
+  const pageCopy = usePageCopy();
   const [form, setForm] = useState(initialForm);
   const [queueScope, setQueueScope] = useState<"active" | "all" | "resolved">("active");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [severityFilter, setSeverityFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [assignmentFilter, setAssignmentFilter] = useState("all");
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Record<string, { rootCause: string; reviewSummary: string; affectedDecisionTraceIds: string; regulatoryNotifications: string }>>({});
   const [releaseDrafts, setReleaseDrafts] = useState<Record<string, { reviewerNote: string; actionName: string; toolName: string; receiptId: string; details: string }>>({});
+  const [assignmentDrafts, setAssignmentDrafts] = useState<Record<string, string>>({});
   const summaryQuery = useQuery<IncidentSummary>({
     queryKey: ["/api/incidents/summary"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/incidents/summary");
+      return response.json();
+    },
     refetchInterval: 5_000,
     refetchIntervalInBackground: true,
     staleTime: 5_000,
   });
   const listQuery = useQuery<Incident[]>({
     queryKey: ["/api/incidents"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/incidents");
+      const payload = await response.json();
+      return Array.isArray(payload)
+        ? payload.map((entry) => normalizeIncident(entry)).filter((entry): entry is Incident => entry !== null)
+        : [];
+    },
     refetchInterval: 5_000,
     refetchIntervalInBackground: true,
     staleTime: 5_000,
@@ -114,6 +167,19 @@ export default function IncidentsPage() {
     refetchInterval: 30_000,
     refetchIntervalInBackground: true,
     staleTime: 10_000,
+  });
+  const assigneesQuery = useQuery<IncidentAssigneeCandidate[]>({
+    queryKey: ["/api/incidents/assignees"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/incidents/assignees");
+      const payload = await response.json();
+      return Array.isArray(payload)
+        ? payload
+            .map((entry) => normalizeIncidentAssigneeCandidate(entry))
+            .filter((entry): entry is IncidentAssigneeCandidate => entry !== null)
+        : [];
+    },
+    staleTime: 30_000,
   });
 
   const createMutation = useMutation({
@@ -164,7 +230,18 @@ export default function IncidentsPage() {
     },
   });
 
+  const systemNameById = new Map((systemsQuery.data ?? []).map((system) => [system.id, system.name]));
+  const getSystemLabel = (systemId?: string | null) => {
+    if (!systemId) {
+      return "Not linked";
+    }
+
+    return systemNameById.get(systemId) ?? systemId;
+  };
+
   const incidents = [...(listQuery.data ?? [])].sort((a, b) => {
+    const priorityDelta = (b.priority?.score ?? -1) - (a.priority?.score ?? -1);
+    if (priorityDelta !== 0) return priorityDelta;
     const statusOrder: Record<string, number> = { open: 0, contained: 1, resolved: 2, postmortem: 3 };
     const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
     const statusDelta = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
@@ -178,7 +255,48 @@ export default function IncidentsPage() {
     if (queueScope === "active") return incident.status === "open" || incident.status === "contained";
     if (queueScope === "resolved") return incident.status === "resolved" || incident.status === "postmortem";
     return true;
+  }).filter((incident) => {
+    if (priorityFilter !== "all" && incident.priority?.level !== priorityFilter) {
+      return false;
+    }
+    if (severityFilter !== "all" && incident.severity !== severityFilter) {
+      return false;
+    }
+    if (categoryFilter !== "all" && incident.category !== categoryFilter) {
+      return false;
+    }
+    if (assignmentFilter === "assigned" && !incident.owner) {
+      return false;
+    }
+    if (assignmentFilter === "unassigned" && incident.owner) {
+      return false;
+    }
+    if (!searchQuery.trim()) {
+      return true;
+    }
+
+    const evidence = getIncidentGovernanceEvidence(incident.playbook);
+    const haystack = [
+      incident.title,
+      incident.description,
+      incident.category,
+      incident.severity,
+      incident.status,
+      incident.owner ?? "",
+      incident.escalatedTo ?? "",
+      getSystemLabel(incident.systemId),
+      evidence?.decisionSummary ?? "",
+      evidence?.eventSummary ?? "",
+      ...(evidence?.reasonCodes ?? []),
+      ...(evidence?.policyCategories ?? []),
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return haystack.includes(searchQuery.trim().toLowerCase());
   });
+
+  const incidentCategories = Array.from(new Set(incidents.map((incident) => incident.category))).sort();
 
   const selectedIncident =
     filteredIncidents.find((incident) => incident.id === selectedIncidentId) ??
@@ -186,15 +304,6 @@ export default function IncidentsPage() {
     filteredIncidents[0] ??
     incidents[0] ??
     null;
-  const systemNameById = new Map((systemsQuery.data ?? []).map((system) => [system.id, system.name]));
-  const getSystemLabel = (systemId?: string | null) => {
-    if (!systemId) {
-      return "Not linked";
-    }
-
-    return systemNameById.get(systemId) ?? systemId;
-  };
-
   const selectedIncidentEvidence = getIncidentGovernanceEvidence(selectedIncident?.playbook);
   const selectedReleaseDraft = selectedIncident ? releaseDrafts[selectedIncident.id] ?? {
     reviewerNote: "",
@@ -203,21 +312,40 @@ export default function IncidentsPage() {
     receiptId: "",
     details: "",
   } : null;
+  const selectedAssigneeId = selectedIncident
+    ? assignmentDrafts[selectedIncident.id] ??
+      resolveIncidentAssigneeId(selectedIncident.owner, assigneesQuery.data ?? [])
+    : "";
+  const resolutionSuggestionQuery = useQuery<IncidentResolutionSuggestionResponse | null>({
+    queryKey: ["/api/incidents/resolution-suggestion", selectedIncident?.id ?? "none"],
+    enabled: Boolean(selectedIncident?.id),
+    staleTime: 15_000,
+    queryFn: async () => {
+      if (!selectedIncident?.id) {
+        return null;
+      }
+      const response = await apiRequest("GET", `/api/incidents/${selectedIncident.id}/resolution-suggestion`);
+      return (await response.json()) as IncidentResolutionSuggestionResponse;
+    },
+  });
 
   return (
     <div className="page-shell">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">AI Incident Response</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">{pageCopy.incidents.title}</h1>
           <p className="text-sm text-muted-foreground">
-            Triage privacy, security, safety, bias, and reliability events with clear containment targets and ownership.
+            {pageCopy.incidents.description}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge variant="outline">Open {summaryQuery.data?.open ?? 0}</Badge>
-          <Badge variant="outline">High severity {summaryQuery.data?.highSeverity ?? 0}</Badge>
+          <Badge variant="outline">{pageCopy.incidents.badges?.open} {summaryQuery.data?.open ?? 0}</Badge>
+          <Badge variant={summaryQuery.data && summaryQuery.data.urgent > 0 ? "destructive" : "outline"}>
+            {pageCopy.incidents.badges?.urgent} {summaryQuery.data?.urgent ?? 0}
+          </Badge>
+          <Badge variant="outline">{pageCopy.incidents.badges?.highSeverity} {summaryQuery.data?.highSeverity ?? 0}</Badge>
           <Badge variant={summaryQuery.data && summaryQuery.data.breached > 0 ? "destructive" : "outline"}>
-            SLA breached {summaryQuery.data?.breached ?? 0}
+            {pageCopy.incidents.badges?.slaBreached} {summaryQuery.data?.breached ?? 0}
           </Badge>
         </div>
       </div>
@@ -225,12 +353,19 @@ export default function IncidentsPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <Metric title="Total incidents" value={summaryQuery.data?.total ?? 0} icon={AlertTriangle} />
         <Metric title="Open" value={summaryQuery.data?.open ?? 0} icon={Siren} />
-        <Metric title="High severity" value={summaryQuery.data?.highSeverity ?? 0} icon={ShieldAlert} />
+        <Metric title="Urgent queue" value={summaryQuery.data?.urgent ?? 0} icon={ShieldAlert} />
         <Metric title="SLA breached" value={summaryQuery.data?.breached ?? 0} icon={Clock3} />
-        <Metric title="Postmortems pending" value={summaryQuery.data?.postmortemPending ?? 0} icon={Clock3} />
+        <Metric title="Needs assignment" value={summaryQuery.data?.unassignedActive ?? 0} icon={Clock3} />
       </div>
 
       <div className="space-y-6">
+        {summaryQuery.isError || listQuery.isError ? (
+          <Card className="border-destructive/40">
+            <CardContent className="p-4 text-sm text-muted-foreground">
+              Incident data could not be loaded cleanly. The page now falls back to normalized incident payloads, but the API still returned an error for part of the queue.
+            </CardContent>
+          </Card>
+        ) : null}
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-semibold">Incident intake</CardTitle>
@@ -307,6 +442,84 @@ export default function IncidentsPage() {
             </div>
           </CardHeader>
           <CardContent className="overflow-hidden">
+            <div className="mb-4 grid gap-3 rounded-lg border bg-muted/10 p-3 md:grid-cols-2 xl:grid-cols-6">
+              <Field label="Search incidents">
+                <input
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search title, system, reason code, summary..."
+                />
+              </Field>
+              <Field label="Priority">
+                <select
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  value={priorityFilter}
+                  onChange={(event) => setPriorityFilter(event.target.value)}
+                >
+                  <option value="all">All priorities</option>
+                  <option value="urgent">Urgent</option>
+                  <option value="high">High</option>
+                  <option value="normal">Normal</option>
+                  <option value="monitor">Monitor</option>
+                </select>
+              </Field>
+              <Field label="Severity">
+                <select
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  value={severityFilter}
+                  onChange={(event) => setSeverityFilter(event.target.value)}
+                >
+                  <option value="all">All severities</option>
+                  <option value="critical">Critical</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </Field>
+              <Field label="Category">
+                <select
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  value={categoryFilter}
+                  onChange={(event) => setCategoryFilter(event.target.value)}
+                >
+                  <option value="all">All categories</option>
+                  {incidentCategories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Assignment">
+                <select
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  value={assignmentFilter}
+                  onChange={(event) => setAssignmentFilter(event.target.value)}
+                >
+                  <option value="all">All incidents</option>
+                  <option value="assigned">Assigned only</option>
+                  <option value="unassigned">Unassigned only</option>
+                </select>
+              </Field>
+              <div className="flex flex-col justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setPriorityFilter("all");
+                    setSeverityFilter("all");
+                    setCategoryFilter("all");
+                    setAssignmentFilter("all");
+                  }}
+                >
+                  Clear filters
+                </Button>
+                <div className="text-xs text-muted-foreground">
+                  {filteredIncidents.length} of {incidents.length} incidents shown
+                </div>
+              </div>
+            </div>
             {listQuery.isLoading ? (
               <div className="space-y-2">
                 <Skeleton className="h-24 w-full" />
@@ -339,6 +552,11 @@ export default function IncidentsPage() {
                             </div>
                           </div>
                           <div className="flex shrink-0 gap-2">
+                            {incident.priority?.level ? (
+                              <Badge variant={incident.priority.level === "urgent" ? "destructive" : "secondary"}>
+                                {incident.priority.level}
+                              </Badge>
+                            ) : null}
                             <Badge variant={incident.severity === "critical" ? "destructive" : "default"}>{incident.severity}</Badge>
                             <Badge variant="outline">{incident.status}</Badge>
                           </div>
@@ -346,6 +564,8 @@ export default function IncidentsPage() {
                         <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{incident.description}</p>
                         <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
                           {incident.systemId ? <Badge variant="outline">{getSystemLabel(incident.systemId)}</Badge> : null}
+                          {incident.owner ? <Badge variant="outline">Owner {incident.owner}</Badge> : <Badge variant="secondary">Unassigned</Badge>}
+                          {incident.priority?.reasons?.[0] ? <Badge variant="outline">{incident.priority.reasons[0]}</Badge> : null}
                           {incident.playbook?.decision ? <Badge variant="secondary">{incident.playbook.decision}</Badge> : null}
                           {incident.dueAt ? <Badge variant="outline">Contain by {formatDateTime(incident.dueAt)}</Badge> : null}
                         </div>
@@ -367,6 +587,11 @@ export default function IncidentsPage() {
                         </div>
                       </div>
                       <div className="flex gap-2">
+                        {selectedIncident.priority?.level ? (
+                          <Badge variant={selectedIncident.priority.level === "urgent" ? "destructive" : "secondary"}>
+                            {selectedIncident.priority.level}
+                          </Badge>
+                        ) : null}
                         <Badge variant={selectedIncident.severity === "critical" ? "destructive" : "default"}>{selectedIncident.severity}</Badge>
                         <Badge variant="outline">{selectedIncident.status}</Badge>
                       </div>
@@ -374,9 +599,31 @@ export default function IncidentsPage() {
 
                     <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
                       <MetaBlock label="System" value={getSystemLabel(selectedIncident.systemId)} mono={!systemNameById.has(selectedIncident.systemId ?? "")} />
-                      <MetaBlock label="Owner" value={selectedIncident.owner ?? "Unassigned"} />
+                      <MetaBlock label="Assigned reviewer" value={selectedIncident.owner ?? "Unassigned"} />
                       <MetaBlock label="Escalated to" value={selectedIncident.escalatedTo ?? "Not set"} />
                       <MetaBlock label="Containment target" value={selectedIncident.dueAt ? formatDateTime(selectedIncident.dueAt) : "Not set"} />
+                      <MetaBlock
+                        label="Priority"
+                        value={
+                          selectedIncident.priority
+                            ? `${selectedIncident.priority.level} (${selectedIncident.priority.score})`
+                            : "Not scored"
+                        }
+                      />
+                      <MetaBlock
+                        label="Queue signals"
+                        value={
+                          selectedIncident.priority
+                            ? [
+                                selectedIncident.priority.breached ? "SLA breached" : null,
+                                selectedIncident.priority.needsAssignment ? "Needs assignment" : null,
+                                selectedIncident.priority.reasons[0] ?? null,
+                              ]
+                                .filter(Boolean)
+                                .join("\n") || "No escalated queue signals"
+                            : "No escalated queue signals"
+                        }
+                      />
                     </div>
 
                     <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
@@ -676,14 +923,46 @@ export default function IncidentsPage() {
                                   </div>
                                 </div>
                               ) : null}
+
+                              {selectedIncidentEvidence.eventSummary ||
+                              selectedIncidentEvidence.promptPreview ||
+                              selectedIncidentEvidence.outputPreview ? (
+                                <div className="space-y-3">
+                                  <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Captured runtime context</p>
+                                  <div className="grid gap-3 md:grid-cols-2">
+                                    <MetaBlock label="Event type" value={selectedIncidentEvidence.eventType ?? "Not recorded"} />
+                                    <MetaBlock label="Gateway / model" value={buildRuntimePathLabel(selectedIncidentEvidence)} />
+                                  </div>
+                                  {selectedIncidentEvidence.eventSummary ? (
+                                    <div className="rounded-lg border bg-background p-3">
+                                      <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Event summary</p>
+                                      <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selectedIncidentEvidence.eventSummary}</p>
+                                    </div>
+                                  ) : null}
+                                  <div className="grid gap-3 lg:grid-cols-2">
+                                    <div className="rounded-lg border bg-background p-3">
+                                      <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Prompt preview</p>
+                                      <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+                                        {selectedIncidentEvidence.promptPreview ?? "No prompt preview captured."}
+                                      </p>
+                                    </div>
+                                    <div className="rounded-lg border bg-background p-3">
+                                      <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Output preview</p>
+                                      <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+                                        {selectedIncidentEvidence.outputPreview ?? "No output preview captured."}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : null}
                             </div>
                           </SectionBlock>
                         ) : null}
 
                         <SectionBlock title="Playbook">
-                          {(selectedIncident.playbook?.steps ?? []).length > 0 ? (
+                          {getStringArray(selectedIncident.playbook?.steps).length > 0 ? (
                             <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                              {(selectedIncident.playbook?.steps ?? []).map((step) => (
+                              {getStringArray(selectedIncident.playbook?.steps).map((step) => (
                                 <li key={step}>{step}</li>
                               ))}
                             </ul>
@@ -708,6 +987,130 @@ export default function IncidentsPage() {
                       </div>
 
                       <div className="space-y-4">
+                        <SectionBlock title="Assignment">
+                          <div className="space-y-3">
+                            <p className="text-sm text-muted-foreground">
+                              Every incident should have a named reviewer. Auto-assignment now picks a role-aligned owner, but you can reassign the case here without leaving the queue.
+                            </p>
+                            <Field label="Assigned reviewer">
+                              <select
+                                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                value={selectedAssigneeId}
+                                onChange={(event) =>
+                                  setAssignmentDrafts((current) => ({
+                                    ...current,
+                                    [selectedIncident.id]: event.target.value,
+                                  }))
+                                }
+                              >
+                                <option value="">Leave unassigned</option>
+                                {(assigneesQuery.data ?? []).map((candidate) => (
+                                  <option key={candidate.userId} value={candidate.userId}>
+                                    {candidate.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </Field>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                variant="outline"
+                                onClick={() => {
+                                  const nextOwner = (assigneesQuery.data ?? []).find((candidate) => candidate.userId === selectedAssigneeId);
+                                  updateIncidentMutation.mutate({
+                                    id: selectedIncident.id,
+                                    payload: {
+                                      owner: nextOwner?.fullName ?? null,
+                                    },
+                                  });
+                                }}
+                                disabled={updateIncidentMutation.isPending}
+                              >
+                                Save assignment
+                              </Button>
+                              {selectedIncidentEvidence?.assignment?.autoAssigned ? (
+                                <Badge variant="secondary">
+                                  Auto-assigned {typeof selectedIncidentEvidence.assignment?.ownerRole === "string"
+                                    ? `via ${selectedIncidentEvidence.assignment.ownerRole.replace(/_/g, " ")}`
+                                    : ""}
+                                </Badge>
+                              ) : null}
+                            </div>
+                          </div>
+                        </SectionBlock>
+
+                        <SectionBlock title="Reviewer recommendation">
+                          {resolutionSuggestionQuery.isLoading ? (
+                            <div className="space-y-2">
+                              <Skeleton className="h-6 w-32" />
+                              <Skeleton className="h-16 w-full" />
+                            </div>
+                          ) : resolutionSuggestionQuery.data ? (
+                            <div className="space-y-3">
+                              <div className="flex flex-wrap gap-2">
+                                <Badge variant={resolutionSuggestionQuery.data.recommendation === "contain_and_escalate" ? "destructive" : "secondary"}>
+                                  {resolutionSuggestionQuery.data.recommendation.replace(/_/g, " ")}
+                                </Badge>
+                                <Badge variant="outline">{resolutionSuggestionQuery.data.confidence} confidence</Badge>
+                                {resolutionSuggestionQuery.data.signals.priorityLevel ? (
+                                  <Badge variant="outline">
+                                    queue {resolutionSuggestionQuery.data.signals.priorityLevel}
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <p className="text-sm text-muted-foreground">{resolutionSuggestionQuery.data.summary}</p>
+                              <div>
+                                <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Rationale</p>
+                                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                                  {resolutionSuggestionQuery.data.rationale.map((item) => (
+                                    <li key={item}>{item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                              <div>
+                                <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Recommended actions</p>
+                                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                                  {resolutionSuggestionQuery.data.recommendedActions.map((item) => (
+                                    <li key={item}>{item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                              <div>
+                                <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Reviewer checks</p>
+                                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                                  {resolutionSuggestionQuery.data.reviewerChecks.map((item) => (
+                                    <li key={item}>{item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {resolutionSuggestionQuery.data.suggestedStatus &&
+                                resolutionSuggestionQuery.data.suggestedStatus !== selectedIncident.status ? (
+                                  <Button
+                                    variant="outline"
+                                    onClick={() =>
+                                      updateIncidentMutation.mutate({
+                                        id: selectedIncident.id,
+                                        payload: { status: resolutionSuggestionQuery.data?.suggestedStatus },
+                                      })
+                                    }
+                                    disabled={updateIncidentMutation.isPending}
+                                  >
+                                    Apply suggested status: {resolutionSuggestionQuery.data.suggestedStatus}
+                                  </Button>
+                                ) : null}
+                                {resolutionSuggestionQuery.data.shouldEscalate ? (
+                                  <Badge variant="secondary">Escalation recommended</Badge>
+                                ) : null}
+                                {resolutionSuggestionQuery.data.shouldAssignOwner ? (
+                                  <Badge variant="secondary">Assignment recommended</Badge>
+                                ) : null}
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">No recommendation is available for this incident.</p>
+                          )}
+                        </SectionBlock>
+
                         <SectionBlock title="Actions">
                           <div className="flex flex-wrap gap-2">
                             <Button
@@ -1041,6 +1444,153 @@ function parseNotificationLines(value: string) {
     }));
 }
 
+function getObjectRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function getStringValue(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function getStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+}
+
+function normalizeIncidentAssigneeCandidate(value: unknown): IncidentAssigneeCandidate | null {
+  const record = getObjectRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  const userId = getStringValue(record.userId);
+  const fullName = getStringValue(record.fullName);
+  if (!userId || !fullName) {
+    return null;
+  }
+
+  return {
+    userId,
+    fullName,
+    email: getStringValue(record.email),
+    membershipRole: getStringValue(record.membershipRole) ?? "reviewer",
+    label: getStringValue(record.label) ?? fullName,
+  };
+}
+
+function normalizeIncident(value: unknown): Incident | null {
+  const record = getObjectRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  const id = getStringValue(record.id);
+  const title = getStringValue(record.title);
+  const category = getStringValue(record.category);
+  const severity = getStringValue(record.severity);
+  const status = getStringValue(record.status);
+  const description = getStringValue(record.description);
+  const detectedAt = getStringValue(record.detectedAt);
+  if (!id || !title || !category || !severity || !status || !description || !detectedAt) {
+    return null;
+  }
+
+  const regulatoryNotifications = Array.isArray(record.regulatoryNotifications)
+    ? record.regulatoryNotifications
+        .map((entry) => {
+          const notification = getObjectRecord(entry);
+          const authority = getStringValue(notification?.authority);
+          if (!authority) {
+            return null;
+          }
+
+          return {
+            authority,
+            status: getStringValue(notification?.status) ?? "planned",
+            notes: getStringValue(notification?.notes),
+            completedAt: getStringValue(notification?.completedAt),
+          };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    : [];
+
+  return {
+    id,
+    systemId: getStringValue(record.systemId),
+    title,
+    category,
+    severity,
+    status,
+    description,
+    rootCause: getStringValue(record.rootCause),
+    postIncidentReview: getObjectRecord(record.postIncidentReview) ?? {},
+    affectedDecisionTraceIds: getStringArray(record.affectedDecisionTraceIds),
+    regulatoryNotifications,
+    owner: getStringValue(record.owner),
+    escalatedTo: getStringValue(record.escalatedTo),
+    dueAt: getStringValue(record.dueAt),
+    detectedAt,
+    updatedAt: getStringValue(record.updatedAt),
+    resolvedAt: getStringValue(record.resolvedAt),
+    postmortemCompletedAt: getStringValue(record.postmortemCompletedAt),
+    playbook: (getObjectRecord(record.playbook) ?? {}) as IncidentPlaybook,
+    priority: (() => {
+      const priority = getObjectRecord(record.priority);
+      if (!priority) {
+        return null;
+      }
+
+      const score = typeof priority.score === "number" ? priority.score : null;
+      const level = getStringValue(priority.level);
+      if (score === null || !level) {
+        return null;
+      }
+
+      return {
+        score,
+        level,
+        reasons: getStringArray(priority.reasons),
+        breached: priority.breached === true,
+        needsAssignment: priority.needsAssignment === true,
+        active: priority.active === true,
+        ageHours: typeof priority.ageHours === "number" ? priority.ageHours : 0,
+        timeToDueHours: typeof priority.timeToDueHours === "number" ? priority.timeToDueHours : null,
+      };
+    })(),
+  };
+}
+
+function resolveIncidentAssigneeId(owner: string | null | undefined, candidates: IncidentAssigneeCandidate[]) {
+  if (!owner) {
+    return "";
+  }
+
+  const normalizedOwner = owner.trim().toLowerCase();
+  return (
+    candidates.find((candidate) =>
+      [candidate.fullName, candidate.email]
+        .filter(Boolean)
+        .some((value) => value?.trim().toLowerCase() === normalizedOwner),
+    )?.userId ?? ""
+  );
+}
+
+function buildRuntimePathLabel(evidence: ReturnType<typeof getIncidentGovernanceEvidence>) {
+  if (!evidence) {
+    return "Not recorded";
+  }
+
+  const parts = [evidence.gateway, evidence.provider, evidence.modelName].filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+  return parts.length > 0 ? parts.join(" • ") : "Not recorded";
+}
+
 function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | null) {
   if (!playbook) {
     return null;
@@ -1079,6 +1629,10 @@ function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | 
   const reviewRelease =
     playbook.reviewRelease && typeof playbook.reviewRelease === "object" && !Array.isArray(playbook.reviewRelease)
       ? (playbook.reviewRelease as Record<string, unknown>)
+      : null;
+  const assignment =
+    playbook.assignment && typeof playbook.assignment === "object" && !Array.isArray(playbook.assignment)
+      ? (playbook.assignment as Record<string, unknown>)
       : null;
 
   const reasonCodes = Array.isArray(playbook.reasonCodes)
@@ -1119,6 +1673,10 @@ function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | 
     outOfScopeCapabilities.length > 0 ||
     typeof playbook.telemetryEventId === "string" ||
     typeof playbook.correlationId === "string" ||
+    typeof playbook.eventType === "string" ||
+    typeof playbook.eventSummary === "string" ||
+    typeof playbook.promptPreview === "string" ||
+    typeof playbook.outputPreview === "string" ||
     typeof playbook.legalProfileApplied === "string" ||
     typeof playbook.capabilityProfileApplied === "string" ||
     typeof playbook.strictnessApplied === "string" ||
@@ -1127,6 +1685,7 @@ function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | 
     Boolean(sourceAttributionVerifier) ||
     Boolean(factProvenanceVerifier) ||
     Boolean(actionConfirmationVerifier) ||
+    Boolean(assignment) ||
     Boolean(reviewRelease) ||
     Boolean(shadowPolicy);
 
@@ -1154,11 +1713,23 @@ function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | 
     telemetryEventId: typeof playbook.telemetryEventId === "string" ? playbook.telemetryEventId : null,
     correlationId:
       typeof playbook.correlationId === "string" ? playbook.correlationId : null,
+    eventType: typeof playbook.eventType === "string" ? playbook.eventType : null,
+    eventSummary: typeof playbook.eventSummary === "string" ? playbook.eventSummary : null,
+    gateway: typeof playbook.gateway === "string" ? playbook.gateway : null,
+    provider: typeof playbook.provider === "string" ? playbook.provider : null,
+    modelName: typeof playbook.modelName === "string" ? playbook.modelName : null,
+    promptPreview: typeof playbook.promptPreview === "string" ? playbook.promptPreview : null,
+    outputPreview: typeof playbook.outputPreview === "string" ? playbook.outputPreview : null,
+    runtimeContextSnapshot:
+      playbook.runtimeContextSnapshot && typeof playbook.runtimeContextSnapshot === "object" && !Array.isArray(playbook.runtimeContextSnapshot)
+        ? (playbook.runtimeContextSnapshot as Record<string, unknown>)
+        : null,
     rulesEngine,
     governanceCritic,
     sourceAttributionVerifier,
     factProvenanceVerifier,
     actionConfirmationVerifier,
+    assignment,
     reviewRelease,
     shadowPolicy,
   };

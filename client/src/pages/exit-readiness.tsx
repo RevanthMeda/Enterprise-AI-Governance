@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowRight, Fingerprint, ShieldAlert, Signal } from "luc
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePageCopy } from "@/lib/page-copy";
 
 type ExitReadinessMetric = {
   key: string;
@@ -38,6 +39,7 @@ const statusColors: Record<ExitReadinessMetric["status"], string> = {
 };
 
 export default function ExitReadinessPage() {
+  const pageCopy = usePageCopy();
   const readinessQuery = useQuery<ExitReadinessResponse>({
     queryKey: ["/api/dashboard/exit-readiness"],
   });
@@ -49,12 +51,12 @@ export default function ExitReadinessPage() {
     <div className="space-y-6 p-6">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Governance Evidence</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">{pageCopy.exitReadiness.title}</h1>
           <p className="text-sm text-muted-foreground">
-            Evidence coverage for documented AI decisions, human supervision, drift detection, and containment discipline.
+            {pageCopy.exitReadiness.description}
           </p>
         </div>
-        <Badge variant="outline" className="w-fit">PilotWave diligence mode</Badge>
+        <Badge variant="outline" className="w-fit">{pageCopy.exitReadiness.badges?.diligenceMode}</Badge>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -115,6 +117,38 @@ export default function ExitReadinessPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-semibold">How these percentages are calculated</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <ExplanationRow
+            label="Decision documentation rate"
+            detail="Linked workflow traces divided by approval workflows. It rises only when a workflow has a connected decision trace."
+          />
+          <ExplanationRow
+            label="Override rationale capture"
+            detail="Overrides with a documented rationale divided by traced decisions with human overrides."
+          />
+          <ExplanationRow
+            label="Outcome tracking"
+            detail="Decision traces with a populated 90-day outcome record divided by total decision traces."
+          />
+          <ExplanationRow
+            label="Incident containment"
+            detail="Average hours between incident detection and containment for incidents that actually reached containment."
+          />
+          <ExplanationRow
+            label="Telemetry alerts"
+            detail="Critical plus warning telemetry outcomes. These are operational signals, not proof that a system is non-compliant."
+          />
+          <ExplanationRow
+            label="Evidence expectation"
+            detail="Uploading files alone does not complete governance. Controls, workflows, traces, and incident records all contribute to coverage."
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -146,6 +180,15 @@ function TierRow({ label, value, detail }: { label: string; value: number; detai
         <div className="text-sm font-medium">{label}</div>
         <Badge variant="outline">{value}</Badge>
       </div>
+      <div className="mt-2 text-sm text-muted-foreground">{detail}</div>
+    </div>
+  );
+}
+
+function ExplanationRow({ label, detail }: { label: string; detail: string }) {
+  return (
+    <div className="rounded-md border bg-muted/20 p-4">
+      <div className="text-sm font-medium">{label}</div>
       <div className="mt-2 text-sm text-muted-foreground">{detail}</div>
     </div>
   );

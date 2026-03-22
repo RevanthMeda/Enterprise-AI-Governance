@@ -47,11 +47,13 @@ import type {
   AuditLog,
   ComplianceControl,
   AgentGovernanceProfile,
+  RiskAssessment,
 } from "@shared/schema";
 import { EvidenceUpload } from "@/components/evidence-upload";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageCopy } from "@/lib/page-copy";
 import {
   formatCapabilityLabel,
   formatCapabilityProfileLabel,
@@ -1011,6 +1013,7 @@ function OverviewTab({
         <InfoItem icon={Users} label="Users Impacted" value={(system.usersImpacted || 0).toLocaleString()} />
         <InfoItem icon={Clock} label="Last Assessment" value={system.lastAssessment ? new Date(system.lastAssessment).toLocaleDateString() : "Not assessed"} />
       </div>
+      <RiskAssessmentHistoryCard systemId={system.id} currentRiskLevel={system.riskLevel} />
       <LegalGovernanceCard system={system} canEdit={canEdit} />
       <CapabilityGovernanceCard system={system} canEdit={canEdit} />
       <AgentGovernanceOverridesCard system={system} workflows={workflows} canEdit={canEdit} />
@@ -1055,6 +1058,80 @@ function OverviewTab({
         </Card>
       )}
     </div>
+  );
+}
+
+function RiskAssessmentHistoryCard({
+  systemId,
+  currentRiskLevel,
+}: {
+  systemId: string;
+  currentRiskLevel: string;
+}) {
+  const assessmentsQuery = useQuery<RiskAssessment[]>({
+    queryKey: ["/api/risk-assessments/system", systemId],
+    queryFn: async () => {
+      const response = await apiRequest("GET", `/api/risk-assessments/system/${encodeURIComponent(systemId)}`);
+      return response.json();
+    },
+    staleTime: 10_000,
+  });
+
+  const assessments = [...(assessmentsQuery.data ?? [])].sort(
+    (a, b) => new Date(String(b.createdAt)).getTime() - new Date(String(a.createdAt)).getTime(),
+  );
+  const latest = assessments[0] ?? null;
+  const previous = assessments[1] ?? null;
+  const scoreDelta = latest && previous ? latest.riskScore - previous.riskScore : null;
+  const latestIsRuntime = /runtime telemetry/i.test(latest?.completedBy ?? "");
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-xs font-semibold">Risk score history</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {assessmentsQuery.isLoading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : assessments.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No recorded assessments yet for this system.</p>
+        ) : (
+          <>
+            <div className="grid gap-3 md:grid-cols-3">
+              <InfoItem icon={AlertTriangle} label="Current system risk" value={currentRiskLevel} />
+              <InfoItem icon={Activity} label="Latest score" value={`${latest?.riskScore ?? 0}/100`} />
+              <InfoItem
+                icon={Clock}
+                label="Change vs previous"
+                value={scoreDelta === null ? "No prior baseline" : `${scoreDelta > 0 ? "+" : ""}${scoreDelta} points`}
+              />
+            </div>
+            <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
+              {latestIsRuntime
+                ? "The latest score came from runtime telemetry. Live incidents, drift, PII, and safety signals can move the score after the original compliance assessment."
+                : "The latest score came from a risk assessment workflow. Runtime telemetry may still adjust the live score later if production evidence changes the posture."}
+            </div>
+            <div className="space-y-2">
+              {assessments.slice(0, 3).map((assessment) => (
+                <div key={assessment.id} className="rounded-md border bg-muted/20 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm font-medium">
+                      {assessment.riskOutcome} risk • {assessment.riskScore}/100
+                    </div>
+                    <Badge variant="outline">
+                      {assessment.createdAt ? new Date(assessment.createdAt).toLocaleString() : "Undated"}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Completed by {assessment.completedBy}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1254,6 +1331,9 @@ function AuditTab({ logs }: { logs: AuditLog[] }) {
 }
 
 export default function SystemDetail() {
+  const pageCopy = usePageCopy();
+  const systemDetailCopy = pageCopy.systemDetail;
+  const systemDetailBadges = systemDetailCopy.badges ?? {};
   const [, params] = useRoute("/systems/:id");
   const systemId = params?.id;
   const { user } = useAuth();
@@ -1311,7 +1391,7 @@ export default function SystemDetail() {
         <Card className="mt-4">
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Server className="h-12 w-12 text-muted-foreground/30 mb-3" />
-            <h3 className="text-sm font-medium mb-1">System not found</h3>
+            <h3 className="text-sm font-medium mb-1">{systemDetailBadges.notFound ?? "System not found"}</h3>
           </CardContent>
         </Card>
       </div>
@@ -1330,7 +1410,7 @@ export default function SystemDetail() {
           <div>
             <h1 className="text-xl font-bold tracking-tight" data-testid="text-system-name">{system.name}</h1>
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-xs text-muted-foreground">Owner: {system.owner}</span>
+              <span className="text-xs text-muted-foreground">{systemDetailBadges.owner ?? "Owner"}: {system.owner}</span>
               <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${riskColors[system.riskLevel]}`}>
                 {system.riskLevel}
               </span>
@@ -1349,25 +1429,25 @@ export default function SystemDetail() {
           data-testid="button-export-evidence"
         >
           <Download className="h-3.5 w-3.5 mr-1.5" />
-          Export Evidence
+          {systemDetailBadges.exportEvidence ?? "Export Evidence"}
         </Button>
       </div>
 
       <Tabs defaultValue="overview">
         <TabsList data-testid="system-tabs">
-          <TabsTrigger value="overview" data-testid="tab-trigger-overview">Overview</TabsTrigger>
+          <TabsTrigger value="overview" data-testid="tab-trigger-overview">{systemDetailBadges.overview ?? "Overview"}</TabsTrigger>
           <TabsTrigger value="controls" data-testid="tab-trigger-controls">
-            Controls ({controls.length})
+            {(systemDetailBadges.controls ?? "Controls")} ({controls.length})
           </TabsTrigger>
           <TabsTrigger value="workflows" data-testid="tab-trigger-workflows">
-            Workflows ({workflows.length})
+            {(systemDetailBadges.workflows ?? "Workflows")} ({workflows.length})
           </TabsTrigger>
           <TabsTrigger value="evidence" data-testid="tab-trigger-evidence">
             <Paperclip className="h-3 w-3 mr-1" />
-            Evidence
+            {systemDetailBadges.evidence ?? "Evidence"}
           </TabsTrigger>
           <TabsTrigger value="audit" data-testid="tab-trigger-audit">
-            Audit ({auditLogs.length})
+            {(systemDetailBadges.audit ?? "Audit")} ({auditLogs.length})
           </TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="mt-4">
@@ -1384,7 +1464,7 @@ export default function SystemDetail() {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 <Paperclip className="h-4 w-4 text-muted-foreground" />
-                System Evidence Files
+                {systemDetailBadges.evidenceFiles ?? "System Evidence Files"}
               </CardTitle>
             </CardHeader>
             <CardContent>

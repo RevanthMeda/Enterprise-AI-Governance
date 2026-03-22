@@ -40,6 +40,7 @@ import {
   type SpotLight,
 } from "three";
 import { BrandMark } from "@/components/brand-mark";
+import { usePageCopy, type PageCopyCatalog } from "@/lib/page-copy";
 
 const glassClass =
   "bg-white/[0.03] border border-white/[0.08] backdrop-blur-xl shadow-[0_0_40px_rgba(0,255,209,0.05)]";
@@ -228,6 +229,8 @@ const PROOF_STRIP = [
     detail: "Operators can assemble audit-ready evidence without spreadsheet hunts.",
   },
 ];
+
+type LandingCopy = PageCopyCatalog["landing"];
 
 const OPERATOR_QUOTES = [
   {
@@ -472,7 +475,16 @@ function NavLink({ href, children }: { href: string; children: string }) {
   );
 }
 
-function Navbar() {
+function Navbar({ copy }: { copy: LandingCopy }) {
+  const badges = copy.badges ?? {};
+  const navItems = [
+    { label: badges.productNav ?? "Product", href: "#product" },
+    { label: badges.solutionsNav ?? "Solutions", href: "#solutions" },
+    { label: badges.frameworksNav ?? "Frameworks", href: "#frameworks" },
+    { label: badges.pricingNav ?? "Pricing", href: "#pricing" },
+    { label: badges.trustCenterNav ?? "Trust Center", href: "/trust-center" },
+    { label: badges.docsNav ?? "Docs", href: "/api-docs" },
+  ];
   return (
     <div className="fixed left-0 top-0 z-50 w-full bg-gradient-to-b from-[#050505] via-[#050505]/85 to-transparent backdrop-blur-md">
       <div className="mx-auto flex h-[clamp(4.25rem,6vw,5rem)] max-w-[1600px] items-center justify-between px-4 sm:px-6 lg:px-10 xl:px-16">
@@ -485,13 +497,13 @@ function Navbar() {
               AI CONTROL TOWER
             </span>
             <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500 sm:text-[11px] sm:tracking-[0.22em]">
-              Runtime governance
+              {badges.runtimeGovernance ?? "Runtime governance"}
             </span>
           </div>
         </a>
 
         <div className="hidden items-center gap-4 md:flex lg:gap-5 xl:gap-8">
-          {NAV_ITEMS.map((item, index) => (
+          {navItems.map((item, index) => (
             <div key={item.label} className={index > 3 ? "hidden xl:block" : ""}>
               <NavLink href={item.href}>{item.label}</NavLink>
             </div>
@@ -504,7 +516,7 @@ function Navbar() {
               href="/auth/login"
               className="hidden rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-300 transition-all duration-300 hover:border-white/20 hover:text-white sm:inline-flex"
             >
-              Sign In
+              {badges.signIn ?? "Sign In"}
             </SmartLink>
           </motion.div>
           <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.98 }}>
@@ -512,7 +524,7 @@ function Navbar() {
               href="/book-demo"
               className="rounded-full border border-[#00FFD1] px-4 py-2 text-sm font-semibold text-[#00FFD1] transition-all duration-300 hover:bg-[#00FFD1] hover:text-black sm:px-5 xl:px-6"
             >
-              Book a Demo
+              {badges.bookDemo ?? "Book a Demo"}
             </SmartLink>
           </motion.div>
         </div>
@@ -1756,7 +1768,8 @@ function BuildVerifySection() {
   );
 }
 
-function HeroSection({ velocity, isMobile }: { velocity: number; isMobile: boolean }) {
+function HeroSection({ velocity, isMobile, copy }: { velocity: number; isMobile: boolean; copy: LandingCopy }) {
+  const badges = copy.badges ?? {};
   const sectionRef = useRef<HTMLElement>(null);
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const [progress, setProgress] = useState(0);
@@ -1876,20 +1889,18 @@ function HeroSection({ velocity, isMobile }: { velocity: number; isMobile: boole
           <div className="max-w-3xl pt-4 text-center md:text-left xl:pt-8">
             <div className={`mb-6 inline-flex items-center gap-3 rounded-full px-5 py-2 ${glassClass}`}>
               <span className="font-mono text-[11px] uppercase tracking-[0.3em] text-[#00FFD1]">
-                Runtime policy • incident operations • cryptographic evidence
+                {badges.heroRibbon ?? "Runtime policy • incident operations • cryptographic evidence"}
               </span>
             </div>
 
             <h1 className="max-w-4xl text-[clamp(3rem,7vw,6.2rem)] font-extrabold leading-[0.92] tracking-tight text-white">
-              Govern AI at Runtime. Protect Exit Valuations.
+              {copy.title}
             </h1>
             <p className="mt-5 max-w-2xl text-[clamp(1rem,1.8vw,1.125rem)] font-light leading-8 text-slate-400">
-              Intercept prompts, enforce policy, and cryptographically seal every
-              AI decision before it reaches production.
+              {copy.description}
             </p>
             <p className="mt-4 max-w-2xl text-sm font-medium uppercase tracking-[0.22em] text-slate-500">
-              For PE funds and regulated enterprises that cannot afford AI
-              guesswork.
+              {badges.heroAudience ?? "For PE funds and regulated enterprises that cannot afford AI guesswork."}
             </p>
 
             <div className="mt-8 flex flex-col items-center gap-4 sm:flex-row md:items-start">
@@ -1898,7 +1909,7 @@ function HeroSection({ velocity, isMobile }: { velocity: number; isMobile: boole
                   href="/book-demo"
                   className="inline-flex items-center gap-3 rounded-full bg-[#00FFD1] px-8 py-4 text-lg font-semibold text-black shadow-[0_0_30px_rgba(0,255,209,0.4)]"
                 >
-                  Book a Demo
+                  {badges.bookDemo ?? "Book a Demo"}
                   <ArrowRight className="h-5 w-5" />
                 </SmartLink>
               </motion.div>
@@ -1908,7 +1919,7 @@ function HeroSection({ velocity, isMobile }: { velocity: number; isMobile: boole
                 whileTap={{ scale: 0.98 }}
                 className="inline-flex items-center gap-3 rounded-full border border-white/10 px-8 py-4 text-lg font-semibold text-white"
               >
-                Inspect the enforcement engine
+                {badges.heroSecondaryCta ?? "Inspect the enforcement engine"}
               </motion.a>
             </div>
 
@@ -1917,7 +1928,7 @@ function HeroSection({ velocity, isMobile }: { velocity: number; isMobile: boole
                 href="#vault"
                 className="font-mono text-[11px] uppercase tracking-[0.22em] text-[#00FFD1] transition-colors hover:text-white"
               >
-                See the evidence chain
+                {badges.heroEvidenceCta ?? "See the evidence chain"}
               </SmartLink>
             </div>
           </div>
@@ -1925,16 +1936,16 @@ function HeroSection({ velocity, isMobile }: { velocity: number; isMobile: boole
           <div className="relative mx-auto grid w-full max-w-[clamp(16rem,30vw,24rem)] gap-4 md:ml-auto md:pt-2 lg:pt-6 xl:max-w-[26rem] xl:pt-10">
             <div className="justify-self-start rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl md:w-[13rem] lg:w-64">
               <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FA9A]">
-                Runtime seal
+                {badges.runtimeSeal ?? "Runtime seal"}
               </div>
               <p className="mt-3 text-sm leading-7 text-slate-400">
-                Prompt, output, decision, and incident linkage sealed before release.
+                {badges.runtimeSealBody ?? "Prompt, output, decision, and incident linkage sealed before release."}
               </p>
             </div>
 
             <div className="justify-self-end rounded-[24px] border border-white/[0.08] bg-white/[0.04] p-4 backdrop-blur-xl md:w-full lg:w-[22rem]">
               <div className="font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
-                Live command rail
+                {badges.liveCommandRail ?? "Live command rail"}
               </div>
               <div className="mt-4 grid gap-3">
                 <div>
@@ -2598,7 +2609,8 @@ function PortfolioSection({ velocity, isMobile }: { velocity: number; isMobile: 
   );
 }
 
-function FinalCTASection() {
+function FinalCTASection({ copy }: { copy: LandingCopy }) {
+  const badges = copy.badges ?? {};
   return (
     <SectionShell id="cta" className="bg-[#020202] px-[clamp(1.25rem,4vw,2rem)] py-[clamp(4rem,8vw,4.75rem)] lg:px-[clamp(2rem,6vw,6rem)]">
       <div className="relative flex min-h-[56vh] flex-col items-center justify-center overflow-hidden text-center">
@@ -2618,7 +2630,7 @@ function FinalCTASection() {
         </p>
         <div className="mt-12" id="pricing">
           <MagneticButton href="/book-demo">
-            Book an Enterprise Demo
+            {badges.enterpriseDemoCta ?? "Book an Enterprise Demo"}
           </MagneticButton>
         </div>
       </div>
@@ -2626,7 +2638,46 @@ function FinalCTASection() {
   );
 }
 
-function Footer() {
+function Footer({ copy }: { copy: LandingCopy }) {
+  const badges = copy.badges ?? {};
+  const footerColumns = [
+    {
+      title: badges.footerProduct ?? "Product",
+      links: [
+        { label: "Runtime", href: "#solutions" },
+        { label: "Incidents", href: "#solutions" },
+        { label: "Evidence", href: "#vault" },
+        { label: "Portfolio", href: "#frameworks" },
+      ],
+    },
+    {
+      title: badges.footerSecurity ?? "Security",
+      links: [
+        { label: "Inline gateway", href: "#engine" },
+        { label: "SDK guard", href: "#engine" },
+        { label: badges.trustCenterNav ?? "Trust Center", href: "/trust-center" },
+        { label: "API Docs", href: "/api-docs" },
+      ],
+    },
+    {
+      title: badges.footerLegal ?? "Legal",
+      links: [
+        { label: "EU AI Act", href: "#frameworks" },
+        { label: "NIST AI RMF", href: "#frameworks" },
+        { label: "ISO 42001", href: "#frameworks" },
+        { label: "Due diligence", href: "#vault" },
+      ],
+    },
+    {
+      title: badges.footerContact ?? "Contact",
+      links: [
+        { label: badges.enterpriseDemos ?? "Enterprise demos", href: "/book-demo" },
+        { label: badges.securityReviews ?? "Security reviews", href: "/trust-center" },
+        { label: "Private equity", href: "/start-pilot" },
+        { label: badges.support ?? "Support", href: "/auth/login" },
+      ],
+    },
+  ];
   return (
     <footer className="border-t border-white/10 bg-[#050505] px-[clamp(1.25rem,4vw,2rem)] pb-8 pt-[clamp(3.5rem,7vw,4rem)] lg:px-[clamp(2rem,6vw,6rem)]" id="footer">
       <div className="mx-auto grid max-w-[1500px] grid-cols-1 gap-10 md:grid-cols-2 xl:grid-cols-5">
@@ -2638,11 +2689,11 @@ function Footer() {
             </span>
           </div>
           <p className="mt-4 max-w-xs text-sm leading-7 text-slate-500">
-            Institutional-grade AI runtime governance for private equity, regulated operators, and high-consequence enterprise workflows.
+            {badges.footerDescription ?? "Institutional-grade AI runtime governance for private equity, regulated operators, and high-consequence enterprise workflows."}
           </p>
         </div>
 
-        {FOOTER_COLUMNS.map((column) => (
+        {footerColumns.map((column) => (
           <div key={column.title}>
             <h3 className="text-sm font-bold uppercase tracking-[0.18em] text-white">
               {column.title}
@@ -2661,7 +2712,7 @@ function Footer() {
       </div>
 
       <div className="mx-auto mt-12 flex max-w-[1500px] flex-col gap-4 border-t border-white/10 pt-6 text-xs uppercase tracking-[0.22em] text-slate-600 md:flex-row md:items-center md:justify-between">
-        <span>Runtime policy • incident operations • cryptographic evidence</span>
+        <span>{badges.footerStrip ?? "Runtime policy • incident operations • cryptographic evidence"}</span>
         <span>© 2026 AI Control Tower</span>
       </div>
     </footer>
@@ -2669,6 +2720,8 @@ function Footer() {
 }
 
 export default function LandingPage() {
+  const pageCopy = usePageCopy();
+  const landingCopy = pageCopy.landing;
   const { scrollY } = useScroll();
   const velocity = useVelocity(scrollY);
   const isMobile = useIsMobile();
@@ -2685,10 +2738,10 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-[#050505] text-white">
-      <Navbar />
+      <Navbar copy={landingCopy} />
 
       <main className="bg-[#050505]">
-        <HeroSection velocity={velocityState} isMobile={isMobile} />
+        <HeroSection velocity={velocityState} isMobile={isMobile} copy={landingCopy} />
         <ProofArchitectureSection />
         <ProblemSection velocity={velocityState} isMobile={isMobile} />
         <EnforcementSection velocity={velocityState} isMobile={isMobile} />
@@ -2696,10 +2749,10 @@ export default function LandingPage() {
         <BentoSection />
         <PortfolioSection velocity={velocityState} isMobile={isMobile} />
         <BuildVerifySection />
-        <FinalCTASection />
+        <FinalCTASection copy={landingCopy} />
       </main>
 
-      <Footer />
+      <Footer copy={landingCopy} />
     </div>
   );
 }

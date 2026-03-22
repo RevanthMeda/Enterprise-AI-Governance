@@ -173,6 +173,36 @@
   body {
     @apply font-sans antialiased bg-background text-foreground;
   }
+
+  html[data-contrast-mode="high"] {
+    --border: 210 18% 55%;
+    --card-border: 210 18% 52%;
+    --sidebar-border: 210 18% 50%;
+    --ring: 210 100% 45%;
+    --muted-foreground: 210 14% 28%;
+  }
+
+  html[data-font-scale="large"] {
+    font-size: 17px;
+  }
+
+  html[data-font-scale="xl"] {
+    font-size: 18px;
+  }
+
+  html[data-motion-mode="reduced"] *,
+  html[data-motion-mode="reduced"] *::before,
+  html[data-motion-mode="reduced"] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  *:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
 }
 
 @layer components {

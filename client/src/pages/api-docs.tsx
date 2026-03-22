@@ -2,17 +2,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileCode2, Shield, Layers3 } from "lucide-react";
 import { PublicSiteHeader } from "@/components/public-site-header";
+import { usePageCopy } from "@/lib/page-copy";
 
 export default function ApiDocsPage() {
+  const pageCopy = usePageCopy();
   return (
     <div className="min-h-screen bg-background text-foreground">
       <PublicSiteHeader />
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
         <div className="mb-8 space-y-3">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary/80">Developer reference</p>
-          <h1 className="text-3xl font-bold tracking-tight">API documentation</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{pageCopy.apiDocs.title}</h1>
           <p className="max-w-3xl text-sm text-muted-foreground sm:text-base">
-            Checked-in OpenAPI specs for the enterprise identity surface and the wider platform API.
+            {pageCopy.apiDocs.description}
           </p>
         </div>
 

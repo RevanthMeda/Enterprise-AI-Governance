@@ -31,6 +31,7 @@ import {
   formatStrictnessLabel,
 } from "@/lib/governance-display";
 import { captureCsrfTokenFromResponse } from "@/lib/queryClient";
+import { usePageCopy } from "@/lib/page-copy";
 import { resolveSystemLawPackIds } from "@shared/law-packs";
 import type { AiSystem } from "@shared/schema";
 
@@ -278,6 +279,7 @@ function extractThresholdLabels(response: RuntimeResponse | null) {
 }
 
 export default function RuntimeMonitoringPage() {
+  const pageCopy = usePageCopy();
   const initialSystemId = useMemo(() => {
     if (typeof window === "undefined") {
       return "";
@@ -547,20 +549,20 @@ export default function RuntimeMonitoringPage() {
                 <div className="max-w-2xl">
                   <div className="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
                     <Radio className="h-3.5 w-3.5" />
-                    Runtime control surface
+                    {pageCopy.runtimeMonitoring.badges?.hero}
                   </div>
-                  <h1 className="mt-3 text-3xl font-semibold tracking-tight">Runtime Monitoring</h1>
+                  <h1 className="mt-3 text-3xl font-semibold tracking-tight">{pageCopy.runtimeMonitoring.title}</h1>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Review live runtime decisions and validate what the platform will allow, warn, escalate, or block before traffic reaches users.
+                    {pageCopy.runtimeMonitoring.description}
                   </p>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Badge variant={adapterEnabled ? "default" : "secondary"}>
-                      {adapterEnabled ? "Adapter enabled" : "Adapter disabled"}
+                      {adapterEnabled ? pageCopy.runtimeMonitoring.badges?.adapterEnabled : pageCopy.runtimeMonitoring.badges?.adapterDisabled}
                     </Badge>
                     <Badge variant={selectedSystem ? "outline" : "secondary"}>
-                      {selectedSystem ? `System: ${selectedSystem.name}` : "No system override"}
+                      {selectedSystem ? `${pageCopy.runtimeMonitoring.badges?.system}: ${selectedSystem.name}` : pageCopy.runtimeMonitoring.badges?.noSystemOverride}
                     </Badge>
-                    <Badge variant="outline">Blocked events {blockedEvents}</Badge>
+                    <Badge variant="outline">{pageCopy.runtimeMonitoring.badges?.blockedEvents} {blockedEvents}</Badge>
                   </div>
                 </div>
 

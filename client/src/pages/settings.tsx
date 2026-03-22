@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Shield,
@@ -22,9 +23,35 @@ import {
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { resolveApiUrl } from "@/lib/api-url";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, type AuthUser } from "@/hooks/use-auth";
+import { usePageCopy } from "@/lib/page-copy";
 import { AccountSecurityPanel } from "@/components/account-security-panel";
 import { formatDateTime } from "@/lib/date-format";
+import {
+  DEFAULT_ACCESSIBILITY_PREFERENCES,
+  DEFAULT_GUIDED_MODE,
+  DEFAULT_WORKSPACE_LOCALE,
+  accessibilityFontScales,
+  dashboardViewPresets,
+  dashboardWidgetMeta,
+  getDashboardPreset,
+  notificationFeedModes,
+  notificationTypeLabels,
+  resolveDefaultDashboardView,
+  sanitizeAccessibilityPreferences,
+  sanitizeDashboardWidgets,
+  sanitizeNotificationPreferences,
+  workspaceLocaleOptions,
+} from "@shared/operator-preferences";
+import {
+  regionalComplianceFrameworkIds,
+  regionalComplianceFrameworkLabels,
+  regionalDataResidencyModeLabels,
+  regionalDataResidencyModes,
+  regionalPrimaryRegionLabels,
+  regionalPrimaryRegions,
+  type RegionalGovernanceProfile,
+} from "@shared/regional-governance-profile";
 
 type OrganizationMember = {
   membershipId: string;
@@ -98,6 +125,21 @@ type InlineFeedback = {
   message: string;
 };
 
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="space-y-1.5">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      {children}
+    </label>
+  );
+}
+
 const normalizeManagedDomainInput = (value: string) =>
   value
     .trim()
@@ -113,6 +155,7 @@ const ACTIVITY_TARGET_FILTERS = ["all", "organization", "organization_domain", "
 const SETTINGS_PAGE_SIZE = 8;
 
 export default function SettingsPage() {
+  const pageCopy = usePageCopy();
   const { user } = useAuth();
   const { toast } = useToast();
   const initialTab = useMemo(() => {
@@ -158,6 +201,17 @@ export default function SettingsPage() {
   const [copiedSsoUrl, setCopiedSsoUrl] = useState(false);
   const [domainFeedback, setDomainFeedback] = useState<InlineFeedback | null>(null);
   const [activityFeedback, setActivityFeedback] = useState<InlineFeedback | null>(null);
+  const [workspaceDashboardView, setWorkspaceDashboardView] = useState<"operations" | "reviewer" | "executive" | "custom">("operations");
+  const [workspaceDashboardWidgets, setWorkspaceDashboardWidgets] = useState<string[]>([]);
+  const [guidedModeEnabled, setGuidedModeEnabled] = useState(DEFAULT_GUIDED_MODE);
+  const [notificationFeedMode, setNotificationFeedMode] = useState<(typeof notificationFeedModes)[number]>("stream");
+  const [priorityOnlyNotifications, setPriorityOnlyNotifications] = useState(false);
+  const [mutedNotificationTypes, setMutedNotificationTypes] = useState<string[]>([]);
+  const [highContrastEnabled, setHighContrastEnabled] = useState(DEFAULT_ACCESSIBILITY_PREFERENCES.highContrast);
+  const [reducedMotionEnabled, setReducedMotionEnabled] = useState(DEFAULT_ACCESSIBILITY_PREFERENCES.reducedMotion);
+  const [fontScale, setFontScale] = useState<(typeof accessibilityFontScales)[number]>(DEFAULT_ACCESSIBILITY_PREFERENCES.fontScale);
+  const [workspaceLocale, setWorkspaceLocale] = useState<(typeof workspaceLocaleOptions)[number]>(DEFAULT_WORKSPACE_LOCALE);
+  const [regionalProfile, setRegionalProfile] = useState<RegionalGovernanceProfile | null>(null);
 
   const { data: members = [] } = useQuery<OrganizationMember[]>({
     queryKey: ["/api/organization/members"],
@@ -194,6 +248,9 @@ export default function SettingsPage() {
   }>({
     queryKey: ["/api/organization/background-jobs"],
   });
+  const { data: regionalProfileData } = useQuery<RegionalGovernanceProfile>({
+    queryKey: ["/api/organization/regional-governance-profile"],
+  });
 
   useEffect(() => {
     if (!orgAuthSettings) return;
@@ -223,6 +280,36 @@ export default function SettingsPage() {
     setManagedDomainsDraft(orgDomains.domains);
     setPendingDomainInput("");
   }, [orgDomains]);
+
+  useEffect(() => {
+    if (!regionalProfileData) return;
+    setRegionalProfile(regionalProfileData);
+  }, [regionalProfileData]);
+
+  useEffect(() => {
+    const onboarding = user?.currentOrganizationOnboarding;
+    const currentOrgRole =
+      user?.organizations?.find((organization) => organization.id === user.currentOrganizationId)?.role ??
+      user?.role ??
+      null;
+    const defaultView = resolveDefaultDashboardView(currentOrgRole);
+    const resolvedView = onboarding?.dashboardView ?? defaultView;
+    const fallbackWidgets =
+      getDashboardPreset(resolvedView)?.widgets ?? getDashboardPreset(defaultView)?.widgets ?? [];
+    const notificationPreferences = sanitizeNotificationPreferences(onboarding?.notificationPreferences);
+    const accessibilityPreferences = sanitizeAccessibilityPreferences(onboarding?.accessibilityPreferences);
+
+    setWorkspaceDashboardView(resolvedView);
+    setWorkspaceDashboardWidgets(sanitizeDashboardWidgets(onboarding?.dashboardWidgets, fallbackWidgets));
+    setGuidedModeEnabled(onboarding?.guidedMode ?? DEFAULT_GUIDED_MODE);
+    setNotificationFeedMode(notificationPreferences.feedMode);
+    setPriorityOnlyNotifications(notificationPreferences.priorityOnly);
+    setMutedNotificationTypes(notificationPreferences.mutedTypes);
+    setHighContrastEnabled(accessibilityPreferences.highContrast);
+    setReducedMotionEnabled(accessibilityPreferences.reducedMotion);
+    setFontScale(accessibilityPreferences.fontScale);
+    setWorkspaceLocale(onboarding?.workspaceLocale ?? DEFAULT_WORKSPACE_LOCALE);
+  }, [user]);
 
   useEffect(() => {
     setInvitePage(0);
@@ -591,13 +678,93 @@ export default function SettingsPage() {
       authMode === "oidc" ? "/api/auth/oidc/start" : "/api/auth/sso/start"
     }?org=${encodeURIComponent(currentOrg?.slug || "your-org-slug")}&next=${encodeURIComponent("/")}`,
   );
+  const toggleWorkspaceWidget = (widgetId: string) => {
+    setWorkspaceDashboardWidgets((current) => {
+      const next = new Set(current);
+      if (next.has(widgetId)) {
+        next.delete(widgetId);
+      } else {
+        next.add(widgetId);
+      }
+      return next.size > 0 ? Array.from(next) : current;
+    });
+    setWorkspaceDashboardView("custom");
+  };
+  const toggleMutedNotificationType = (typeId: string) => {
+    setMutedNotificationTypes((current) => {
+      if (current.includes(typeId)) {
+        return current.filter((entry) => entry !== typeId);
+      }
+      return [...current, typeId];
+    });
+  };
+
+  const saveWorkspacePreferences = async () => {
+    setIsWorking(true);
+    try {
+      const response = await apiRequest("POST", "/api/auth/onboarding-state", {
+        dashboardView: workspaceDashboardView,
+        dashboardWidgets: workspaceDashboardWidgets,
+        guidedMode: guidedModeEnabled,
+        notificationPreferences: {
+          feedMode: notificationFeedMode,
+          priorityOnly: priorityOnlyNotifications,
+          mutedTypes: mutedNotificationTypes,
+        },
+        accessibilityPreferences: {
+          highContrast: highContrastEnabled,
+          reducedMotion: reducedMotionEnabled,
+          fontScale,
+        },
+        workspaceLocale,
+      });
+      const updatedUser = (await response.json()) as AuthUser;
+      queryClient.setQueryData(["/api/auth/user"], updatedUser);
+      toast({
+        title: "Workspace preferences saved",
+        description: "Dashboard layout, notification focus, and accessibility preferences were updated for this organization.",
+      });
+    } catch (error) {
+      toast({
+        title: "Unable to save workspace preferences",
+        description: error instanceof Error ? error.message : "Try again in a moment.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  const saveRegionalGovernanceProfile = async () => {
+    if (!regionalProfile) {
+      return;
+    }
+
+    setIsWorking(true);
+    try {
+      await apiRequest("PUT", "/api/organization/regional-governance-profile", regionalProfile);
+      await queryClient.invalidateQueries({ queryKey: ["/api/organization/regional-governance-profile"] });
+      toast({
+        title: "Regional governance profile saved",
+        description: "Primary region, residency posture, and framework scope were updated.",
+      });
+    } catch (error) {
+      toast({
+        title: "Unable to save regional governance profile",
+        description: error instanceof Error ? error.message : "Try again in a moment.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  };
 
   return (
     <div className="page-shell" data-testid="page-settings">
       <div>
-        <h1 className="text-xl font-bold tracking-tight">Settings</h1>
+        <h1 className="text-xl font-bold tracking-tight">{pageCopy.settings.title}</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Platform configuration and compliance settings
+          {pageCopy.settings.description}
         </p>
       </div>
 
@@ -1503,20 +1670,45 @@ export default function SettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-xs">EU AI Act</span>
-              <Badge className="text-[10px] bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 no-default-active-elevate">Active</Badge>
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-xs">NIST AI RMF</span>
-              <Badge className="text-[10px] bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 no-default-active-elevate">Active</Badge>
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-xs">ISO/IEC 42001</span>
-              <Badge className="text-[10px] bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 no-default-active-elevate">Active</Badge>
-            </div>
+            {!regionalProfile ? (
+              <div className="space-y-2">
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-2">
+                  {regionalComplianceFrameworkIds.map((frameworkId) => (
+                    <label key={frameworkId} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs">
+                      <span>{regionalComplianceFrameworkLabels[frameworkId]}</span>
+                      <input
+                        type="checkbox"
+                        checked={regionalProfile.activeFrameworks.includes(frameworkId)}
+                        onChange={() =>
+                          setRegionalProfile((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  activeFrameworks: current.activeFrameworks.includes(frameworkId)
+                                    ? current.activeFrameworks.length > 1
+                                      ? current.activeFrameworks.filter((entry) => entry !== frameworkId)
+                                      : current.activeFrameworks
+                                    : [...current.activeFrameworks, frameworkId].slice(0, regionalComplianceFrameworkIds.length),
+                                }
+                              : current,
+                          )
+                        }
+                        disabled={isWorking}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Use this to reflect the actual frameworks the organization is operating against, not just the default demo posture.
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -1528,20 +1720,92 @@ export default function SettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-xs text-muted-foreground">Primary Region</span>
-              <span className="text-xs font-medium">European Union</span>
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-xs text-muted-foreground">Secondary Regions</span>
-              <span className="text-xs font-medium">US, UK</span>
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-xs text-muted-foreground">Data Residency</span>
-              <span className="text-xs font-medium">EU (Frankfurt)</span>
-            </div>
+            {!regionalProfile ? (
+              <div className="space-y-2">
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
+              </div>
+            ) : (
+              <>
+                <Field label="Primary region">
+                  <select
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={regionalProfile.primaryRegion}
+                    onChange={(event) =>
+                      setRegionalProfile((current) =>
+                        current
+                          ? {
+                              ...current,
+                              primaryRegion: event.target.value as RegionalGovernanceProfile["primaryRegion"],
+                              secondaryRegions: current.secondaryRegions.filter((entry) => entry !== event.target.value),
+                            }
+                          : current,
+                      )
+                    }
+                    disabled={isWorking}
+                  >
+                    {regionalPrimaryRegions.map((region) => (
+                      <option key={region} value={region}>
+                        {regionalPrimaryRegionLabels[region]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Data residency mode">
+                  <select
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={regionalProfile.dataResidencyMode}
+                    onChange={(event) =>
+                      setRegionalProfile((current) =>
+                        current
+                          ? {
+                              ...current,
+                              dataResidencyMode: event.target.value as RegionalGovernanceProfile["dataResidencyMode"],
+                            }
+                          : current,
+                      )
+                    }
+                    disabled={isWorking}
+                  >
+                    {regionalDataResidencyModes.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {regionalDataResidencyModeLabels[mode]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium">Secondary regions</p>
+                  <div className="grid gap-2">
+                    {regionalPrimaryRegions
+                      .filter((region) => region !== regionalProfile.primaryRegion)
+                      .map((region) => (
+                        <label key={region} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs">
+                          <span>{regionalPrimaryRegionLabels[region]}</span>
+                          <input
+                            type="checkbox"
+                            checked={regionalProfile.secondaryRegions.includes(region)}
+                            onChange={() =>
+                              setRegionalProfile((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      secondaryRegions: current.secondaryRegions.includes(region)
+                                        ? current.secondaryRegions.filter((entry) => entry !== region)
+                                        : [...current.secondaryRegions, region].slice(0, regionalPrimaryRegions.length - 1),
+                                    }
+                                  : current,
+                              )
+                            }
+                            disabled={isWorking}
+                          />
+                        </label>
+                      ))}
+                  </div>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -1578,6 +1842,236 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+          </div>
+
+          <div className="mt-4 flex justify-end">
+            <Button onClick={saveRegionalGovernanceProfile} disabled={isWorking || !regionalProfile}>
+              Save regional governance profile
+            </Button>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                  Operator Workspace
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium">Dashboard starting view</p>
+                  <div className="flex flex-wrap gap-2">
+                    {dashboardViewPresets.map((preset) => (
+                      <Button
+                        key={preset.id}
+                        type="button"
+                        size="sm"
+                        variant={workspaceDashboardView === preset.id ? "default" : "outline"}
+                        onClick={() => {
+                          setWorkspaceDashboardView(preset.id);
+                          setWorkspaceDashboardWidgets(preset.widgets);
+                        }}
+                        disabled={isWorking}
+                      >
+                        {preset.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {workspaceDashboardView === "custom"
+                      ? "Custom mode is active because widget visibility has diverged from the saved presets."
+                      : dashboardViewPresets.find((preset) => preset.id === workspaceDashboardView)?.description}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium">Visible dashboard widgets</p>
+                    <Badge variant="secondary" className="text-[10px]">
+                      {workspaceDashboardWidgets.length} visible
+                    </Badge>
+                  </div>
+                  <div className="grid gap-2">
+                    {Object.entries(dashboardWidgetMeta).map(([widgetId, widget]) => (
+                      <label key={widgetId} className="flex items-start gap-2 rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={workspaceDashboardWidgets.includes(widgetId)}
+                          onChange={() => toggleWorkspaceWidget(widgetId)}
+                          disabled={isWorking}
+                        />
+                        <span>
+                          <span className="block font-medium">{widget.label}</span>
+                          <span className="text-muted-foreground">{widget.description}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 rounded-md border border-dashed border-border/70 bg-background/70 p-3 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={guidedModeEnabled}
+                    onChange={(e) => setGuidedModeEnabled(e.target.checked)}
+                    disabled={isWorking}
+                  />
+                  Guided mode keeps launch checklist, navigation cues, and explanatory panels visible.
+                </label>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <MailPlus className="h-4 w-4 text-muted-foreground" />
+                  In-App Notification Focus
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium">Default bell experience</p>
+                  <div className="flex flex-wrap gap-2">
+                    {notificationFeedModes.map((mode) => (
+                      <Button
+                        key={mode}
+                        type="button"
+                        size="sm"
+                        variant={notificationFeedMode === mode ? "default" : "outline"}
+                        onClick={() => setNotificationFeedMode(mode)}
+                        disabled={isWorking}
+                      >
+                        {mode === "digest" ? "Digest" : "Live stream"}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Digest mode surfaces grouped unread themes and top incidents first. Live stream keeps the bell focused on individual events.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 rounded-md border border-border/70 bg-muted/20 p-3 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={priorityOnlyNotifications}
+                    onChange={(e) => setPriorityOnlyNotifications(e.target.checked)}
+                    disabled={isWorking}
+                  />
+                  Show only high-priority governance items in the notification feed by default.
+                </label>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium">Muted notification types</p>
+                    <Badge variant="outline" className="text-[10px]">
+                      {mutedNotificationTypes.length} muted
+                    </Badge>
+                  </div>
+                  <div className="grid gap-2">
+                    {Object.entries(notificationTypeLabels).map(([typeId, label]) => (
+                      <label key={typeId} className="flex items-center gap-2 rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={mutedNotificationTypes.includes(typeId)}
+                          onChange={() => toggleMutedNotificationType(typeId)}
+                          disabled={isWorking}
+                        />
+                        <span>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    These controls shape the in-app notification feed and bell, not external delivery channels.
+                  </p>
+                </div>
+
+                <div className="rounded-md border border-dashed border-border/70 bg-background/70 p-3 text-xs text-muted-foreground">
+                  Use this page when an operator wants a calmer reviewer workspace, an executive summary layout,
+                  or less noise from low-priority system updates without changing the underlying governance policy.
+                </div>
+
+                <Button onClick={saveWorkspacePreferences} disabled={isWorking}>
+                  Save workspace preferences
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+                  Accessibility and Comfort
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <label className="flex items-center gap-2 rounded-md border border-border/70 bg-muted/20 p-3 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={highContrastEnabled}
+                    onChange={(e) => setHighContrastEnabled(e.target.checked)}
+                    disabled={isWorking}
+                  />
+                  Use stronger borders, focus visibility, and contrast across the workspace.
+                </label>
+
+                <label className="flex items-center gap-2 rounded-md border border-border/70 bg-muted/20 p-3 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={reducedMotionEnabled}
+                    onChange={(e) => setReducedMotionEnabled(e.target.checked)}
+                    disabled={isWorking}
+                  />
+                  Reduce motion and animation across charts, transitions, and UI chrome.
+                </label>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-medium">Workspace language and date locale</p>
+                  <div className="flex flex-wrap gap-2">
+                    {workspaceLocaleOptions.map((entry) => (
+                      <Button
+                        key={entry}
+                        type="button"
+                        size="sm"
+                        variant={workspaceLocale === entry ? "default" : "outline"}
+                        onClick={() => setWorkspaceLocale(entry)}
+                        disabled={isWorking}
+                      >
+                        {entry}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    This now drives locale-aware date formatting plus translated navigation, knowledge, and selected workspace surfaces. Full page-by-page translation is still expanding.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-medium">Workspace font scale</p>
+                  <div className="flex flex-wrap gap-2">
+                    {accessibilityFontScales.map((entry) => (
+                      <Button
+                        key={entry}
+                        type="button"
+                        size="sm"
+                        variant={fontScale === entry ? "default" : "outline"}
+                        onClick={() => setFontScale(entry)}
+                        disabled={isWorking}
+                      >
+                        {entry === "default" ? "Default" : entry === "large" ? "Large" : "Extra large"}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    These settings are stored per active organization workspace, so reviewer and executive layouts can stay distinct.
+                  </p>
+                </div>
+
+                <div className="rounded-md border border-dashed border-border/70 bg-background/70 p-3 text-xs text-muted-foreground">
+                  Dark mode already exists through the header toggle. These settings tighten readability and reduce fatigue on long reviewer sessions.
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
       </Tabs>

@@ -5,9 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { usePageCopy } from "@/lib/page-copy";
 import { useToast } from "@/hooks/use-toast";
+import type {
+  TelemetryPolicyAssistResponse,
+  TelemetryPolicyImpactResponse,
+  TelemetryPolicyPatchDraft,
+  TelemetryPolicyRecommendationResponse,
+} from "@shared/telemetry-policy-advisor";
 
 type TelemetryPolicy = {
   id: string | null;
@@ -61,7 +69,102 @@ type ReviewerException = {
 
 const ORG_SCOPE = "__org__";
 
+const POLICY_PRESETS = [
+  {
+    id: "balanced",
+    label: "Balanced baseline",
+    description: "Good starting point for teams that want alerts and selective blocking without overwhelming reviewers.",
+    draft: {
+      driftAlertThreshold: 5,
+      driftCriticalThreshold: 10,
+      biasFlagThreshold: 2,
+      safetyFlagThreshold: 1,
+      toxicityWarningThreshold: 4,
+      toxicityCriticalThreshold: 7,
+      piiFlagThreshold: 1,
+      overrideRateWarningThreshold: 15,
+      overrideRateCriticalThreshold: 30,
+      errorRateWarningThreshold: 5,
+      errorRateCriticalThreshold: 10,
+      autoEscalateCritical: true,
+      notifyOnWarning: true,
+      enforceBlocking: true,
+      blockOnPii: true,
+      blockOnSafetyCritical: true,
+      blockOnRestrictedPrompt: true,
+      restrictedPromptPatterns: ["dump all customers", "ignore safety", "internal override"],
+      shadowModeEnabled: false,
+      shadowModeLabel: "stricter-preview",
+    },
+  },
+  {
+    id: "customer_ops",
+    label: "Customer operations",
+    description: "Tighter defaults for customer-support or financial-servicing copilots where PII and risky wording matter immediately.",
+    draft: {
+      driftAlertThreshold: 4,
+      driftCriticalThreshold: 7,
+      biasFlagThreshold: 1,
+      safetyFlagThreshold: 1,
+      toxicityWarningThreshold: 3,
+      toxicityCriticalThreshold: 5,
+      piiFlagThreshold: 1,
+      overrideRateWarningThreshold: 10,
+      overrideRateCriticalThreshold: 20,
+      errorRateWarningThreshold: 4,
+      errorRateCriticalThreshold: 8,
+      autoEscalateCritical: true,
+      notifyOnWarning: true,
+      enforceBlocking: true,
+      blockOnPii: true,
+      blockOnSafetyCritical: true,
+      blockOnRestrictedPrompt: true,
+      restrictedPromptPatterns: [
+        "social security number",
+        "full transaction history",
+        "ignore ai control tower",
+        "internal waiver script",
+      ],
+      shadowModeEnabled: true,
+      shadowModeLabel: "customer-ops-preview",
+    },
+  },
+  {
+    id: "high_scrutiny",
+    label: "High-scrutiny",
+    description: "Best fit for high-risk or highly regulated systems that should convert more ambiguous turns into escalations or blocks.",
+    draft: {
+      driftAlertThreshold: 3,
+      driftCriticalThreshold: 5,
+      biasFlagThreshold: 1,
+      safetyFlagThreshold: 1,
+      toxicityWarningThreshold: 2,
+      toxicityCriticalThreshold: 4,
+      piiFlagThreshold: 1,
+      overrideRateWarningThreshold: 5,
+      overrideRateCriticalThreshold: 12,
+      errorRateWarningThreshold: 3,
+      errorRateCriticalThreshold: 6,
+      autoEscalateCritical: true,
+      notifyOnWarning: true,
+      enforceBlocking: true,
+      blockOnPii: true,
+      blockOnSafetyCritical: true,
+      blockOnRestrictedPrompt: true,
+      restrictedPromptPatterns: [
+        "bypass aml",
+        "treat blocked as approved",
+        "reveal internal prompts",
+        "cross-customer data",
+      ],
+      shadowModeEnabled: true,
+      shadowModeLabel: "high-risk-preview",
+    },
+  },
+] as const;
+
 export default function TelemetryPolicyPage() {
+  const pageCopy = usePageCopy();
   const { toast } = useToast();
   const initialScopeValue = useMemo(() => {
     if (typeof window === "undefined") {
@@ -73,6 +176,7 @@ export default function TelemetryPolicyPage() {
   }, []);
   const [draft, setDraft] = useState<TelemetryPolicy | null>(null);
   const [scopeValue, setScopeValue] = useState<string>(initialScopeValue);
+  const [policyIntent, setPolicyIntent] = useState("");
   const [exceptionDraft, setExceptionDraft] = useState({
     promptPattern: "",
     gateway: "",
@@ -103,6 +207,17 @@ export default function TelemetryPolicyPage() {
       const endpoint = selectedSystemId
         ? `/api/ai-systems/${selectedSystemId}/telemetry-policy`
         : "/api/organization/telemetry-policy";
+      const response = await apiRequest("GET", endpoint);
+      return response.json();
+    },
+  });
+
+  const recommendationsQuery = useQuery<TelemetryPolicyRecommendationResponse>({
+    queryKey: ["/api/telemetry-policy/recommendations", selectedSystemId ?? ORG_SCOPE],
+    queryFn: async () => {
+      const endpoint = selectedSystemId
+        ? `/api/telemetry-policy/recommendations?systemId=${encodeURIComponent(selectedSystemId)}`
+        : "/api/telemetry-policy/recommendations";
       const response = await apiRequest("GET", endpoint);
       return response.json();
     },
@@ -258,6 +373,93 @@ export default function TelemetryPolicyPage() {
     },
   });
 
+  const assistMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/telemetry-policy/assist", {
+        intent: policyIntent,
+        systemId: selectedSystemId ?? null,
+      });
+      return (await response.json()) as TelemetryPolicyAssistResponse;
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to generate policy suggestion", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const impactMutation = useMutation({
+    mutationFn: async () => {
+      if (!draft) {
+        throw new Error("Telemetry policy is not loaded");
+      }
+
+      const response = await apiRequest("POST", "/api/telemetry-policy/impact", {
+        systemId: selectedSystemId ?? null,
+        patch: {
+          driftAlertThreshold: draft.driftAlertThreshold,
+          driftCriticalThreshold: draft.driftCriticalThreshold,
+          biasFlagThreshold: draft.biasFlagThreshold,
+          safetyFlagThreshold: draft.safetyFlagThreshold,
+          toxicityWarningThreshold: draft.toxicityWarningThreshold,
+          toxicityCriticalThreshold: draft.toxicityCriticalThreshold,
+          piiFlagThreshold: draft.piiFlagThreshold,
+          overrideRateWarningThreshold: draft.overrideRateWarningThreshold,
+          overrideRateCriticalThreshold: draft.overrideRateCriticalThreshold,
+          errorRateWarningThreshold: draft.errorRateWarningThreshold,
+          errorRateCriticalThreshold: draft.errorRateCriticalThreshold,
+          autoEscalateCritical: draft.autoEscalateCritical,
+          notifyOnWarning: draft.notifyOnWarning,
+          enforceBlocking: draft.enforceBlocking,
+          blockOnPii: draft.blockOnPii,
+          blockOnSafetyCritical: draft.blockOnSafetyCritical,
+          blockOnRestrictedPrompt: draft.blockOnRestrictedPrompt,
+          restrictedPromptPatterns: draft.restrictedPromptPatterns,
+          shadowModeEnabled: draft.shadowModeEnabled,
+          shadowModeLabel: draft.shadowModeLabel,
+        },
+      });
+      return (await response.json()) as TelemetryPolicyImpactResponse;
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to simulate policy impact", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const recommendedPresetId = selectedSystem?.riskLevel === "high" || selectedSystem?.riskLevel === "unacceptable"
+    ? "high_scrutiny"
+    : selectedSystem?.riskLevel === "medium" || selectedSystem?.riskLevel === "limited"
+      ? "customer_ops"
+      : "balanced";
+
+  const applyPreset = (presetId: string) => {
+    const preset = POLICY_PRESETS.find((entry) => entry.id === presetId);
+    if (!preset) {
+      return;
+    }
+
+    setDraft((current) => (current ? {
+      ...current,
+      ...preset.draft,
+      restrictedPromptPatterns: [...preset.draft.restrictedPromptPatterns],
+    } : current));
+    toast({ title: `${preset.label} preset applied` });
+  };
+
+  const applyPolicyPatch = (patch: TelemetryPolicyPatchDraft) => {
+    setDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        ...patch,
+        restrictedPromptPatterns: patch.restrictedPromptPatterns
+          ? [...patch.restrictedPromptPatterns]
+          : current.restrictedPromptPatterns,
+      };
+    });
+  };
+
   if (policyQuery.isLoading || systemsQuery.isLoading || exceptionsQuery.isLoading || !draft) {
     return (
       <div className="page-shell">
@@ -274,21 +476,21 @@ export default function TelemetryPolicyPage() {
     <div className="page-shell">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Telemetry Policy</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">{pageCopy.telemetryPolicy.title}</h1>
           <p className="text-sm text-muted-foreground">
-            Configure runtime thresholds, blocking rules, escalation behavior, and tenant-scoped exceptions.
+            {pageCopy.telemetryPolicy.description}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline" className="w-fit">
-            Scope: {selectedSystem ? "system" : "organization"}
+            {pageCopy.telemetryPolicy.badges?.scope}: {selectedSystem ? "system" : "organization"}
           </Badge>
           <Badge variant="outline" className="w-fit">
-            Source: {draft.source}
+            {pageCopy.telemetryPolicy.badges?.source}: {draft.source}
           </Badge>
           {draft.inheritedFromPortfolioName ? (
             <Badge variant="outline" className="w-fit">
-              Inherited from {draft.inheritedFromPortfolioName}
+              {pageCopy.telemetryPolicy.badges?.inheritedFrom} {draft.inheritedFromPortfolioName}
             </Badge>
           ) : null}
         </div>
@@ -328,6 +530,214 @@ export default function TelemetryPolicyPage() {
               </p>
             ) : null}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-semibold">Policy template library</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 xl:grid-cols-[1fr_280px]">
+          <div className="grid gap-3 md:grid-cols-3">
+            {POLICY_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => applyPreset(preset.id)}
+                className={`rounded-lg border p-4 text-left transition-colors ${
+                  preset.id === recommendedPresetId ? "border-primary bg-primary/5" : "hover:bg-muted/30"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold">{preset.label}</div>
+                  {preset.id === recommendedPresetId ? <Badge variant="secondary">Recommended</Badge> : null}
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">{preset.description}</p>
+              </button>
+            ))}
+          </div>
+          <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
+            <div className="font-medium text-foreground">How to use this page</div>
+            <ol className="mt-2 list-decimal space-y-1 pl-4">
+              <li>Pick a preset closest to the system you are governing.</li>
+              <li>Adjust only the few thresholds your team actually understands today.</li>
+              <li>Use reviewer exceptions sparingly and time-box them.</li>
+              <li>Turn on shadow mode first if you want to test stricter rules without flipping live behavior.</li>
+            </ol>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-semibold">Data-driven recommendations</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {recommendationsQuery.isLoading ? (
+              <Skeleton className="h-48 w-full" />
+            ) : (
+              <>
+                <div className="grid gap-3 md:grid-cols-4">
+                  <SignalSummaryCard label="Open incidents" value={String(recommendationsQuery.data?.signalSummary.openIncidents ?? 0)} />
+                  <SignalSummaryCard label="Breached incidents" value={String(recommendationsQuery.data?.signalSummary.breachedIncidents ?? 0)} />
+                  <SignalSummaryCard label="Blocked events" value={String(recommendationsQuery.data?.signalSummary.blockedEvents ?? 0)} />
+                  <SignalSummaryCard label="Restricted prompts" value={String(recommendationsQuery.data?.signalSummary.restrictedPromptEvents ?? 0)} />
+                </div>
+
+                {(recommendationsQuery.data?.recommendations ?? []).length === 0 ? (
+                  <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                    No recommendation is being pushed right now from recent telemetry and incidents for this scope.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {(recommendationsQuery.data?.recommendations ?? []).map((recommendation) => (
+                      <div key={recommendation.id} className="rounded-md border p-4">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium">{recommendation.title}</p>
+                              <Badge variant={recommendation.priority === "high" ? "destructive" : recommendation.priority === "medium" ? "secondary" : "outline"}>
+                                {recommendation.priority}
+                              </Badge>
+                            </div>
+                            <p className="mt-1 text-sm text-muted-foreground">{recommendation.summary}</p>
+                          </div>
+                          <Button type="button" size="sm" variant="outline" onClick={() => applyPolicyPatch(recommendation.suggestedPatch)}>
+                            Apply to draft
+                          </Button>
+                        </div>
+                        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                          {recommendation.rationale.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                        {recommendation.recommendedPresetId ? (
+                          <div className="mt-3 text-xs text-muted-foreground">Closest preset: {recommendation.recommendedPresetId}</div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-semibold">Plain-English policy helper</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Describe the behavior you want in operator language, and the helper will convert it into a draft policy patch.
+            </p>
+            <Textarea
+              value={policyIntent}
+              onChange={(event) => setPolicyIntent(event.target.value)}
+              placeholder="Example: For this customer-support system, block PII and prompt-injection attempts, notify on warnings, and test stricter rules in shadow mode first."
+              rows={7}
+            />
+            <Button onClick={() => assistMutation.mutate()} disabled={assistMutation.isPending || policyIntent.trim().length < 8} className="w-full">
+              {assistMutation.isPending ? "Generating..." : "Generate policy suggestion"}
+            </Button>
+
+            {assistMutation.data ? (
+              <div className="space-y-3 rounded-md border bg-muted/20 p-4">
+                <div>
+                  <div className="text-sm font-medium">Suggested change</div>
+                  <p className="mt-1 text-sm text-muted-foreground">{assistMutation.data.summary}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {assistMutation.data.matchedIntents.map((intent) => (
+                    <Badge key={intent} variant="outline">{intent}</Badge>
+                  ))}
+                </div>
+                {assistMutation.data.recommendedPresetId ? (
+                  <div className="text-xs text-muted-foreground">Closest preset: {assistMutation.data.recommendedPresetId}</div>
+                ) : null}
+                {assistMutation.data.warnings.length > 0 ? (
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    {assistMutation.data.warnings.map((warning) => (
+                      <p key={warning}>{warning}</p>
+                    ))}
+                  </div>
+                ) : null}
+                <Button type="button" variant="outline" className="w-full" onClick={() => applyPolicyPatch(assistMutation.data!.suggestedPatch)}>
+                  Apply suggestion to draft
+                </Button>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-semibold">Policy impact simulation</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <p className="max-w-3xl text-sm text-muted-foreground">
+              Preview how the current draft would have changed recent telemetry outcomes before you save it. This is a sample-based simulation, not a guarantee.
+            </p>
+            <Button type="button" variant="outline" onClick={() => impactMutation.mutate()} disabled={impactMutation.isPending}>
+              {impactMutation.isPending ? "Simulating..." : "Simulate impact"}
+            </Button>
+          </div>
+
+          {impactMutation.data ? (
+            <div className="space-y-4 rounded-md border bg-muted/20 p-4">
+              <div className="grid gap-3 md:grid-cols-4">
+                <ImpactDeltaCard label="Warnings" current={impactMutation.data.current.warnings} proposed={impactMutation.data.proposed.warnings} delta={impactMutation.data.delta.warnings} />
+                <ImpactDeltaCard label="Escalations" current={impactMutation.data.current.escalations} proposed={impactMutation.data.proposed.escalations} delta={impactMutation.data.delta.escalations} />
+                <ImpactDeltaCard label="Blocks" current={impactMutation.data.current.blocks} proposed={impactMutation.data.proposed.blocks} delta={impactMutation.data.delta.blocks} />
+                <ImpactDeltaCard label="Notifications" current={impactMutation.data.current.notifications} proposed={impactMutation.data.proposed.notifications} delta={impactMutation.data.delta.notifications} />
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">Most impacted systems</div>
+                  {impactMutation.data.impactedSystems.length === 0 ? (
+                    <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No system-level outcome shifts appeared in the current telemetry sample.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {impactMutation.data.impactedSystems.map((item) => (
+                        <div key={item.label} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
+                          <span>{item.label}</span>
+                          <Badge variant="outline">{item.count}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">Repeat patterns affected</div>
+                  {impactMutation.data.impactedPatterns.length === 0 ? (
+                    <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">The draft does not materially change restricted-pattern handling in the current sample.</div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {impactMutation.data.impactedPatterns.map((item) => (
+                        <Badge key={item.label} variant="secondary">{item.label} · {item.count}</Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                {impactMutation.data.guidance.map((item) => (
+                  <div key={item} className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
+                    {item}
+                  </div>
+                ))}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Sample size: {impactMutation.data.sampleSize} recent telemetry events across the last {impactMutation.data.telemetryWindowDays} days.
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -576,4 +986,41 @@ function parseCsv(value: string) {
     .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function SignalSummaryCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border bg-muted/20 p-3">
+      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">{label}</div>
+      <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
+    </div>
+  );
+}
+
+function ImpactDeltaCard({
+  label,
+  current,
+  proposed,
+  delta,
+}: {
+  label: string;
+  current: number;
+  proposed: number;
+  delta: number;
+}) {
+  const tone = delta > 0 ? "destructive" : delta < 0 ? "secondary" : "outline";
+  const formattedDelta = delta > 0 ? `+${delta}` : String(delta);
+
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">{label}</div>
+      <div className="mt-2 flex items-end justify-between gap-3">
+        <div>
+          <div className="text-2xl font-semibold tracking-tight">{proposed}</div>
+          <div className="text-xs text-muted-foreground">Current {current}</div>
+        </div>
+        <Badge variant={tone}>{formattedDelta}</Badge>
+      </div>
+    </div>
+  );
 }

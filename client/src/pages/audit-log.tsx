@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { exportAuditTrailCsv } from "@/lib/export-utils";
 import { resolveApiUrl } from "@/lib/api-url";
+import { usePageCopy } from "@/lib/page-copy";
 import {
   formatGovernanceCriticVerdict,
   formatGovernanceReasonCode,
@@ -73,6 +74,7 @@ const actionColors: Record<string, string> = {
 };
 
 export default function AuditLogPage() {
+  const pageCopy = usePageCopy();
   const [actionFilter, setActionFilter] = useState("all");
   const [entityFilter, setEntityFilter] = useState("all");
   const [actorSearch, setActorSearch] = useState("");
@@ -125,9 +127,9 @@ export default function AuditLogPage() {
     <div className="page-shell" data-testid="page-audit-log">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">Audit Log</h1>
+          <h1 className="text-xl font-bold tracking-tight">{pageCopy.auditLog.title}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Complete audit trail of all governance activities. Auto-refreshes every 5 seconds in {DISPLAY_TIMEZONE_LABEL}.
+            {pageCopy.auditLog.description} Auto-refreshes every 5 seconds in {DISPLAY_TIMEZONE_LABEL}.
           </p>
         </div>
         <div className="flex items-center gap-2">

@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { resolveApiUrl } from "@/lib/api-url";
 import { captureCsrfTokenFromResponse } from "@/lib/queryClient";
+import { usePageCopy } from "@/lib/page-copy";
 
 interface CalendarEvent {
   id: string;
@@ -89,6 +90,7 @@ function isSameDay(a: Date, b: Date): boolean {
 }
 
 export default function ComplianceCalendar() {
+  const pageCopy = usePageCopy();
   const [, navigate] = useLocation();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
@@ -187,8 +189,8 @@ export default function ComplianceCalendar() {
             <CalendarDays className="h-4 w-4 text-primary" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold tracking-tight" data-testid="heading-compliance-calendar">Compliance Calendar</h1>
-            <p className="text-xs text-muted-foreground">Track deadlines, milestones, and compliance events</p>
+            <h1 className="text-lg font-semibold tracking-tight" data-testid="heading-compliance-calendar">{pageCopy.complianceCalendar.title}</h1>
+            <p className="text-xs text-muted-foreground">{pageCopy.complianceCalendar.description}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">

@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { usePageCopy } from "@/lib/page-copy";
 import { useToast } from "@/hooks/use-toast";
 
 const booleanOptions = [
@@ -72,6 +73,103 @@ const wizardSteps = [
     description: "Finish the compliance-impact fields needed for defensible classification.",
   },
 ] as const;
+
+const onboardingTemplates = [
+  {
+    id: "banking-copilot",
+    label: "Banking service copilot",
+    description: "Customer-facing assistant for hardship, servicing, or support teams in a regulated financial context.",
+    defaults: {
+      department: "Customer Operations",
+      purpose: "Customer-support copilot that drafts compliant service communications and internal notes for frontline banking teams.",
+      intendedUse: "decision_support",
+      domain: "finance",
+      personalData: "sensitive",
+      usersImpacted: "10k_100k",
+      decisionImpact: "material",
+      humanOversight: "in_loop",
+      geography: "eu",
+      customerFacing: "yes",
+      productionTraffic: "yes",
+      vulnerableGroups: "yes",
+    },
+  },
+  {
+    id: "healthcare-assistant",
+    label: "Healthcare workflow assistant",
+    description: "Clinical or operational support assistant where sensitive health data and high-stakes outputs need stronger guardrails.",
+    defaults: {
+      department: "Clinical Operations",
+      purpose: "Assistant that supports clinical or care workflows with structured summaries and operational drafting under human review.",
+      intendedUse: "decision_support",
+      domain: "healthcare",
+      personalData: "special_category",
+      usersImpacted: "1k_10k",
+      decisionImpact: "legal_significant",
+      humanOversight: "in_loop",
+      geography: "eu",
+      customerFacing: "no",
+      productionTraffic: "yes",
+      vulnerableGroups: "yes",
+    },
+  },
+  {
+    id: "hr-assistant",
+    label: "HR and employment assistant",
+    description: "Internal assistant for hiring, performance, or employee operations that needs bias-sensitive review.",
+    defaults: {
+      department: "People Operations",
+      purpose: "Internal HR assistant for policy drafting, process support, and reviewer summaries with human approval before sensitive actions.",
+      intendedUse: "decision_support",
+      domain: "employment",
+      personalData: "sensitive",
+      usersImpacted: "1k_10k",
+      decisionImpact: "material",
+      humanOversight: "in_loop",
+      geography: "global",
+      customerFacing: "no",
+      productionTraffic: "yes",
+      vulnerableGroups: "yes",
+    },
+  },
+  {
+    id: "devops-copilot",
+    label: "DevOps assistant",
+    description: "Internal engineering copilot for diagnostics and configuration guidance with production actions held behind approval.",
+    defaults: {
+      department: "Engineering",
+      purpose: "Engineering assistant that helps investigate system issues, summarize diagnostics, and propose configuration changes for review.",
+      intendedUse: "automation",
+      domain: "critical_infrastructure",
+      personalData: "basic",
+      usersImpacted: "under_1k",
+      decisionImpact: "material",
+      humanOversight: "post_hoc",
+      geography: "global",
+      customerFacing: "no",
+      productionTraffic: "yes",
+      vulnerableGroups: "no",
+    },
+  },
+] as const;
+
+const stepGuidance: Record<(typeof wizardSteps)[number]["key"], string[]> = {
+  discovery: [
+    "Confirm provider, model, gateway, and deployment context before relying on auto-detection.",
+    "Mark any observed PII, safety, or bias signals now so the draft assessment starts from real runtime evidence.",
+    "Leave unknown integration fields blank rather than guessing.",
+  ],
+  business: [
+    "Write the purpose in operational language: who uses the system, what it helps them do, and what decisions it affects.",
+    "Choose the closest regulated domain even if the system spans more than one team.",
+    "Customer-facing and high-impact uses should usually stay in decision-support rather than full automation.",
+  ],
+  governance: [
+    "Treat personal data and decision impact conservatively if the system is production-facing.",
+    "If vulnerable groups may be affected, mark it now so the initial controls are stricter by default.",
+    "Use this step to capture the facts you would want an auditor or reviewer to see later.",
+  ],
+};
 
 type InferenceConfidence = "high" | "medium" | "review";
 
@@ -340,6 +438,7 @@ type AutoRegistrationResponse = {
 };
 
 export default function ConnectAiApplicationPage() {
+  const pageCopy = usePageCopy();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [form, setForm] = useState(() => {
@@ -374,6 +473,7 @@ export default function ConnectAiApplicationPage() {
   });
   const [result, setResult] = useState<AutoRegistrationResponse | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
 
   const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const isSdkPrefilled = searchParams.get("source") === "sdk";
@@ -426,6 +526,19 @@ export default function ConnectAiApplicationPage() {
   const intakeConfidence = useMemo(() => calculateIntakeConfidence(form, fieldInferences), [form, fieldInferences]);
   const previewAnswers = useMemo(() => derivePreviewAnswers(form), [form]);
   const riskPreview = useMemo(() => buildRiskPreview(previewAnswers), [previewAnswers]);
+  const estimatedMinutesRemaining = useMemo(() => {
+    const missingCoreFields = [
+      !form.systemName,
+      !form.owner,
+      !form.purpose,
+      !form.domain,
+      !form.personalData,
+      !form.decisionImpact,
+      !form.humanOversight,
+    ].filter(Boolean).length;
+    return Math.max(3, missingCoreFields * 2);
+  }, [form]);
+  const currentStepGuidance = stepGuidance[wizardSteps[currentStep].key];
 
   const stepCanAdvance = useMemo(() => {
     if (currentStep === 0) return Boolean(form.systemName || form.provider || form.gateway || form.modelName);
@@ -491,6 +604,23 @@ export default function ConnectAiApplicationPage() {
     }
   };
 
+  const applyTemplate = (templateId: string) => {
+    const template = onboardingTemplates.find((entry) => entry.id === templateId);
+    if (!template) {
+      return;
+    }
+
+    setSelectedTemplateId(templateId);
+    setForm((current) => ({
+      ...current,
+      ...template.defaults,
+    }));
+    toast({
+      title: `${template.label} applied`,
+      description: "The wizard kept your current integration context and updated the business/governance defaults.",
+    });
+  };
+
   return (
     <div className="page-shell-wide" data-testid="page-connect-ai-application">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -506,9 +636,9 @@ export default function ConnectAiApplicationPage() {
             SDK-assisted onboarding
           </div>
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Connect AI Application</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">{pageCopy.connectAiApplication.title}</h1>
             <p className="text-sm text-muted-foreground">
-              Start with the runtime context already discovered from the integration, confirm the missing governance facts, and then generate a draft registry record plus baseline risk assessment.
+              {pageCopy.connectAiApplication.description}
             </p>
             {isSdkPrefilled ? (
               <p className="text-sm text-muted-foreground">
@@ -518,9 +648,9 @@ export default function ConnectAiApplicationPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge variant="outline">Discovery-first wizard</Badge>
-          <Badge variant="outline">Draft system creation</Badge>
-          <Badge variant="outline">Assessment history preserved</Badge>
+          <Badge variant="outline">{pageCopy.connectAiApplication.badges?.discoveryFirst}</Badge>
+          <Badge variant="outline">{pageCopy.connectAiApplication.badges?.draftCreation}</Badge>
+          <Badge variant="outline">{pageCopy.connectAiApplication.badges?.assessmentHistory}</Badge>
         </div>
       </div>
 
@@ -558,6 +688,33 @@ export default function ConnectAiApplicationPage() {
                   </button>
                 );
               })}
+            </div>
+
+            <div className="space-y-3 rounded-xl border bg-muted/20 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium">Start from a proven template</div>
+                  <div className="text-sm text-muted-foreground">
+                    Use a quick-start profile for common deployment patterns, then refine the details.
+                  </div>
+                </div>
+                {selectedTemplateId ? <Badge variant="secondary">Template applied</Badge> : null}
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {onboardingTemplates.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => applyTemplate(template.id)}
+                    className={`rounded-lg border p-4 text-left transition ${
+                      selectedTemplateId === template.id ? "border-primary bg-primary/5" : "bg-background hover:bg-muted/30"
+                    }`}
+                  >
+                    <div className="text-sm font-medium">{template.label}</div>
+                    <p className="mt-2 text-sm text-muted-foreground">{template.description}</p>
+                  </button>
+                ))}
+              </div>
             </div>
 
             {currentStep === 0 ? (
@@ -728,10 +885,24 @@ export default function ConnectAiApplicationPage() {
                 <div className="mt-1 text-muted-foreground">{wizardSteps[currentStep].description}</div>
               </div>
               <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                <div className="font-medium text-foreground">Estimated completion time</div>
+                <div className="mt-1 text-muted-foreground">
+                  About {estimatedMinutesRemaining} minutes remaining based on unresolved core fields.
+                </div>
+              </div>
+              <div className="rounded-md border bg-muted/20 p-3 text-sm">
                 <div className="font-medium text-foreground">Inference model</div>
                 <div className="mt-1 text-muted-foreground">
                   High-confidence values came directly from integration context. Medium-confidence values were inferred from runtime payload patterns. Review-needed values are suggestions only and should be confirmed by the user.
                 </div>
+              </div>
+              <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                <div className="font-medium text-foreground">Step checklist</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+                  {currentStepGuidance.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
               </div>
               <div className="rounded-md border bg-muted/20 p-3 text-sm">
                 <div className="font-medium text-foreground">Overall intake confidence</div>

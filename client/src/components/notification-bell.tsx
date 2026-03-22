@@ -13,7 +13,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatDateTime } from "@/lib/date-format";
 import { formatLawPackLabel, formatLegalProfileLabel } from "@/lib/governance-display";
+import { useAuth, type AuthUser } from "@/hooks/use-auth";
 import type { Notification } from "@shared/schema";
+import type { NotificationDigest } from "@shared/notification-digest";
+import {
+  PRIORITY_NOTIFICATION_TYPES,
+  notificationFeedModes,
+  notificationTypeLabels,
+} from "@shared/operator-preferences";
 
 const typeIcons: Record<string, any> = {
   approval_assigned: FileText,
@@ -22,6 +29,7 @@ const typeIcons: Record<string, any> = {
   control_overdue: AlertTriangle,
   evidence_requested: FileText,
   system_modified: Activity,
+  automation_action: AlertTriangle,
 };
 
 const typeColors: Record<string, string> = {
@@ -31,7 +39,14 @@ const typeColors: Record<string, string> = {
   control_overdue: "text-orange-500",
   evidence_requested: "text-yellow-500",
   system_modified: "text-green-500",
+  automation_action: "text-amber-500",
 };
+
+type NotificationFeedFilter = "all" | "priority" | "unread";
+
+function isPriorityNotification(type: string) {
+  return PRIORITY_NOTIFICATION_TYPES.has(type as keyof typeof notificationTypeLabels);
+}
 
 function formatNotificationCopy(notif: Notification) {
   const generatedSeed = /^Generated notification \d+ for /i.test(notif.message ?? "");
@@ -64,6 +79,10 @@ function formatNotificationCopy(notif: Notification) {
       title: "System updated",
       message: "An AI system record was updated in the registry.",
     },
+    automation_action: {
+      title: "Automation follow-up",
+      message: "A governance automation sweep raised a reviewer or owner follow-up task.",
+    },
   };
 
   return friendlyLabels[notif.type] ?? {
@@ -89,7 +108,13 @@ function getNotificationGovernanceMetadata(notif: Notification) {
 
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
+  const [feedFilter, setFeedFilter] = useState<NotificationFeedFilter>("all");
   const [, navigate] = useLocation();
+  const { user } = useAuth();
+  const notificationPreferences = user?.currentOrganizationOnboarding?.notificationPreferences;
+  const feedMode = notificationPreferences?.feedMode ?? "stream";
+  const priorityOnly = notificationPreferences?.priorityOnly ?? false;
+  const mutedTypes = new Set(notificationPreferences?.mutedTypes ?? []);
 
   const { data: notifications = [] } = useQuery<Notification[]>({
     queryKey: ["/api/notifications"],
@@ -98,6 +123,11 @@ export function NotificationBell() {
 
   const { data: unreadData } = useQuery<{ count: number }>({
     queryKey: ["/api/notifications/unread-count"],
+    refetchInterval: 30000,
+  });
+
+  const { data: digest } = useQuery<NotificationDigest>({
+    queryKey: ["/api/notifications/digest"],
     refetchInterval: 30000,
   });
 
@@ -110,6 +140,7 @@ export function NotificationBell() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/digest"] });
     },
   });
 
@@ -120,6 +151,25 @@ export function NotificationBell() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/digest"] });
+    },
+  });
+
+  const updatePreferenceMutation = useMutation({
+    mutationFn: async (nextPrefs: Partial<{ priorityOnly: boolean; feedMode: (typeof notificationFeedModes)[number] }>) => {
+      const onboarding = user?.currentOrganizationOnboarding;
+      const res = await apiRequest("POST", "/api/auth/onboarding-state", {
+        notificationPreferences: {
+          feedMode: nextPrefs.feedMode ?? onboarding?.notificationPreferences?.feedMode ?? "stream",
+          priorityOnly: nextPrefs.priorityOnly ?? onboarding?.notificationPreferences?.priorityOnly ?? false,
+          mutedTypes: onboarding?.notificationPreferences?.mutedTypes ?? [],
+        },
+      });
+      return (await res.json()) as AuthUser;
+    },
+    onSuccess: (updatedUser) => {
+      queryClient.setQueryData(["/api/auth/user"], updatedUser);
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/digest"] });
     },
   });
 
@@ -133,8 +183,30 @@ export function NotificationBell() {
     } else if (notif.entityType === "approval_workflow") {
       navigate("/approvals");
       setOpen(false);
+    } else if ((notif.entityType === "ai_incident" || notif.entityType === "incident") && notif.entityId) {
+      navigate("/incidents");
+      setOpen(false);
+    } else if (notif.entityType === "telemetry_event") {
+      navigate("/runtime-monitoring");
+      setOpen(false);
     }
   };
+
+  const visibleNotifications = notifications.filter((notif) => {
+    if (mutedTypes.has(notif.type as keyof typeof notificationTypeLabels)) {
+      return false;
+    }
+    if (priorityOnly && !isPriorityNotification(notif.type)) {
+      return false;
+    }
+    if (feedFilter === "priority" && !isPriorityNotification(notif.type)) {
+      return false;
+    }
+    if (feedFilter === "unread" && notif.read) {
+      return false;
+    }
+    return true;
+  });
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -153,29 +225,158 @@ export function NotificationBell() {
       </PopoverTrigger>
       <PopoverContent className="w-80 p-0" align="end">
         <div className="flex items-center justify-between border-b px-3 py-2">
-          <h4 className="text-sm font-semibold">Notifications</h4>
-          {unreadCount > 0 && (
+          <div>
+            <h4 className="text-sm font-semibold">Notifications</h4>
+            <p className="text-[10px] text-muted-foreground">
+              {feedMode === "digest"
+                ? "Digest mode highlights themes and top incidents first."
+                : priorityOnly
+                  ? "Priority-only feed is active."
+                  : "All in-app governance updates."}
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
             <Button
-              variant="ghost"
+              variant={feedMode === "stream" ? "default" : "ghost"}
               size="sm"
               className="h-7 text-[11px]"
-              onClick={() => markAllReadMutation.mutate()}
-              data-testid="button-mark-all-read"
+              onClick={() => updatePreferenceMutation.mutate({ feedMode: "stream" })}
             >
-              <CheckCheck className="h-3 w-3 mr-1" />
-              Mark all read
+              Stream
             </Button>
-          )}
+            <Button
+              variant={feedMode === "digest" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 text-[11px]"
+              onClick={() => updatePreferenceMutation.mutate({ feedMode: "digest" })}
+            >
+              Digest
+            </Button>
+            <Button
+              variant={priorityOnly ? "default" : "ghost"}
+              size="sm"
+              className="h-7 text-[11px]"
+              onClick={() => updatePreferenceMutation.mutate({ priorityOnly: !priorityOnly })}
+            >
+              Priority only
+            </Button>
+            {unreadCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-[11px]"
+                onClick={() => markAllReadMutation.mutate()}
+                data-testid="button-mark-all-read"
+              >
+                <CheckCheck className="h-3 w-3 mr-1" />
+                Mark all read
+              </Button>
+            )}
+          </div>
         </div>
+        <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+          {(["all", "priority", "unread"] as NotificationFeedFilter[]).map((filter) => (
+            <Button
+              key={filter}
+              type="button"
+              size="sm"
+              variant={feedFilter === filter ? "default" : "outline"}
+              className="h-7 text-[11px]"
+              onClick={() => setFeedFilter(filter)}
+            >
+              {filter === "all" ? "All" : filter === "priority" ? "Needs action" : "Unread"}
+            </Button>
+          ))}
+          {mutedTypes.size > 0 ? (
+            <Badge variant="outline" className="h-6 px-2 text-[10px]">
+              {mutedTypes.size} muted in Settings
+            </Badge>
+          ) : null}
+          <a href="/settings?tab=governance" className="ml-auto text-[11px] text-muted-foreground underline underline-offset-4">
+            Preferences
+          </a>
+        </div>
+        {feedMode === "digest" ? (
+          <div className="border-b px-3 py-3">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-md border bg-muted/20 p-2">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Needs action</div>
+                <div className="mt-1 text-lg font-semibold">{digest?.priorityUnreadCount ?? 0}</div>
+              </div>
+              <div className="rounded-md border bg-muted/20 p-2">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Urgent incidents</div>
+                <div className="mt-1 text-lg font-semibold">{digest?.urgentIncidentCount ?? 0}</div>
+              </div>
+              <div className="rounded-md border bg-muted/20 p-2">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Unassigned</div>
+                <div className="mt-1 text-lg font-semibold">{digest?.unassignedIncidentCount ?? 0}</div>
+              </div>
+            </div>
+            {digest?.groups?.length ? (
+              <div className="mt-3">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unread themes</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {digest.groups.slice(0, 4).map((group) => (
+                    <Badge key={group.type} variant={group.priority ? "secondary" : "outline"} className="text-[9px]">
+                      {group.label} · {group.count}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {digest?.incidentFocus?.length ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Reviewer focus</p>
+                {digest.incidentFocus.slice(0, 3).map((incident) => (
+                  <button
+                    key={incident.id}
+                    type="button"
+                    className="w-full rounded-md border px-2.5 py-2 text-left hover:bg-muted/40"
+                    onClick={() => {
+                      navigate("/incidents");
+                      setOpen(false);
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="line-clamp-1 text-[11px] font-medium">{incident.title}</span>
+                      <Badge variant={incident.priorityLevel === "urgent" ? "destructive" : "outline"} className="text-[9px]">
+                        {incident.priorityLevel}
+                      </Badge>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+                      <span>{incident.category}</span>
+                      <span>•</span>
+                      <span>{incident.severity}</span>
+                      <span>•</span>
+                      <span>{incident.owner ? `Owner ${incident.owner}` : "Needs assignment"}</span>
+                    </div>
+                  </button>
+                ))}
+                {digest.breachedIncidentCount > 0 ? (
+                  <p className="text-[10px] text-muted-foreground">
+                    {digest.breachedIncidentCount} active incident{digest.breachedIncidentCount === 1 ? "" : "s"} already past containment SLA.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <ScrollArea className="max-h-80">
-          {notifications.length === 0 ? (
+          {visibleNotifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8">
               <Bell className="h-8 w-8 text-muted-foreground/30 mb-2" />
-              <p className="text-xs text-muted-foreground">No notifications yet</p>
+              <p className="text-xs text-muted-foreground">
+                {notifications.length === 0 ? "No notifications yet" : "No notifications match the current filter"}
+              </p>
             </div>
           ) : (
             <div className="divide-y">
-              {notifications.slice(0, 20).map((notif) => {
+              {feedMode === "digest" ? (
+                <div className="px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Latest matching events
+                </div>
+              ) : null}
+              {visibleNotifications.slice(0, 20).map((notif) => {
                 const Icon = typeIcons[notif.type] || Activity;
                 const iconColor = typeColors[notif.type] || "text-muted-foreground";
                 const copy = formatNotificationCopy(notif);
@@ -202,6 +403,18 @@ export function NotificationBell() {
                         )}
                       </div>
                       <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{copy.message}</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {isPriorityNotification(notif.type) ? (
+                          <Badge variant="secondary" className="h-5 px-1.5 text-[9px]">
+                            Needs action
+                          </Badge>
+                        ) : null}
+                        {notificationTypeLabels[notif.type as keyof typeof notificationTypeLabels] ? (
+                          <Badge variant="outline" className="h-5 px-1.5 text-[9px]">
+                            {notificationTypeLabels[notif.type as keyof typeof notificationTypeLabels]}
+                          </Badge>
+                        ) : null}
+                      </div>
                       {(governanceMetadata.legalProfileApplied || governanceMetadata.lawPackIdsApplied.length > 0) && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {governanceMetadata.legalProfileApplied && (

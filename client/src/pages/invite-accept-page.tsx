@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { PublicSiteHeader } from "@/components/public-site-header";
+import { usePageCopy } from "@/lib/page-copy";
 
 type InvitePreview = {
   id: string;
@@ -19,6 +20,7 @@ type InvitePreview = {
 };
 
 export default function InviteAcceptPage() {
+  const pageCopy = usePageCopy();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const token = useMemo(() => {
@@ -101,10 +103,10 @@ export default function InviteAcceptPage() {
           <CardHeader className="text-center">
             <CardTitle className="text-lg flex items-center justify-center gap-2">
               <UserPlus className="h-5 w-5" />
-              Accept Organization Invite
+              {pageCopy.inviteAccept.title}
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Complete your account setup to join AI Control Tower
+              {pageCopy.inviteAccept.description}
             </p>
           </CardHeader>
           <CardContent className="space-y-4">

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { usePageCopy } from "@/lib/page-copy";
 
 type Subscription = {
   id: string;
@@ -24,6 +25,7 @@ type Subscription = {
 };
 
 export default function BillingPage() {
+  const pageCopy = usePageCopy();
   const subscriptionQuery = useQuery<Subscription>({ queryKey: ["/api/organization/subscription"] });
   const [form, setForm] = useState({
     tier: "pilot",
@@ -63,12 +65,12 @@ export default function BillingPage() {
     <div className="space-y-6 p-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Billing and Subscription</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">{pageCopy.billing.title}</h1>
           <p className="text-sm text-muted-foreground">
-            Model pilot-to-paid conversion with plan tiers, seat limits, renewal timing, and live tenant usage.
+            {pageCopy.billing.description}
           </p>
         </div>
-        <Badge variant="outline">Commercial readiness</Badge>
+        <Badge variant="outline">{pageCopy.billing.badges?.readiness}</Badge>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

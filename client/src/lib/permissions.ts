@@ -49,6 +49,7 @@ export function getAppAccess(user: AuthUser | null) {
     canAccessRegistry: hasActiveOrganizationRole(user, ORG_REGISTRY_ROLES),
     canAccessRisk: hasActiveOrganizationRole(user, ORG_GOVERNANCE_ROLES),
     canAccessCompliance: hasActiveOrganizationRole(user, ORG_GOVERNANCE_ROLES),
+    canAccessAnalytics: hasActiveOrganizationRole(user, ORG_INCIDENT_ROLES),
     canAccessRuntimeMonitoring: hasActiveOrganizationRole(user, ORG_GOVERNANCE_ROLES),
     canAccessIncidents: hasActiveOrganizationRole(user, ORG_INCIDENT_ROLES),
     canAccessApprovals: hasActiveOrganizationRole(user, ORG_APPROVAL_ROLES),
@@ -67,3 +68,5 @@ export function getAppAccess(user: AuthUser | null) {
     canSwitchOrganizations: hasActiveOrganizationRole(user, ORG_ADMIN_ROLES),
   };
 }
+
+export type AppAccess = ReturnType<typeof getAppAccess>;

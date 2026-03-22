@@ -363,6 +363,7 @@ export function validateRuntimeEnvironment(env: NodeJS.ProcessEnv = process.env)
 
     validateOptionalWebhook("PASSWORD_RESET_WEBHOOK_URL", env.PASSWORD_RESET_WEBHOOK_URL, errors);
     validateOptionalWebhook("INVITE_WEBHOOK_URL", env.INVITE_WEBHOOK_URL, errors);
+    validateOptionalWebhook("GOVERNANCE_EVENT_WEBHOOK_URL", env.GOVERNANCE_EVENT_WEBHOOK_URL, errors);
   }
 
   if (errors.length > 0) {

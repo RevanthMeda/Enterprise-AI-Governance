@@ -3,6 +3,13 @@ import { useQuery, useMutation, type UseMutationResult } from "@tanstack/react-q
 import { apiRequest, captureCsrfTokenFromResponse, queryClient } from "@/lib/queryClient";
 import { resolveApiUrl } from "@/lib/api-url";
 import { useToast } from "@/hooks/use-toast";
+import type {
+  AccessibilityPreferenceState,
+  DashboardViewId,
+  DashboardWidgetId,
+  NotificationPreferenceState,
+  WorkspaceLocale,
+} from "@shared/operator-preferences";
 
 export interface AuthOrganization {
   id: string;
@@ -17,6 +24,12 @@ export interface AuthOnboardingState {
   completedSteps: string[];
   dismissedAlerts: string[];
   snoozedAlerts: Record<string, string>;
+  dashboardView: DashboardViewId;
+  dashboardWidgets: DashboardWidgetId[];
+  notificationPreferences: NotificationPreferenceState;
+  accessibilityPreferences: AccessibilityPreferenceState;
+  workspaceLocale: WorkspaceLocale;
+  guidedMode: boolean;
   updatedAt: string | null;
 }
 

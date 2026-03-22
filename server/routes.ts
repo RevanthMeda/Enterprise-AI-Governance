@@ -58,14 +58,22 @@ import { backgroundJobService } from "./services/backgroundJobService";
 import { calendarService } from "./services/calendarService";
 import { controlService } from "./services/controlService";
 import { dashboardService } from "./services/dashboardService";
+import { analyticsService } from "./services/analyticsService";
+import { governanceMaturityService } from "./services/governanceMaturityService";
+import { threatIntelligenceService } from "./services/threatIntelligenceService";
+import { governanceAutomationService } from "./services/governanceAutomationService";
+import { governanceEventService } from "./services/governanceEventService";
+import { integrationConnectorService } from "./services/integrationConnectorService";
 import { domainService } from "./services/domainService";
 import { evidenceService } from "./services/evidenceService";
 import { exportService, type ExportType } from "./services/exportService";
 import { inviteService } from "./services/inviteService";
 import { incidentService } from "./services/incidentService";
+import { incidentResolutionSuggestionService } from "./services/incidentResolutionSuggestionService";
 import { agentGovernanceService } from "./services/agentGovernanceService";
 import { jiraService } from "./services/jiraService";
 import { monitoringService } from "./services/monitoringService";
+import { notificationDigestService } from "./services/notificationDigestService";
 import { notificationService } from "./services/notificationService";
 import { portfolioService } from "./services/portfolioService";
 import { decisionAuditService } from "./services/decisionAuditService";
@@ -75,6 +83,7 @@ import { ssoService } from "./services/ssoService";
 import { subscriptionService } from "./services/subscriptionService";
 import { systemService } from "./services/systemService";
 import { telemetryPolicyService } from "./services/telemetryPolicyService";
+import { telemetryPolicyAdvisorService } from "./services/telemetryPolicyAdvisorService";
 import { telemetryAdapterService } from "./services/telemetryAdapterService";
 import { telemetryService } from "./services/telemetryService";
 import { controlTowerGatewayService } from "./services/controlTowerGatewayService";
@@ -82,6 +91,8 @@ import { telemetryReviewerExceptionService } from "./services/telemetryReviewerE
 import { upstreamProviderVaultService } from "./services/upstreamProviderVaultService";
 import { workflowService } from "./services/workflowService";
 import { autoDiscoveryService } from "./services/autoDiscoveryService";
+import { workspaceSearchService } from "./services/workspaceSearchService";
+import { regionalGovernanceProfileService } from "./services/regionalGovernanceProfileService";
 import {
   buildPasswordResetUrl,
   createPasswordResetToken,
@@ -95,6 +106,50 @@ import {
   resolveWorkflowLawPackIds,
   resolveWorkflowLegalProfile,
 } from "@shared/law-packs";
+import {
+  DEFAULT_GUIDED_MODE,
+  DEFAULT_WORKSPACE_LOCALE,
+  accessibilityFontScales,
+  dashboardViewIds,
+  dashboardWidgetIds,
+  notificationFeedModes,
+  notificationPreferenceTypes,
+  sanitizeAccessibilityPreferences,
+  sanitizeDashboardWidgets,
+  sanitizeNotificationPreferences,
+  sanitizeWorkspaceLocale,
+  workspaceLocaleOptions,
+} from "@shared/operator-preferences";
+import {
+  analyticsReportCadences,
+  analyticsReportFormats,
+  analyticsReportSectionIds,
+  buildAnalyticsReportPlanId,
+  sanitizeAnalyticsReportBuilderConfig,
+} from "@shared/analytics-report-builder";
+import {
+  integrationConnectorSeverityFloors,
+  integrationConnectorTypes,
+  sanitizeIntegrationConnectors,
+} from "@shared/integration-connectors";
+import {
+  sanitizeThreatIntelConfig,
+  threatIntelExternalFeedTypes,
+  threatIntelIndicatorSeverities,
+} from "@shared/threat-intelligence";
+import { analyticsReportPresetIds } from "@shared/analytics-overview";
+import {
+  governanceAutomationRuleKeys,
+  governanceAutomationRunModes,
+  sanitizeGovernanceAutomationConfig,
+} from "@shared/governance-automation-builder";
+import {
+  regionalComplianceFrameworkIds,
+  regionalDataResidencyModes,
+  regionalPrimaryRegions,
+  sanitizeRegionalGovernanceProfile,
+} from "@shared/regional-governance-profile";
+import { evaluateIncidentPriority, summarizeIncidentPriorities } from "@shared/incident-prioritization";
 import { getUploadsRoot } from "./runtime-paths";
 import { areMockAuthRoutesEnabled, parseBooleanEnv } from "./env";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
@@ -753,6 +808,99 @@ const onboardingStateSchema = z.object({
   completedSteps: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
   dismissedAlerts: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
   snoozedAlerts: z.record(z.string().trim().min(1).max(80), z.string().datetime()).optional(),
+  dashboardView: z.enum(dashboardViewIds).optional(),
+  dashboardWidgets: z.array(z.enum(dashboardWidgetIds)).max(dashboardWidgetIds.length).optional(),
+  notificationPreferences: z
+    .object({
+      priorityOnly: z.boolean().optional(),
+      mutedTypes: z.array(z.enum(notificationPreferenceTypes)).max(notificationPreferenceTypes.length).optional(),
+      feedMode: z.enum(notificationFeedModes).optional(),
+    })
+    .optional(),
+  accessibilityPreferences: z
+    .object({
+      highContrast: z.boolean().optional(),
+      reducedMotion: z.boolean().optional(),
+      fontScale: z.enum(accessibilityFontScales).optional(),
+    })
+    .optional(),
+  workspaceLocale: z.enum(workspaceLocaleOptions).optional(),
+  guidedMode: z.boolean().optional(),
+});
+
+const analyticsReportBuilderUpdateSchema = z.object({
+  defaultPlanId: z.string().trim().min(1).max(60).nullable().optional(),
+  plans: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(60).optional(),
+        name: z.string().trim().min(1).max(80),
+        description: z.string().trim().max(240).optional().default(""),
+        presetId: z.enum(analyticsReportPresetIds),
+        format: z.enum(analyticsReportFormats),
+        cadence: z.enum(analyticsReportCadences),
+        sections: z.array(z.enum(analyticsReportSectionIds)).min(1).max(analyticsReportSectionIds.length),
+        lastRunAt: z.string().datetime().nullable().optional(),
+      }),
+    )
+    .max(12),
+});
+
+const governanceAutomationConfigSchema = z.object({
+  runMode: z.enum(governanceAutomationRunModes),
+  rules: z
+    .array(
+      z.object({
+        key: z.enum(governanceAutomationRuleKeys),
+        enabled: z.boolean(),
+        minSeverity: z.enum(["critical", "high", "medium"]),
+        staleDays: z.number().int().min(0).max(30),
+        description: z.string().trim().max(200),
+      }),
+    )
+    .max(governanceAutomationRuleKeys.length),
+});
+
+const threatIntelConfigSchema = z.object({
+  enabled: z.boolean(),
+  advisoryMode: z.boolean(),
+  externalFeed: z.object({
+    enabled: z.boolean(),
+    providerType: z.enum(threatIntelExternalFeedTypes).optional(),
+    providerLabel: z.string().trim().max(120).nullable().optional(),
+    feedUrl: z.string().trim().url().max(1000).nullable().optional(),
+    authToken: z.string().trim().max(400).nullable().optional(),
+  }).optional(),
+  customIndicators: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(60),
+        title: z.string().trim().min(1).max(120),
+        pattern: z.string().trim().min(1).max(200),
+        category: z.string().trim().min(1).max(80),
+        severity: z.enum(threatIntelIndicatorSeverities),
+        enabled: z.boolean(),
+      }),
+    )
+    .max(20),
+});
+
+const integrationConnectorSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  label: z.string().trim().min(1).max(120),
+  type: z.enum(integrationConnectorTypes),
+  enabled: z.boolean(),
+  webhookUrl: z.string().trim().url().max(1000).nullable().optional(),
+  authToken: z.string().trim().max(400).nullable().optional(),
+  eventFilters: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
+  severityFloor: z.enum(integrationConnectorSeverityFloors),
+});
+
+const regionalGovernanceProfileSchema = z.object({
+  primaryRegion: z.enum(regionalPrimaryRegions),
+  secondaryRegions: z.array(z.enum(regionalPrimaryRegions)).max(regionalPrimaryRegions.length - 1),
+  dataResidencyMode: z.enum(regionalDataResidencyModes),
+  activeFrameworks: z.array(z.enum(regionalComplianceFrameworkIds)).min(1).max(regionalComplianceFrameworkIds.length),
 });
 
 const inviteRoleOptions = ["owner", ...userRoles] as const;
@@ -1200,6 +1348,45 @@ function applyOrgAuthSettings(rawSettings: unknown, authSettings: OrgAuthSetting
       ? { ...(rawSettings as Record<string, unknown>) }
       : {};
   settingsObject.auth = authSettings;
+  return settingsObject;
+}
+
+function getOrganizationSettingsObject(rawSettings: unknown): Record<string, unknown> {
+  return rawSettings && typeof rawSettings === "object" && !Array.isArray(rawSettings)
+    ? { ...(rawSettings as Record<string, unknown>) }
+    : {};
+}
+
+function getAnalyticsReportBuilderSettings(rawSettings: unknown) {
+  const settingsObject = getOrganizationSettingsObject(rawSettings);
+  return sanitizeAnalyticsReportBuilderConfig(settingsObject.analyticsReportBuilder);
+}
+
+function applyAnalyticsReportBuilderSettings(rawSettings: unknown, nextValue: unknown): Record<string, unknown> {
+  const settingsObject = getOrganizationSettingsObject(rawSettings);
+  settingsObject.analyticsReportBuilder = sanitizeAnalyticsReportBuilderConfig(nextValue);
+  return settingsObject;
+}
+
+function getGovernanceAutomationSettings(rawSettings: unknown) {
+  const settingsObject = getOrganizationSettingsObject(rawSettings);
+  return sanitizeGovernanceAutomationConfig(settingsObject.governanceAutomationConfig);
+}
+
+function applyGovernanceAutomationSettings(rawSettings: unknown, nextValue: unknown): Record<string, unknown> {
+  const settingsObject = getOrganizationSettingsObject(rawSettings);
+  settingsObject.governanceAutomationConfig = sanitizeGovernanceAutomationConfig(nextValue);
+  return settingsObject;
+}
+
+function getThreatIntelligenceSettings(rawSettings: unknown) {
+  const settingsObject = getOrganizationSettingsObject(rawSettings);
+  return sanitizeThreatIntelConfig(settingsObject.threatIntelligenceConfig);
+}
+
+function applyThreatIntelligenceSettings(rawSettings: unknown, nextValue: unknown): Record<string, unknown> {
+  const settingsObject = getOrganizationSettingsObject(rawSettings);
+  settingsObject.threatIntelligenceConfig = sanitizeThreatIntelConfig(nextValue);
   return settingsObject;
 }
 
@@ -2704,6 +2891,188 @@ export async function registerRoutes(
     return res.status(result.ok ? 200 : 400).json(result);
   });
 
+  app.get(
+    "/api/integrations/connectors",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      const connectors = await integrationConnectorService.getForOrg(req.tenant!.organizationId);
+      res.json(connectors);
+    },
+  );
+
+  app.put(
+    "/api/integrations/connectors",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const parsed = z.array(integrationConnectorSchema).max(12).parse(req.body ?? []);
+        const updated = await integrationConnectorService.updateForOrg(
+          req.tenant!.organizationId,
+          sanitizeIntegrationConnectors(parsed),
+        );
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "integration_connector",
+            entityId: req.tenant!.organizationId,
+            action: "updated",
+            performedBy: req.user!.fullName,
+            details: `Updated ${updated.length} integration connector(s).`,
+          },
+        });
+        res.json(updated);
+      } catch (err: any) {
+        res.status(400).json({ message: err.message || "Failed to update integration connectors" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/integrations/connectors/test",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      const connectorId =
+        req.body && typeof req.body === "object" && typeof (req.body as Record<string, unknown>).connectorId === "string"
+          ? ((req.body as Record<string, unknown>).connectorId as string).trim()
+          : null;
+      const result = await governanceEventService.emitForOrg({
+        organizationId: req.tenant!.organizationId,
+        actor: req.user!,
+        eventType: "connector.test",
+        title: "Connector test event",
+        summary: "This is a governed test payload generated from the Integrations workspace.",
+        severity: "warning",
+        entityType: "integration_connector",
+        entityId: connectorId,
+        targetConnectorId: connectorId,
+        metadata: {
+          connectorId,
+          source: "integration_test",
+        },
+      });
+      res.json(result);
+    },
+  );
+
+  app.get(
+    "/api/threat-intelligence/config",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const config = await threatIntelligenceService.getConfigForOrg(req.tenant!.organizationId);
+        res.json(config);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message || "Failed to load threat intelligence config" });
+      }
+    },
+  );
+
+  app.put(
+    "/api/threat-intelligence/config",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const parsed = threatIntelConfigSchema.parse(req.body ?? {});
+        const updated = await threatIntelligenceService.updateConfigForOrg(req.tenant!.organizationId, {
+          enabled: parsed.enabled,
+          advisoryMode: parsed.advisoryMode,
+          externalFeed: {
+            enabled: parsed.externalFeed?.enabled === true,
+            providerType: parsed.externalFeed?.providerType ?? "generic_json",
+            providerLabel: parsed.externalFeed?.providerLabel ?? null,
+            feedUrl: parsed.externalFeed?.feedUrl ?? null,
+            authToken: parsed.externalFeed?.authToken ?? null,
+          },
+          customIndicators: parsed.customIndicators.map((indicator) => ({
+            ...indicator,
+            source: "custom" as const,
+          })),
+        });
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "threat_intelligence",
+            entityId: req.tenant!.organizationId,
+            action: "updated",
+            performedBy: req.user!.fullName,
+            details: `Threat intelligence updated with ${updated.customIndicators.length} custom indicator(s).`,
+          },
+        });
+        res.json(updated);
+      } catch (err: any) {
+        res.status(400).json({ message: err.message || "Failed to update threat intelligence config" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/organization/regional-governance-profile",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      const profile = await regionalGovernanceProfileService.getForOrg(req.tenant!.organizationId);
+      res.json(profile);
+    },
+  );
+
+  app.put(
+    "/api/organization/regional-governance-profile",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const parsed = regionalGovernanceProfileSchema.parse(req.body ?? {});
+        const updated = await regionalGovernanceProfileService.updateForOrg(
+          req.tenant!.organizationId,
+          sanitizeRegionalGovernanceProfile(parsed),
+        );
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "regional_governance_profile",
+            entityId: req.tenant!.organizationId,
+            action: "updated",
+            performedBy: req.user!.fullName,
+            details: `Regional governance profile updated for ${updated.primaryRegion}.`,
+          },
+        });
+        res.json(updated);
+      } catch (err: any) {
+        res.status(400).json({ message: err.message || "Failed to update regional governance profile" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/threat-intelligence/summary",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
+    async (req, res) => {
+      try {
+        const summary = await threatIntelligenceService.getSummaryForOrg(req.tenant!.organizationId);
+        res.json(summary);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message || "Failed to load threat intelligence summary" });
+      }
+    },
+  );
+
   app.get("/api/organization/subscription", requireAuth, requireTenant, requireOrgRole("owner", "admin"), async (req, res) => {
     const subscription = await subscriptionService.getForOrg(req.tenant!.organizationId);
     return res.json(subscription);
@@ -2717,6 +3086,149 @@ export async function registerRoutes(
     async (req, res) => {
       const policy = await telemetryPolicyService.getEffectiveForOrg(req.tenant!.organizationId);
       return res.json(policy);
+    },
+  );
+
+  app.get(
+    "/api/telemetry-policy/recommendations",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const systemId = typeof req.query.systemId === "string" && req.query.systemId.trim() ? req.query.systemId.trim() : null;
+        if (systemId) {
+          const system = await storage.getAiSystemById(req.tenant!.organizationId, systemId);
+          if (!system) {
+            return res.status(404).json({ message: "AI system not found" });
+          }
+        }
+        const recommendations = await telemetryPolicyAdvisorService.getRecommendations({
+          organizationId: req.tenant!.organizationId,
+          systemId,
+        });
+        return res.json(recommendations);
+      } catch (err: any) {
+        return res.status(500).json({ message: err.message || "Failed to load telemetry policy recommendations" });
+      }
+    },
+  );
+
+  const telemetryPolicyAssistSchema = z.object({
+    intent: z.string().min(8).max(4000),
+    systemId: z.string().uuid().nullable().optional(),
+  });
+
+  const telemetryPolicyImpactSchema = z.object({
+    systemId: z.string().uuid().nullable().optional(),
+    patch: z
+      .object({
+        driftAlertThreshold: z.number().int().min(1).max(100).optional(),
+        driftCriticalThreshold: z.number().int().min(1).max(100).optional(),
+        biasFlagThreshold: z.number().int().min(1).max(100).optional(),
+        safetyFlagThreshold: z.number().int().min(1).max(100).optional(),
+        toxicityWarningThreshold: z.number().int().min(1).max(100).optional(),
+        toxicityCriticalThreshold: z.number().int().min(1).max(100).optional(),
+        piiFlagThreshold: z.number().int().min(1).max(100).optional(),
+        overrideRateWarningThreshold: z.number().int().min(1).max(100).optional(),
+        overrideRateCriticalThreshold: z.number().int().min(1).max(100).optional(),
+        errorRateWarningThreshold: z.number().int().min(1).max(100).optional(),
+        errorRateCriticalThreshold: z.number().int().min(1).max(100).optional(),
+        autoEscalateCritical: z.boolean().optional(),
+        notifyOnWarning: z.boolean().optional(),
+        enforceBlocking: z.boolean().optional(),
+        blockOnPii: z.boolean().optional(),
+        blockOnSafetyCritical: z.boolean().optional(),
+        blockOnRestrictedPrompt: z.boolean().optional(),
+        restrictedPromptPatterns: z.array(z.string().trim().min(1).max(160)).max(40).optional(),
+        shadowModeEnabled: z.boolean().optional(),
+        shadowModeLabel: z.string().trim().min(1).max(80).optional(),
+      })
+      .default({}),
+  });
+
+  app.post(
+    "/api/telemetry-policy/assist",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const parsed = telemetryPolicyAssistSchema.parse(req.body);
+        if (parsed.systemId) {
+          const system = await storage.getAiSystemById(req.tenant!.organizationId, parsed.systemId);
+          if (!system) {
+            return res.status(404).json({ message: "AI system not found" });
+          }
+        }
+
+        const suggestion = await telemetryPolicyAdvisorService.assist({
+          organizationId: req.tenant!.organizationId,
+          systemId: parsed.systemId ?? null,
+          intent: parsed.intent,
+        });
+
+        await recordAdminAuditEvent({
+          organizationId: req.tenant!.organizationId,
+          actorUserId: req.user!.id,
+          actorName: req.user!.fullName,
+          action: "telemetry_policy.assist_used",
+          targetType: "telemetry_policy",
+          targetId: parsed.systemId ?? req.tenant!.organizationId,
+          metadata: {
+            systemId: parsed.systemId ?? null,
+            intentPreview: parsed.intent.slice(0, 240),
+            matchedIntents: suggestion.matchedIntents,
+            recommendedPresetId: suggestion.recommendedPresetId,
+          },
+        });
+
+        return res.json(suggestion);
+      } catch (err: any) {
+        return res.status(400).json({ message: err.message || "Failed to assist telemetry policy" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/telemetry-policy/impact",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const parsed = telemetryPolicyImpactSchema.parse(req.body ?? {});
+        if (parsed.systemId) {
+          const system = await storage.getAiSystemById(req.tenant!.organizationId, parsed.systemId);
+          if (!system) {
+            return res.status(404).json({ message: "AI system not found" });
+          }
+        }
+
+        const impact = await telemetryPolicyAdvisorService.getImpactAnalysis({
+          organizationId: req.tenant!.organizationId,
+          systemId: parsed.systemId ?? null,
+          patch: parsed.patch,
+        });
+
+        await recordAdminAuditEvent({
+          organizationId: req.tenant!.organizationId,
+          actorUserId: req.user!.id,
+          actorName: req.user!.fullName,
+          action: "telemetry_policy.impact_simulated",
+          targetType: "telemetry_policy",
+          targetId: parsed.systemId ?? req.tenant!.organizationId,
+          metadata: {
+            systemId: parsed.systemId ?? null,
+            sampleSize: impact.sampleSize,
+            delta: impact.delta,
+          },
+        });
+
+        return res.json(impact);
+      } catch (err: any) {
+        return res.status(400).json({ message: err.message || "Failed to simulate telemetry policy impact" });
+      }
     },
   );
 
@@ -3611,8 +4123,27 @@ export async function registerRoutes(
       completedSteps: [],
       dismissedAlerts: [],
       snoozedAlerts: {},
+      dashboardView: "operations",
+      dashboardWidgets: [],
+      notificationPreferences: sanitizeNotificationPreferences(null),
+      accessibilityPreferences: sanitizeAccessibilityPreferences(null),
+      workspaceLocale: DEFAULT_WORKSPACE_LOCALE,
+      guidedMode: DEFAULT_GUIDED_MODE,
       updatedAt: null,
     };
+
+    const dashboardView = parsed.data.dashboardView ?? existingState.dashboardView;
+    const dashboardWidgets = sanitizeDashboardWidgets(
+      parsed.data.dashboardWidgets ?? existingState.dashboardWidgets,
+      existingState.dashboardWidgets,
+    );
+    const notificationPreferences = sanitizeNotificationPreferences(
+      parsed.data.notificationPreferences ?? existingState.notificationPreferences,
+    );
+    const accessibilityPreferences = sanitizeAccessibilityPreferences(
+      parsed.data.accessibilityPreferences ?? existingState.accessibilityPreferences,
+    );
+    const workspaceLocale = sanitizeWorkspaceLocale(parsed.data.workspaceLocale ?? existingState.workspaceLocale);
 
     const nextState = {
       currentStep: parsed.data.currentStep ?? existingState.currentStep,
@@ -3623,12 +4154,28 @@ export async function registerRoutes(
         ? Array.from(new Set(parsed.data.dismissedAlerts)).slice(0, 20)
         : existingState.dismissedAlerts,
       snoozedAlerts: parsed.data.snoozedAlerts ?? existingState.snoozedAlerts,
+      dashboardView,
+      dashboardWidgets,
+      notificationPreferences,
+      accessibilityPreferences,
+      workspaceLocale,
+      guidedMode: parsed.data.guidedMode ?? existingState.guidedMode,
       updatedAt: new Date().toISOString(),
     };
 
     await storage.updateMembershipOnboardingState(membership.id, nextState);
     const refreshedPayload = await buildAndPersistAuthPayload(req);
     return res.json(refreshedPayload);
+  });
+
+  app.get("/api/workspace-search", requireAuth, requireTenant, async (req, res) => {
+    const query = typeof req.query.q === "string" ? req.query.q : "";
+    const results = await workspaceSearchService.search({
+      organizationId: req.tenant!.organizationId,
+      membershipRole: req.tenant!.membershipRole,
+      query,
+    });
+    res.json({ query, results });
   });
 
   app.post("/api/auth/switch-organization", requireAuth, async (req, res) => {
@@ -4634,11 +5181,15 @@ export async function registerRoutes(
     requireTenant,
     requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
     async (req, res) => {
-    const rows = await incidentService.listForOrg(req.tenant!.organizationId, {
-      status: req.query.status as string | undefined,
-      severity: req.query.severity as string | undefined,
-    });
-      res.json(rows);
+      const rows = await incidentService.listForOrg(req.tenant!.organizationId, {
+        status: req.query.status as string | undefined,
+        severity: req.query.severity as string | undefined,
+      });
+      const enriched = rows.map((row) => ({
+        ...row,
+        priority: evaluateIncidentPriority(row),
+      }));
+      res.json(enriched);
     },
   );
 
@@ -4648,8 +5199,42 @@ export async function registerRoutes(
     requireTenant,
     requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
     async (req, res) => {
-    const summary = await incidentService.getSummaryForOrg(req.tenant!.organizationId);
-      res.json(summary);
+      const [summary, incidents] = await Promise.all([
+        incidentService.getSummaryForOrg(req.tenant!.organizationId),
+        incidentService.listForOrg(req.tenant!.organizationId, { status: "all" }),
+      ]);
+      res.json({
+        ...summary,
+        ...summarizeIncidentPriorities(incidents),
+      });
+    },
+  );
+
+  app.get(
+    "/api/incidents/assignees",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
+    async (req, res) => {
+      const assignees = await incidentService.listAssignableOwnersForOrg(req.tenant!.organizationId);
+      res.json(assignees);
+    },
+  );
+
+  app.get(
+    "/api/incidents/:id/resolution-suggestion",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
+    async (req, res) => {
+      const suggestion = await incidentResolutionSuggestionService.getForIncident(
+        req.tenant!.organizationId,
+        routeParam(req.params.id),
+      );
+      if (!suggestion) {
+        return res.status(404).json({ message: "Incident not found" });
+      }
+      return res.json(suggestion);
     },
   );
 
@@ -4688,6 +5273,30 @@ export async function registerRoutes(
             details: `AI incident \"${created.title}\" opened`,
           },
         });
+        const assignment = incidentService.getAssignmentMetadata(created.playbook);
+        if (assignment?.ownerUserId) {
+          const priority = evaluateIncidentPriority(created);
+          await notificationService.createForUser({
+            organizationId: req.tenant!.organizationId,
+            userId: assignment.ownerUserId,
+            input: {
+              title: "AI incident assigned",
+              message: `${created.severity.toUpperCase()} incident "${created.title}" has been assigned to you for review.`,
+              type: "workflow_status_changed",
+              entityType: "ai_incident",
+              entityId: created.id,
+              metadata: {
+                incidentId: created.id,
+                assignmentRole: assignment.ownerRole,
+                autoAssigned: assignment.autoAssigned,
+                incidentPriorityLevel: priority.level,
+                incidentPriorityScore: priority.score,
+                incidentPriorityReasons: priority.reasons,
+              },
+              read: false,
+            },
+          });
+        }
         if (created.severity === "critical" || created.severity === "high") {
           await notifyAllAdmins(
             req.tenant!.organizationId,
@@ -5897,6 +6506,20 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/notifications/digest", requireAuth, requireTenant, async (req, res) => {
+    try {
+      const authPayload = await buildAuthUserPayload(req.user!, req.session.currentOrganizationId);
+      const digest = await notificationDigestService.getForUser({
+        organizationId: req.tenant!.organizationId,
+        actor: req.user!,
+        mutedTypes: authPayload.currentOrganizationOnboarding?.notificationPreferences.mutedTypes ?? [],
+      });
+      res.json(digest);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/notifications/unread-count", requireAuth, requireTenant, async (req, res) => {
     try {
       const count = await notificationService.getUnreadCountForUser({
@@ -6245,6 +6868,173 @@ export async function registerRoutes(
   });
 
   app.get(
+    "/api/analytics/overview",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
+    async (req, res) => {
+      try {
+        const overview = await analyticsService.getOverview({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          membershipRole: req.tenant!.membershipRole,
+        });
+        res.json(overview);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message || "Failed to load analytics overview" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/governance-maturity",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
+    async (req, res) => {
+      try {
+        const assessment = await governanceMaturityService.getAssessment({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          membershipRole: req.tenant!.membershipRole,
+        });
+        res.json(assessment);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message || "Failed to load governance maturity assessment" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/analytics/report-builder",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
+    async (req, res) => {
+      try {
+        const organization = await storage.getOrganizationById(req.tenant!.organizationId);
+        if (!organization) {
+          return res.status(404).json({ message: "Organization not found" });
+        }
+        res.json(getAnalyticsReportBuilderSettings(organization.settings));
+      } catch (err: any) {
+        res.status(500).json({ message: err.message || "Failed to load report builder settings" });
+      }
+    },
+  );
+
+  app.put(
+    "/api/analytics/report-builder",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const parsed = analyticsReportBuilderUpdateSchema.parse(req.body);
+        const organization = await storage.getOrganizationById(req.tenant!.organizationId);
+        if (!organization) {
+          return res.status(404).json({ message: "Organization not found" });
+        }
+
+        const normalizedPlans = parsed.plans.map((plan) => ({
+          id: buildAnalyticsReportPlanId(plan.id ?? plan.name, `report-${Math.random().toString(36).slice(2, 8)}`),
+          name: plan.name,
+          description: plan.description ?? "",
+          presetId: plan.presetId,
+          format: plan.format,
+          cadence: plan.cadence,
+          sections: plan.sections,
+          lastRunAt: plan.lastRunAt ?? null,
+        }));
+        const nextConfig = sanitizeAnalyticsReportBuilderConfig({
+          defaultPlanId: parsed.defaultPlanId ?? normalizedPlans[0]?.id ?? null,
+          plans: normalizedPlans,
+        });
+
+        const [updated] = await db
+          .update(organizations)
+          .set({
+            settings: applyAnalyticsReportBuilderSettings(organization.settings, nextConfig),
+            updatedAt: new Date(),
+          })
+          .where(eq(organizations.id, organization.id))
+          .returning({ settings: organizations.settings });
+
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "analytics_report_builder",
+            entityId: organization.id,
+            action: "updated",
+            performedBy: req.user!.fullName,
+            details: `Analytics report builder updated with ${nextConfig.plans.length} saved plan(s).`,
+          },
+        });
+
+        res.json(getAnalyticsReportBuilderSettings(updated?.settings ?? nextConfig));
+      } catch (err: any) {
+        res.status(400).json({ message: err.message || "Failed to update report builder settings" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/analytics/report-builder/:planId/run",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
+    async (req, res) => {
+      try {
+        const organization = await storage.getOrganizationById(req.tenant!.organizationId);
+        if (!organization) {
+          return res.status(404).json({ message: "Organization not found" });
+        }
+        const current = getAnalyticsReportBuilderSettings(organization.settings);
+        const planId = buildAnalyticsReportPlanId(routeParam(req.params.planId), routeParam(req.params.planId));
+        const planExists = current.plans.some((plan) => plan.id === planId);
+        if (!planExists) {
+          return res.status(404).json({ message: "Report plan not found" });
+        }
+
+        const updatedConfig = {
+          ...current,
+          plans: current.plans.map((plan) =>
+            plan.id === planId ? { ...plan, lastRunAt: new Date().toISOString() } : plan,
+          ),
+        };
+
+        await db
+          .update(organizations)
+          .set({
+            settings: applyAnalyticsReportBuilderSettings(organization.settings, updatedConfig),
+            updatedAt: new Date(),
+          })
+          .where(eq(organizations.id, organization.id));
+
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "analytics_report_builder",
+            entityId: planId,
+            action: "run",
+            performedBy: req.user!.fullName,
+            details: `Analytics report plan "${planId}" was marked as exported.`,
+          },
+        });
+
+        res.json({
+          ok: true,
+          plan: updatedConfig.plans.find((plan) => plan.id === planId) ?? null,
+        });
+      } catch (err: any) {
+        res.status(400).json({ message: err.message || "Failed to record report export" });
+      }
+    },
+  );
+
+  app.get(
     "/api/portfolio-control",
     requireAuth,
     async (req, res) => {
@@ -6354,6 +7144,146 @@ export async function registerRoutes(
       res.status(500).json({ message: err.message });
     }
   });
+
+  app.get(
+    "/api/governance-events",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
+    async (req, res) => {
+      try {
+        const feed = await governanceEventService.getFeedForOrg({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+        });
+        res.json(feed);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message || "Failed to load governance events" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/governance-events/test",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const result = await governanceEventService.emitForOrg({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          eventType: "governance.test",
+          title: "Governance event test",
+          summary: "Manual governance event test queued from the integrations workspace.",
+          severity: "info",
+          entityType: "integration_test",
+          metadata: {
+            initiatedFrom: "integrations",
+          },
+        });
+        res.json(result);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message || "Failed to queue governance event test" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/governance-automation/config",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const organization = await storage.getOrganizationById(req.tenant!.organizationId);
+        if (!organization) {
+          return res.status(404).json({ message: "Organization not found" });
+        }
+        res.json(getGovernanceAutomationSettings(organization.settings));
+      } catch (err: any) {
+        res.status(500).json({ message: err.message || "Failed to load governance automation config" });
+      }
+    },
+  );
+
+  app.put(
+    "/api/governance-automation/config",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const parsed = governanceAutomationConfigSchema.parse(req.body);
+        const organization = await storage.getOrganizationById(req.tenant!.organizationId);
+        if (!organization) {
+          return res.status(404).json({ message: "Organization not found" });
+        }
+
+        const nextConfig = sanitizeGovernanceAutomationConfig(parsed);
+        const [updated] = await db
+          .update(organizations)
+          .set({
+            settings: applyGovernanceAutomationSettings(organization.settings, nextConfig),
+            updatedAt: new Date(),
+          })
+          .where(eq(organizations.id, organization.id))
+          .returning({ settings: organizations.settings });
+
+        await auditService.createLog({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          input: {
+            entityType: "governance_automation",
+            entityId: organization.id,
+            action: "config_updated",
+            performedBy: req.user!.fullName,
+            details: `Governance automation config updated in ${nextConfig.runMode} mode.`,
+          },
+        });
+
+        res.json(getGovernanceAutomationSettings(updated?.settings ?? nextConfig));
+      } catch (err: any) {
+        res.status(400).json({ message: err.message || "Failed to update governance automation config" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/governance-automation/summary",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const summary = await governanceAutomationService.getSummaryForOrg({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+        });
+        res.json(summary);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message || "Failed to load governance automation summary" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/governance-automation/run",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
+    async (req, res) => {
+      try {
+        const result = await governanceAutomationService.runForOrg({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+        });
+        res.json(result);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message || "Failed to run governance remediation sweep" });
+      }
+    },
+  );
 
   app.get("/api/calendar-events", requireAuth, requireTenant, async (req, res) => {
     try {

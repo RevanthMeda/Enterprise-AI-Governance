@@ -1,23 +1,30 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { BrandMark } from "@/components/brand-mark";
-
-const marketingLinks = [
-  { label: "Product", href: "/welcome#product" },
-  { label: "Solutions", href: "/welcome#solutions" },
-  { label: "Frameworks", href: "/welcome#frameworks" },
-  { label: "How it Works", href: "/welcome#how-it-works" },
-  { label: "Pricing", href: "/welcome#pricing" },
-  { label: "FAQ", href: "/welcome#faq" },
-  { label: "Trust Center", href: "/trust-center" },
-  { label: "Docs", href: "/api-docs" },
-];
+import { usePageCopy } from "@/lib/page-copy";
+import { useWorkspaceCopy } from "@/lib/workspace-copy";
 
 export function PublicSiteHeader() {
   const [location, navigate] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const pageCopy = usePageCopy();
+  const workspaceCopy = useWorkspaceCopy();
+  const landingBadges = pageCopy.landing.badges ?? {};
+  const marketingLinks = useMemo(
+    () => [
+      { label: landingBadges.productNav ?? "Product", href: "/welcome#product" },
+      { label: landingBadges.solutionsNav ?? "Solutions", href: "/welcome#solutions" },
+      { label: landingBadges.frameworksNav ?? "Frameworks", href: "/welcome#frameworks" },
+      { label: "How it Works", href: "/welcome#how-it-works" },
+      { label: "FAQ", href: "/welcome#faq" },
+      { label: landingBadges.pricingNav ?? "Pricing", href: "/welcome#pricing" },
+      { label: landingBadges.trustCenterNav ?? pageCopy.trustCenter.badges?.trustCenter ?? pageCopy.trustCenter.title, href: "/trust-center" },
+      { label: landingBadges.docsNav ?? pageCopy.apiDocs.title, href: "/api-docs" },
+    ],
+    [landingBadges, pageCopy.apiDocs.title, pageCopy.trustCenter.badges, pageCopy.trustCenter.title],
+  );
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/95 text-foreground backdrop-blur supports-[backdrop-filter]:bg-background/90" data-testid="public-site-header">
@@ -27,8 +34,8 @@ export function PublicSiteHeader() {
             <BrandMark className="h-4 w-4" />
           </span>
           <div className="flex flex-col">
-            <span className="text-sm font-semibold tracking-tight">AI Control Tower</span>
-            <span className="text-[11px] text-muted-foreground">Enterprise Governance</span>
+            <span className="text-sm font-semibold tracking-tight">{workspaceCopy.appName}</span>
+            <span className="text-[11px] text-muted-foreground">{workspaceCopy.appTagline}</span>
           </div>
         </Link>
 
@@ -56,10 +63,10 @@ export function PublicSiteHeader() {
 
         <div className="hidden items-center gap-3 lg:flex">
           <Button variant="ghost" onClick={() => navigate("/auth/login")}>
-            Sign In
+            {landingBadges.signIn ?? "Sign In"}
           </Button>
           <Button className="rounded-full px-5" onClick={() => navigate("/book-demo")}>
-            Book a Demo
+            {landingBadges.bookDemo ?? "Book a Demo"}
           </Button>
         </div>
 
@@ -105,7 +112,7 @@ export function PublicSiteHeader() {
                   navigate("/auth/login");
                 }}
               >
-                Sign In
+                {landingBadges.signIn ?? "Sign In"}
               </Button>
               <Button
                 onClick={() => {
@@ -113,7 +120,7 @@ export function PublicSiteHeader() {
                   navigate("/book-demo");
                 }}
               >
-                Book a Demo
+                {landingBadges.bookDemo ?? "Book a Demo"}
               </Button>
             </div>
           </nav>

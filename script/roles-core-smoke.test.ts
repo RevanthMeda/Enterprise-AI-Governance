@@ -128,6 +128,7 @@ test("core API smoke across all role personas", async () => {
     "/api/approval-workflows",
     "/api/system-controls",
     "/api/calendar-events",
+    "/api/notifications/digest",
     "/api/notifications/unread-count",
   ] as const;
 

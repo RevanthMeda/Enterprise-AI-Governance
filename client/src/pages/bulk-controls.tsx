@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePageCopy } from "@/lib/page-copy";
 import {
   Select,
   SelectContent,
@@ -53,6 +54,7 @@ const riskColors: Record<string, string> = {
 };
 
 export default function BulkControls() {
+  const pageCopy = usePageCopy();
   const [selectedSystems, setSelectedSystems] = useState<Set<string>>(new Set());
   const [selectedControls, setSelectedControls] = useState<Set<string>>(new Set());
   const [frameworkFilter, setFrameworkFilter] = useState<string>("all");
@@ -156,9 +158,9 @@ export default function BulkControls() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold" data-testid="text-page-title">Bulk Control Assignment</h1>
+        <h1 className="text-2xl font-bold" data-testid="text-page-title">{pageCopy.bulkControls.title}</h1>
         <p className="text-sm text-muted-foreground mt-1" data-testid="text-page-description">
-          Assign compliance controls to multiple AI systems at once
+          {pageCopy.bulkControls.description}
         </p>
       </div>
 

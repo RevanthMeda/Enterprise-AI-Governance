@@ -19,6 +19,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { resolveApiUrl } from "@/lib/api-url";
 import { PublicSiteHeader } from "@/components/public-site-header";
+import { usePageCopy } from "@/lib/page-copy";
 
 const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -57,6 +58,7 @@ const featureHighlights = [
 ];
 
 export default function AuthPage() {
+  const pageCopy = usePageCopy();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [mfaRequired, setMfaRequired] = useState(false);
   const [recoveryMode, setRecoveryMode] = useState(false);
@@ -199,10 +201,10 @@ export default function AuthPage() {
             </div>
             <div className="space-y-4">
               <h1 className="max-w-xl text-4xl font-semibold tracking-tight text-white">
-                Run AI governance from one control surface.
+                {pageCopy.auth.title}
               </h1>
               <p className="max-w-xl text-sm leading-7 text-slate-300 sm:text-base">
-                Sign in to manage AI systems, approvals, incident response, identity, telemetry, and portfolio oversight without losing the audit trail behind each decision.
+                {pageCopy.auth.description}
               </p>
             </div>
           </div>

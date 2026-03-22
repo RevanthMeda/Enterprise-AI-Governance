@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { usePageCopy } from "@/lib/page-copy";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -146,6 +147,7 @@ const committeeLabels: Record<string, string> = {
 };
 
 export default function Approvals() {
+  const pageCopy = usePageCopy();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
@@ -271,9 +273,9 @@ export default function Approvals() {
     <div className="page-shell" data-testid="page-approvals">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">Approval Workflows</h1>
+          <h1 className="text-xl font-bold tracking-tight">{pageCopy.approvals.title}</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Route AI decisions through reviewer-owned workflows based on financial, privacy, safety, and strategic impact.
+            {pageCopy.approvals.description}
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

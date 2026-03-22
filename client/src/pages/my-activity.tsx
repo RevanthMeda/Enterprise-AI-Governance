@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
+import { usePageCopy } from "@/lib/page-copy";
 import type { AiSystem, ApprovalWorkflow, SystemControl, AuditLog } from "@shared/schema";
 
 interface ActivityData {
@@ -129,6 +130,7 @@ function getRoleDescription(role: string): string {
 }
 
 export default function MyActivity() {
+  const pageCopy = usePageCopy();
   const { user } = useAuth();
   const [, navigate] = useLocation();
 
@@ -160,13 +162,13 @@ export default function MyActivity() {
     <div className="page-shell" data-testid="page-my-activity">
       <div>
         <h1 className="text-xl font-bold tracking-tight" data-testid="heading-my-activity">
-          My Activity
+          {pageCopy.myActivity.title}
         </h1>
         <div className="flex items-center gap-2 mt-0.5">
           <Badge variant="outline" className="text-[10px]" data-testid="badge-role">
             {getRoleLabel(userRole)}
           </Badge>
-          <span className="text-xs text-muted-foreground">{getRoleDescription(userRole)}</span>
+          <span className="text-xs text-muted-foreground">{pageCopy.myActivity.description}</span>
         </div>
       </div>
 

@@ -4,6 +4,7 @@ import { Link } from "wouter";
 import { apiRequest, captureCsrfTokenFromResponse, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { resolveApiUrl } from "@/lib/api-url";
+import { usePageCopy } from "@/lib/page-copy";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -139,6 +140,7 @@ const defaultTesterPayload = {
 };
 
 export default function TelemetryAdapterPage() {
+  const pageCopy = usePageCopy();
   const { toast } = useToast();
   const [draftGateways, setDraftGateways] = useState("");
   const [draftAllowedTools, setDraftAllowedTools] = useState("");
@@ -548,15 +550,15 @@ if (result.blocked) {
     <div className="page-shell">
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Telemetry Adapter</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">{pageCopy.telemetryAdapter.title}</h1>
           <p className="text-sm text-muted-foreground">
-            Control runtime ingestion keys, guardrails, and provider credentials for governed AI traffic.
+            {pageCopy.telemetryAdapter.description}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge variant={adapter.enabled ? "default" : "outline"}>{adapter.enabled ? "Adapter enabled" : "Adapter disabled"}</Badge>
-          <Badge variant="outline">Profile {adapter.collectionProfile.replaceAll("_", " ")}</Badge>
-          <Badge variant="outline">{adapter.hasActiveKey ? "Key active" : "No active key"}</Badge>
+          <Badge variant={adapter.enabled ? "default" : "outline"}>{adapter.enabled ? pageCopy.runtimeMonitoring.badges?.adapterEnabled : pageCopy.runtimeMonitoring.badges?.adapterDisabled}</Badge>
+          <Badge variant="outline">{pageCopy.telemetryAdapter.badges?.profile} {adapter.collectionProfile.replaceAll("_", " ")}</Badge>
+          <Badge variant="outline">{adapter.hasActiveKey ? pageCopy.telemetryAdapter.badges?.keyActive : pageCopy.telemetryAdapter.badges?.noActiveKey}</Badge>
         </div>
       </div>
 

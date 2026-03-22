@@ -33,6 +33,12 @@ if (typeof window !== "undefined") {
     setLatestRequestId(response.headers.get("x-request-id"));
     return response;
   }) as typeof window.fetch;
+
+  if (import.meta.env.PROD && "serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      void navigator.serviceWorker.register("/sw.js");
+    });
+  }
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

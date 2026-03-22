@@ -25,6 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { EvidenceUpload } from "@/components/evidence-upload";
+import { usePageCopy } from "@/lib/page-copy";
 import { exportComplianceSummaryCsv } from "@/lib/export-utils";
 import type { ComplianceControl, SystemControl, AiSystem } from "@shared/schema";
 
@@ -110,6 +111,7 @@ function FrameworkCard({
 }
 
 export default function Compliance() {
+  const pageCopy = usePageCopy();
   const [activeTab, setActiveTab] = useState("eu_ai_act");
   const [systemFilter, setSystemFilter] = useState<string>("all");
   const [selectedControlId, setSelectedControlId] = useState<string | null>(null);
@@ -182,9 +184,9 @@ export default function Compliance() {
     <div className="page-shell" data-testid="page-compliance">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">Compliance Management</h1>
+          <h1 className="text-xl font-bold tracking-tight">{pageCopy.compliance.title}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Evidence-first control tracking across EU AI Act, NIST AI RMF, and ISO/IEC 42001.
+            {pageCopy.compliance.description}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => exportComplianceSummaryCsv(systems, systemControls, controls)} data-testid="button-export-compliance">

@@ -7,6 +7,23 @@ import { createHmac, randomBytes } from "crypto";
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import type { User } from "@shared/schema";
+import type {
+  AccessibilityPreferenceState,
+  DashboardViewId,
+  DashboardWidgetId,
+  NotificationPreferenceState,
+  WorkspaceLocale,
+} from "@shared/operator-preferences";
+import {
+  DEFAULT_GUIDED_MODE,
+  DEFAULT_WORKSPACE_LOCALE,
+  getDashboardPreset,
+  resolveDefaultDashboardView,
+  sanitizeAccessibilityPreferences,
+  sanitizeDashboardWidgets,
+  sanitizeNotificationPreferences,
+  sanitizeWorkspaceLocale,
+} from "@shared/operator-preferences";
 import { getPgPoolConfig } from "./db-config";
 import { getRuntimeConfig } from "./env";
 import { getVisibleActiveMemberships, pickCurrentOrganizationId } from "./auth-visibility";
@@ -45,6 +62,12 @@ export interface AuthOnboardingState {
   completedSteps: string[];
   dismissedAlerts: string[];
   snoozedAlerts: Record<string, string>;
+  dashboardView: DashboardViewId;
+  dashboardWidgets: DashboardWidgetId[];
+  notificationPreferences: NotificationPreferenceState;
+  accessibilityPreferences: AccessibilityPreferenceState;
+  workspaceLocale: WorkspaceLocale;
+  guidedMode: boolean;
   updatedAt: string | null;
 }
 
@@ -307,6 +330,9 @@ export async function buildAuthUserPayload(
   user: Express.User,
   currentOrganizationId?: string,
 ): Promise<AuthUserPayload> {
+  const storedUser = await storage.getUser(user.id);
+  const memberships = await storage.getMembershipsByUserId(user.id);
+  const resolvedCurrentOrganizationId = pickCurrentOrganizationId(currentOrganizationId, memberships);
   const normalizeOnboardingState = (value: unknown): AuthOnboardingState => {
     const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
     const parsedCurrentStep = Number.isInteger(record.currentStep) ? (record.currentStep as number) : 0;
@@ -329,19 +355,37 @@ export async function buildAuthUserPayload(
           )
         : {};
     const updatedAt = typeof record.updatedAt === "string" ? record.updatedAt : null;
+    const roleForDefaults =
+      memberships.find((membership) => membership.organizationId === resolvedCurrentOrganizationId)?.role ?? user.role;
+    const dashboardViewCandidate =
+      typeof record.dashboardView === "string" ? (record.dashboardView as DashboardViewId) : null;
+    const defaultDashboardView = resolveDefaultDashboardView(roleForDefaults);
+    const dashboardView =
+      dashboardViewCandidate === "custom" || getDashboardPreset(dashboardViewCandidate)
+        ? (dashboardViewCandidate ?? defaultDashboardView)
+        : defaultDashboardView;
+    const defaultWidgets =
+      getDashboardPreset(dashboardView)?.widgets ?? getDashboardPreset(defaultDashboardView)?.widgets ?? [];
+    const dashboardWidgets = sanitizeDashboardWidgets(record.dashboardWidgets, defaultWidgets);
+    const notificationPreferences = sanitizeNotificationPreferences(record.notificationPreferences);
+    const accessibilityPreferences = sanitizeAccessibilityPreferences(record.accessibilityPreferences);
+    const workspaceLocale = sanitizeWorkspaceLocale(record.workspaceLocale ?? DEFAULT_WORKSPACE_LOCALE);
+    const guidedMode = typeof record.guidedMode === "boolean" ? record.guidedMode : DEFAULT_GUIDED_MODE;
 
     return {
       currentStep: Math.max(parsedCurrentStep, 0),
       completedSteps,
       dismissedAlerts,
       snoozedAlerts,
+      dashboardView,
+      dashboardWidgets,
+      notificationPreferences,
+      accessibilityPreferences,
+      workspaceLocale,
+      guidedMode,
       updatedAt,
     };
   };
-
-  const storedUser = await storage.getUser(user.id);
-  const memberships = await storage.getMembershipsByUserId(user.id);
-  const resolvedCurrentOrganizationId = pickCurrentOrganizationId(currentOrganizationId, memberships);
   const organizations = getVisibleActiveMemberships(user, memberships, resolvedCurrentOrganizationId)
     .map((m) => ({
       id: m.organizationId,
