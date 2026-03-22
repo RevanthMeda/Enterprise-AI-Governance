@@ -41,6 +41,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,6 +55,14 @@ import { resolveApiUrl } from "@/lib/api-url";
 import { apiRequest, captureCsrfTokenFromResponse, queryClient } from "@/lib/queryClient";
 import { exportSystemRegistryCsv } from "@/lib/export-utils";
 import type { AiSystem } from "@shared/schema";
+import {
+  LAW_PACKS,
+  LAW_PACKS_BY_ID,
+  getDefaultLawPackIdsForProfile,
+  legalProfiles,
+  lawPackIds,
+  resolveSystemLawPackIds,
+} from "@shared/law-packs";
 
 const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -67,6 +76,8 @@ const formSchema = z.object({
   deploymentContext: z.string().optional(),
   dataSensitivity: z.string().default("internal"),
   geography: z.string().optional(),
+  legalProfile: z.enum(legalProfiles).default("global"),
+  lawPackIds: z.array(z.enum(lawPackIds)).default(["global_baseline"]),
   purpose: z.string().optional(),
   usersImpacted: z.number().int().min(0).default(0),
 });
@@ -89,6 +100,14 @@ const statusColors: Record<string, string> = {
   deprecated: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
   draft: "bg-slate-100 text-slate-800 dark:bg-slate-900/30 dark:text-slate-300",
 };
+
+function inferFinanceDomain(values: Partial<FormValues>) {
+  const corpus = [values.name, values.department, values.purpose, values.description]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return /(bank|loan|credit|mortgage|aml|fraud|collections|underwriting|insurance|payment|financ)/.test(corpus);
+}
 
 export default function Registry() {
   const [search, setSearch] = useState("");
@@ -125,7 +144,7 @@ export default function Registry() {
     defaultValues: {
       name: "", description: "", owner: "", department: "", vendor: "",
       modelType: "", riskLevel: "minimal", status: "draft", deploymentContext: "",
-      dataSensitivity: "internal", geography: "", purpose: "", usersImpacted: 0,
+      dataSensitivity: "internal", geography: "", legalProfile: "global", lawPackIds: ["global_baseline"], purpose: "", usersImpacted: 0,
     },
   });
 
@@ -287,6 +306,33 @@ export default function Registry() {
                         <FormMessage />
                       </FormItem>
                     )} />
+                    <FormField control={form.control} name="legalProfile" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Legal Profile</FormLabel>
+                        <Select
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            form.setValue(
+                              "lawPackIds",
+                              getDefaultLawPackIdsForProfile(value as typeof legalProfiles[number], {
+                                financeDomain: inferFinanceDomain(form.getValues()),
+                              }),
+                            );
+                          }}
+                          defaultValue={field.value || "global"}
+                        >
+                          <FormControl><SelectTrigger data-testid="select-legal-profile"><SelectValue /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            <SelectItem value="global">Global baseline</SelectItem>
+                            <SelectItem value="eu">EU</SelectItem>
+                            <SelectItem value="uk">UK</SelectItem>
+                            <SelectItem value="us">US</SelectItem>
+                            <SelectItem value="india">India</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
                     <FormField control={form.control} name="usersImpacted" render={({ field }) => (
                       <FormItem>
                         <FormLabel className="text-xs">Users Impacted</FormLabel>
@@ -306,6 +352,36 @@ export default function Registry() {
                     <FormItem>
                       <FormLabel className="text-xs">Purpose</FormLabel>
                       <FormControl><Textarea {...field} className="resize-none" data-testid="input-purpose" /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="lawPackIds" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Applicable Law Packs</FormLabel>
+                      <div className="space-y-2 rounded-md border bg-muted/20 p-3" data-testid="panel-law-packs">
+                        {LAW_PACKS.map((pack) => {
+                          const checked = field.value?.includes(pack.id) ?? false;
+                          return (
+                            <label key={pack.id} className="flex items-start gap-3 rounded-md border bg-background p-3">
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(nextChecked) => {
+                                  const current = field.value ?? [];
+                                  const next = nextChecked
+                                    ? Array.from(new Set([...current, pack.id]))
+                                    : current.filter((entry) => entry !== pack.id);
+                                  field.onChange(next.length > 0 ? next : ["global_baseline"]);
+                                }}
+                                data-testid={`checkbox-law-pack-${pack.id}`}
+                              />
+                              <div className="space-y-1">
+                                <div className="text-xs font-medium">{pack.label}</div>
+                                <div className="text-[11px] text-muted-foreground">{pack.summary}</div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
                       <FormMessage />
                     </FormItem>
                   )} />
@@ -462,7 +538,12 @@ export default function Registry() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {systems.map((system) => (
+          {systems.map((system) => {
+            const appliedLawPacks = resolveSystemLawPackIds(system)
+              .map((packId) => LAW_PACKS_BY_ID.get(packId)?.label ?? packId)
+              .slice(0, 3);
+
+            return (
             <Card
               key={system.id}
               className="hover-elevate cursor-pointer"
@@ -514,6 +595,8 @@ export default function Registry() {
                 <div className="mb-3 space-y-1 text-[11px] text-muted-foreground">
                   {system.modelType ? <p>Observed model: {system.modelType}</p> : null}
                   {system.deploymentContext ? <p>Runtime context: {system.deploymentContext}</p> : null}
+                  <p>Legal profile: {system.legalProfile ?? "global"}</p>
+                  {appliedLawPacks.length > 0 ? <p>Law packs: {appliedLawPacks.join(" · ")}</p> : null}
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${riskColors[system.riskLevel]}`}>
@@ -530,7 +613,8 @@ export default function Registry() {
                 </div>
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

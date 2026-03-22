@@ -8,6 +8,7 @@ import {
   AiControlTowerTelemetryClient,
   type GuardPostflightInput,
 } from "@ai-control-tower/telemetry-sdk-node";
+import { buildGovernedTemplateResponse } from "./policy-templates";
 
 declare module "express-session" {
   interface SessionData {
@@ -55,9 +56,13 @@ type DemoRun = {
   modelCallExecuted: boolean;
   thresholdBreaches: string[];
   restrictedPromptMatches: string[];
+  reasonCodes: string[];
   escalatedIncidentId: string | null;
   correlationId: string;
   runtimeSummary: string;
+  decisionSummary: string | null;
+  legalProfileApplied: string | null;
+  lawPackIdsApplied: string[];
   usedSimulation: boolean;
   upstreamError: string | null;
 };
@@ -645,6 +650,19 @@ async function executeGovernedTurn(
     agentName: demoUser.fullName,
     promptLength: prompt.length,
   };
+  const governedTemplate = buildGovernedTemplateResponse({
+    prompt,
+    activeCase: {
+      reference: activeCase.reference,
+      customerName: activeCase.customerName,
+      product: activeCase.product,
+      nextMilestone: activeCase.nextMilestone,
+    },
+    demoUser: {
+      fullName: demoUser.fullName,
+      title: demoUser.title,
+    },
+  });
 
   let upstreamError: string | null = null;
   let usedSimulation = false;
@@ -670,12 +688,16 @@ async function executeGovernedTurn(
       },
       execute: async () => {
         let output: string;
-        try {
-          output = await generateModelOutput(prompt, mode, activeCase, demoUser);
-        } catch (error) {
-          upstreamError = error instanceof Error ? error.message : String(error);
-          usedSimulation = true;
-          output = simulateModelOutput(prompt, mode, activeCase, demoUser);
+        if (governedTemplate) {
+          output = governedTemplate.response;
+        } else {
+          try {
+            output = await generateModelOutput(prompt, mode, activeCase, demoUser);
+          } catch (error) {
+            upstreamError = error instanceof Error ? error.message : String(error);
+            usedSimulation = true;
+            output = simulateModelOutput(prompt, mode, activeCase, demoUser);
+          }
         }
 
         const outputSignals = detectOutputSignals(output, prompt, mode, promptSignals);
@@ -687,6 +709,8 @@ async function executeGovernedTurn(
           metadata: {
             ...sharedMetadata,
             usedSimulation,
+            usedGovernedTemplate: Boolean(governedTemplate),
+            ...(governedTemplate ? { governedTemplateId: governedTemplate.templateId } : {}),
             ...(upstreamError ? { upstreamError } : {}),
             ...outputSignals.metadata,
           },
@@ -723,11 +747,15 @@ async function executeGovernedTurn(
     modelCallExecuted: guarded.modelCallExecuted,
     thresholdBreaches: primaryDecision.thresholdBreaches,
     restrictedPromptMatches: primaryDecision.restrictedPromptMatches,
+    reasonCodes: primaryDecision.reasonCodes ?? [],
     escalatedIncidentId: primaryDecision.escalatedIncidentId,
     correlationId: guarded.correlationId,
     runtimeSummary: guarded.postflight
       ? "Output evaluated before release."
       : "Prompt evaluated before model execution.",
+    decisionSummary: primaryDecision.decisionSummary ?? null,
+    legalProfileApplied: primaryDecision.legalProfileApplied ?? null,
+    lawPackIdsApplied: primaryDecision.lawPackIdsApplied ?? [],
     usedSimulation,
     upstreamError,
   };
@@ -1234,9 +1262,11 @@ function createWelcomeMessage(demoUser: DemoUser, activeCase: DemoCase): DemoCha
 
 function buildAssistantTurnMessage(run: DemoRun): DemoChatMessage {
   if (run.blocked) {
-    const stageText = run.decisionStage === "input"
-      ? "AI Control Tower blocked this request before the model was called."
-      : "AI Control Tower blocked the generated answer before it was released.";
+    const stageText = run.decisionSummary || (
+      run.decisionStage === "input"
+        ? "AI Control Tower blocked this request before the model was called."
+        : "AI Control Tower blocked the generated answer before it was released."
+    );
     return {
       role: "assistant",
       style: "block",
@@ -1252,7 +1282,7 @@ function buildAssistantTurnMessage(run: DemoRun): DemoChatMessage {
       label: run.decision === "escalate"
         ? "northstar assist · escalated"
         : "northstar assist · warning",
-      content: `${run.response || "The answer was released."}\n\nThis turn was released with governance signals. Review before reuse or customer send.`,
+      content: `${run.response || "The answer was released."}\n\n${run.decisionSummary || "This turn was released with governance signals. Review before reuse or customer send."}`,
     };
   }
 
@@ -2612,11 +2642,12 @@ function renderWorkspacePage(options: Required<Pick<RenderPageOptions, "sessionU
                 <div class="key-row"><span>Decision</span><strong id="status-decision">${escapeHtml(activeError ? "ERROR" : activeRun?.decision?.toUpperCase() || "No run yet")}</strong></div>
                 <div class="key-row"><span>Decision stage</span><code id="status-stage">${escapeHtml(activeRun?.decisionStage || "-")}</code></div>
                 <div class="key-row"><span>Threshold breaches</span><code id="status-thresholds">${escapeHtml(activeRun?.thresholdBreaches.join(", ") || "none")}</code></div>
+                <div class="key-row"><span>Reason codes</span><code id="status-reasons">${escapeHtml(activeRun?.reasonCodes.join(", ") || "none")}</code></div>
                 <div class="key-row"><span>Incident</span><code id="status-incident">${escapeHtml(activeRun?.escalatedIncidentId || "none")}</code></div>
                 <div class="key-row"><span>Correlation ID</span><code id="status-correlation">${escapeHtml(activeRun?.correlationId || "-")}</code></div>
               </div>
               <p id="status-summary" class="helper-text" style="margin-top: 12px;">
-                ${escapeHtml(activeError || activeRun?.runtimeSummary || "Use this panel to narrate what Control Tower did with the current turn.")}
+                ${escapeHtml(activeError || activeRun?.decisionSummary || activeRun?.runtimeSummary || "Use this panel to narrate what Control Tower did with the current turn.")}
               </p>
             </div>
 
@@ -2722,6 +2753,7 @@ function buildDemoScript() {
   const statusDecision = document.getElementById('status-decision');
   const statusStage = document.getElementById('status-stage');
   const statusThresholds = document.getElementById('status-thresholds');
+  const statusReasons = document.getElementById('status-reasons');
   const statusIncident = document.getElementById('status-incident');
   const statusCorrelation = document.getElementById('status-correlation');
   const statusSummary = document.getElementById('status-summary');
@@ -2776,6 +2808,9 @@ function buildDemoScript() {
     if (run.restrictedPromptMatches && run.restrictedPromptMatches.length) {
       pills.push('Matches: ' + run.restrictedPromptMatches.join(', '));
     }
+    if (run.reasonCodes && run.reasonCodes.length) {
+      pills.push('Reasons: ' + run.reasonCodes.join(', '));
+    }
     if (run.escalatedIncidentId) {
       pills.push('Incident: ' + run.escalatedIncidentId);
     }
@@ -2801,11 +2836,11 @@ function buildDemoScript() {
       if (run.blocked) {
         tone = 'block';
         title = 'Blocked before agent release';
-        body = 'The request or model answer crossed policy thresholds. Nothing unsafe was released back to the agent.';
+        body = run.decisionSummary || 'The request or model answer crossed policy thresholds. Nothing unsafe was released back to the agent.';
       } else if (run.decision === 'warn' || run.decision === 'escalate') {
         tone = 'warn';
         title = run.decision === 'escalate' ? 'Released with escalation' : 'Released with warning';
-        body = 'The workspace returned an answer, but AI Control Tower recorded governance signals that should be reviewed.';
+        body = run.decisionSummary || 'The workspace returned an answer, but AI Control Tower recorded governance signals that should be reviewed.';
       } else {
         tone = 'allow';
         title = 'Allowed and released';
@@ -2841,6 +2876,7 @@ function buildDemoScript() {
       setText(statusDecision, 'ERROR');
       setText(statusStage, '-');
       setText(statusThresholds, 'none');
+      setText(statusReasons, 'none');
       setText(statusIncident, 'none');
       setText(statusCorrelation, '-');
       setText(statusSummary, errorMessage);
@@ -2851,9 +2887,10 @@ function buildDemoScript() {
     setText(statusDecision, (run.decision || 'allow').toUpperCase());
     setText(statusStage, run.decisionStage || '-');
     setText(statusThresholds, run.thresholdBreaches && run.thresholdBreaches.length ? run.thresholdBreaches.join(', ') : 'none');
+    setText(statusReasons, run.reasonCodes && run.reasonCodes.length ? run.reasonCodes.join(', ') : 'none');
     setText(statusIncident, run.escalatedIncidentId || 'none');
     setText(statusCorrelation, run.correlationId || '-');
-    setText(statusSummary, run.runtimeSummary || '');
+    setText(statusSummary, run.decisionSummary || run.runtimeSummary || '');
   }
 
   function bumpCounter(el, increment) {

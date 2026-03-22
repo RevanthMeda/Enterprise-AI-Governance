@@ -27,6 +27,7 @@
     "test:security:mfa": "tsx --test script/mfa-login-integration.test.ts",
     "test:security:csp": "tsx --test script/csp-headers.test.ts",
     "test:security:config": "tsx --test script/runtime-config-validation.test.ts",
+    "test:governance:jurisdictions": "tsx --test script/jurisdiction-governance-benchmark.test.ts",
     "test:regression:rbac": "tsx --test script/rbac-settings-mfa-regression.test.ts",
     "test:regression:routing": "tsx --test script/dashboard-route-regression.test.ts",
     "test:regression:domains": "tsx --test script/domain-verification-regression.test.ts",

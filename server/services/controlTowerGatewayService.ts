@@ -38,6 +38,8 @@ type ProxyDecision = {
   thresholdBreaches: string[];
   escalatedIncidentId: string | null;
   restrictedPromptMatches: string[];
+  reasonCodes: string[];
+  decisionSummary: string | null;
 };
 
 type GatewaySuccessResult = {
@@ -752,6 +754,8 @@ function decisionFromEvent(event: AiTelemetryEvent): ProxyDecision {
     thresholdBreaches: getStringArray(metadata.thresholdBreaches),
     escalatedIncidentId: getString(metadata.escalatedIncidentId),
     restrictedPromptMatches: getStringArray(metadata.restrictedPromptMatches),
+    reasonCodes: getStringArray(metadata.reasonCodes),
+    decisionSummary: getString(metadata.decisionSummary),
   };
 }
 

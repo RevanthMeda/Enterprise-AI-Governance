@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, FileText, Server, ShieldCheck, ClipboardCheck, Download, Filter, X, Search } from "lucide-react";
+import { Activity, FileText, Server, ShieldCheck, ClipboardCheck, Download, Filter, X, Search, AlertTriangle, Radio } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,8 @@ const entityIcons: Record<string, any> = {
   system_control: ClipboardCheck,
   compliance: ShieldCheck,
   evidence_file: FileText,
+  telemetry_event: Radio,
+  ai_incident: AlertTriangle,
 };
 
 const actionColors: Record<string, string> = {
@@ -139,6 +141,8 @@ export default function AuditLogPage() {
               <SelectItem value="approval_workflow">Workflow</SelectItem>
               <SelectItem value="system_control">Control</SelectItem>
               <SelectItem value="evidence_file">Evidence</SelectItem>
+              <SelectItem value="telemetry_event">Telemetry Event</SelectItem>
+              <SelectItem value="ai_incident">AI Incident</SelectItem>
             </SelectContent>
           </Select>
           <div className="relative">

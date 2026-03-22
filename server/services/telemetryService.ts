@@ -7,6 +7,17 @@ import {
   type InsertAiSystem,
   type InsertAiTelemetryEvent,
 } from "@shared/schema";
+import {
+  compileLawPackRuntimeOverlay,
+  normalizeLegalProfile,
+  resolveSystemLawPackIds,
+  type LawPackId,
+} from "@shared/law-packs";
+import {
+  buildGovernanceDecisionSummary,
+  deriveGovernanceReasoning,
+  type GovernanceReasonCode,
+} from "@shared/governance-reasoning";
 import { incidentService } from "./incidentService";
 import { notificationService } from "./notificationService";
 import { fetchWithTimeout } from "../http";
@@ -26,6 +37,8 @@ type ThresholdEvaluation = {
   severity: "info" | "warning" | "critical";
   decision: "allow" | "warn" | "escalate" | "block";
   restrictedPromptMatches: string[];
+  reasonCodes: GovernanceReasonCode[];
+  decisionSummary: string;
   notificationRoles: string[];
   appliedReviewerExceptions: Array<{
     id: string;
@@ -316,6 +329,9 @@ type ThresholdOutcome = {
 function buildThresholdOutcome(params: {
   inputSeverity: TelemetrySeverity | undefined;
   thresholdBreaches: string[];
+  reasonCodes: GovernanceReasonCode[];
+  mixedRewriteEligible: boolean;
+  forceHardBlock: boolean;
   policy: Awaited<ReturnType<typeof telemetryPolicyService.getEffectiveForOrg>>;
 }): ThresholdOutcome {
   const severity = deriveSeverityFromBreaches(params.thresholdBreaches, params.inputSeverity);
@@ -337,7 +353,21 @@ function buildThresholdOutcome(params: {
     "tool_argument_out_of_range",
     "tool_argument_enum_violation",
   ]);
-  const shouldHardBlock = params.thresholdBreaches.some((breach) => hardBlockBreaches.has(breach));
+  const hasRestrictedPromptOnly =
+    params.thresholdBreaches.includes("restricted_prompt_detected") &&
+    !params.thresholdBreaches.includes("pii_detected") &&
+    !params.thresholdBreaches.includes("secret_exposure_detected") &&
+    !params.thresholdBreaches.includes("prompt_injection_detected") &&
+    !params.thresholdBreaches.includes("repeat_attack_detected");
+  const hasNonRecoverableReasonCodes = params.reasonCodes.some((reasonCode) =>
+    reasonCode === "aml_override_or_audit_fabrication" ||
+    reasonCode === "phishing_or_credential_theft" ||
+    reasonCode === "internal_policy_or_prompt_exfiltration",
+  );
+  const shouldHardBlock =
+    params.forceHardBlock ||
+    hasNonRecoverableReasonCodes ||
+    params.thresholdBreaches.some((breach) => hardBlockBreaches.has(breach));
   const hasHardActionPolicyViolation =
     params.thresholdBreaches.includes("disallowed_tool_requested") ||
     params.thresholdBreaches.includes("disallowed_tool_returned") ||
@@ -350,7 +380,7 @@ function buildThresholdOutcome(params: {
     params.thresholdBreaches.includes("tool_argument_out_of_range") ||
     params.thresholdBreaches.includes("tool_argument_enum_violation");
   const shouldBlock =
-    shouldHardBlock ||
+    ((shouldHardBlock && !(params.mixedRewriteEligible && hasRestrictedPromptOnly && !params.forceHardBlock)) ||
     hasHardActionPolicyViolation ||
     (
       params.policy.enforceBlocking &&
@@ -363,7 +393,7 @@ function buildThresholdOutcome(params: {
           )) ||
         (params.policy.blockOnRestrictedPrompt && params.thresholdBreaches.includes("restricted_prompt_detected"))
       )
-    );
+    ));
   const shouldEscalateIncident =
     params.thresholdBreaches.length > 0 && severity === "critical" && params.policy.autoEscalateCritical;
   const shouldNotify =
@@ -395,6 +425,11 @@ function buildThresholdOutcome(params: {
 function evaluateThresholds(
   input: Omit<InsertAiTelemetryEvent, "organizationId">,
   policy: Awaited<ReturnType<typeof telemetryPolicyService.getEffectiveForOrg>>,
+  lawPackOverlay?: {
+    lawPackIds: LawPackId[];
+    restrictedPromptPatterns: string[];
+    guidanceTags?: string[];
+  },
 ): ThresholdEvaluation {
   const metadata = getMetadataRecord(input.metadata);
   const biasFlags = Array.isArray(input.biasFlags) ? input.biasFlags.filter((entry): entry is string => typeof entry === "string") : [];
@@ -469,7 +504,11 @@ function evaluateThresholds(
   ];
   const restrictedPromptCandidates = Array.from(
     new Set(
-      [...policy.restrictedPromptPatterns, ...defaultRestrictedPromptPatterns]
+      [
+        ...policy.restrictedPromptPatterns,
+        ...defaultRestrictedPromptPatterns,
+        ...(lawPackOverlay?.restrictedPromptPatterns ?? []),
+      ]
         .filter((pattern): pattern is string => typeof pattern === "string" && pattern.trim().length > 0),
     ),
   );
@@ -562,9 +601,21 @@ function evaluateThresholds(
     thresholdBreaches.push("error_rate_anomaly");
   }
 
+  const governanceReasoning = deriveGovernanceReasoning({
+    promptText: input.promptText,
+    modelOutput: input.modelOutput,
+    thresholdBreaches: Array.from(new Set(thresholdBreaches)),
+    restrictedPromptMatches: combinedRestrictedMatches,
+    lawPackIds: lawPackOverlay?.lawPackIds ?? [],
+    guidanceTags: lawPackOverlay?.guidanceTags ?? [],
+  });
+
   const thresholdOutcome = buildThresholdOutcome({
     inputSeverity: normalizeTelemetrySeverity(input.severity),
     thresholdBreaches: Array.from(new Set(thresholdBreaches)),
+    reasonCodes: governanceReasoning.reasonCodes,
+    mixedRewriteEligible: governanceReasoning.mixedRewriteEligible,
+    forceHardBlock: governanceReasoning.forceHardBlock,
     policy,
   });
 
@@ -577,6 +628,12 @@ function evaluateThresholds(
     severity: thresholdOutcome.severity,
     decision: thresholdOutcome.decision,
     restrictedPromptMatches: combinedRestrictedMatches,
+    reasonCodes: governanceReasoning.reasonCodes,
+    decisionSummary: buildGovernanceDecisionSummary({
+      decision: thresholdOutcome.decision,
+      blocked: thresholdOutcome.shouldBlock,
+      reasonCodes: governanceReasoning.reasonCodes,
+    }),
     notificationRoles: thresholdOutcome.notificationRoles,
     appliedReviewerExceptions: [],
   };
@@ -598,10 +655,17 @@ export class TelemetryService {
     options?: { collectionProfile?: TelemetryCollectionProfile },
   ): Promise<AiTelemetryEvent> {
     const metadata = getMetadataRecord(input.metadata);
+    const system = input.systemId ? await storage.getAiSystemById(organizationId, input.systemId) : undefined;
     const policy = input.systemId
       ? await telemetryPolicyService.getEffectiveForSystem(organizationId, input.systemId)
       : await telemetryPolicyService.getEffectiveForOrg(organizationId);
-    let evaluation = evaluateThresholds(input, policy);
+    const appliedLawPackIds = system ? resolveSystemLawPackIds(system) : (["global_baseline"] as LawPackId[]);
+    const compiledLawPackOverlay = compileLawPackRuntimeOverlay(appliedLawPackIds);
+    let evaluation = evaluateThresholds(input, policy, {
+      lawPackIds: appliedLawPackIds,
+      restrictedPromptPatterns: compiledLawPackOverlay.restrictedPromptPatterns,
+      guidanceTags: compiledLawPackOverlay.guidanceTags,
+    });
     evaluation = await this.applyReviewerExceptions(organizationId, input, evaluation, policy);
     const guardResult = await this.applyAdvancedGuards(organizationId, input, evaluation, policy);
     evaluation = guardResult.evaluation;
@@ -630,6 +694,8 @@ export class TelemetryService {
         restrictedPromptPatterns: policy.restrictedPromptPatterns,
       },
       restrictedPromptMatches: evaluation.restrictedPromptMatches,
+      reasonCodes: evaluation.reasonCodes,
+      decisionSummary: evaluation.decisionSummary,
       appliedReviewerExceptions: evaluation.appliedReviewerExceptions,
       suppressedThresholds:
         evaluation.appliedReviewerExceptions.length > 0
@@ -641,6 +707,11 @@ export class TelemetryService {
           : [],
       notificationRoles: evaluation.notificationRoles,
       policyDecision: evaluation.decision,
+      legalProfileApplied: system ? normalizeLegalProfile(system.legalProfile) : "global",
+      lawPackIdsApplied: appliedLawPackIds,
+      lawPackGuidanceTags: compiledLawPackOverlay.guidanceTags,
+      lawPackDecisionConstraints: compiledLawPackOverlay.decisionConstraints,
+      lawPackSources: compiledLawPackOverlay.sourceRefs,
       ...(guardResult.guardMetadata ? { guard: guardResult.guardMetadata } : {}),
     };
 
@@ -715,6 +786,13 @@ export class TelemetryService {
     const thresholdOutcome = buildThresholdOutcome({
       inputSeverity: normalizeTelemetrySeverity(input.severity),
       thresholdBreaches,
+      reasonCodes: evaluation.reasonCodes,
+      mixedRewriteEligible: evaluation.reasonCodes.includes("mixed_request_rewrite_available"),
+      forceHardBlock: evaluation.reasonCodes.some((reasonCode) =>
+        reasonCode === "aml_override_or_audit_fabrication" ||
+        reasonCode === "phishing_or_credential_theft" ||
+        reasonCode === "internal_policy_or_prompt_exfiltration",
+      ),
       policy,
     });
 
@@ -727,6 +805,12 @@ export class TelemetryService {
       severity: thresholdOutcome.severity,
       decision: thresholdOutcome.decision,
       restrictedPromptMatches,
+      reasonCodes: evaluation.reasonCodes,
+      decisionSummary: buildGovernanceDecisionSummary({
+        decision: thresholdOutcome.decision,
+        blocked: thresholdOutcome.shouldBlock,
+        reasonCodes: evaluation.reasonCodes,
+      }),
       notificationRoles: thresholdOutcome.notificationRoles,
       appliedReviewerExceptions: matches.map((exception) => ({
         id: exception.id,
@@ -745,6 +829,13 @@ export class TelemetryService {
     const thresholdOutcome = buildThresholdOutcome({
       inputSeverity,
       thresholdBreaches,
+      reasonCodes: evaluation.reasonCodes,
+      mixedRewriteEligible: evaluation.reasonCodes.includes("mixed_request_rewrite_available"),
+      forceHardBlock: evaluation.reasonCodes.some((reasonCode) =>
+        reasonCode === "aml_override_or_audit_fabrication" ||
+        reasonCode === "phishing_or_credential_theft" ||
+        reasonCode === "internal_policy_or_prompt_exfiltration",
+      ),
       policy,
     });
 
@@ -757,6 +848,11 @@ export class TelemetryService {
       incidentCategory: thresholdOutcome.incidentCategory,
       severity: thresholdOutcome.severity,
       decision: thresholdOutcome.decision,
+      decisionSummary: buildGovernanceDecisionSummary({
+        decision: thresholdOutcome.decision,
+        blocked: thresholdOutcome.shouldBlock,
+        reasonCodes: evaluation.reasonCodes,
+      }),
       notificationRoles: thresholdOutcome.notificationRoles,
     };
   }
@@ -1058,6 +1154,19 @@ export class TelemetryService {
     event: AiTelemetryEvent,
     evaluation: ThresholdEvaluation,
   ) {
+    const eventMetadata = getMetadataRecord(event.metadata);
+    const incidentPlaybookEvidence = {
+      decision: evaluation.decision,
+      decisionSummary: evaluation.decisionSummary,
+      thresholdBreaches: evaluation.thresholdBreaches,
+      reasonCodes: evaluation.reasonCodes,
+      restrictedPromptMatches: evaluation.restrictedPromptMatches,
+      legalProfileApplied:
+        typeof eventMetadata.legalProfileApplied === "string" ? eventMetadata.legalProfileApplied : "global",
+      lawPackIdsApplied: getStringArray(eventMetadata.lawPackIdsApplied),
+      telemetryEventId: event.id,
+      correlationId: event.correlationId ?? null,
+    };
     const openIncidents = await incidentService.listForOrg(organizationId, { status: "open" });
     const duplicate = openIncidents.find(
       (incident) =>
@@ -1073,8 +1182,7 @@ export class TelemetryService {
         playbook: {
           ...(duplicate.playbook ?? {}),
           targetContainmentHours: 4,
-          decision: evaluation.decision,
-          restrictedPromptMatches: evaluation.restrictedPromptMatches,
+          ...incidentPlaybookEvidence,
           steps: [
             "Freeze or narrow the affected model release or gateway route.",
             "Review prompt, output, context, and threshold evidence captured with the event.",
@@ -1100,8 +1208,7 @@ export class TelemetryService {
       description: `${event.summary}\n\nThreshold breaches: ${evaluation.thresholdBreaches.join(", ")}`,
       playbook: {
         targetContainmentHours: 4,
-        decision: evaluation.decision,
-        restrictedPromptMatches: evaluation.restrictedPromptMatches,
+        ...incidentPlaybookEvidence,
         steps: [
           "Freeze or narrow the affected model release or gateway route.",
           "Review prompt, output, context, and threshold evidence captured with the event.",

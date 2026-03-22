@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, integer, timestamp, boolean, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { legalProfiles, lawPackIds } from "./law-packs";
 
 export const userRoles = ["admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"] as const;
 export const authProviders = ["local", "saml", "oidc"] as const;
@@ -687,6 +688,7 @@ export const riskLevels = ["unacceptable", "high", "limited", "minimal"] as cons
 export const systemStatuses = ["active", "under_review", "approved", "deprecated", "draft"] as const;
 export const dataSensitivities = ["public", "internal", "confidential", "restricted"] as const;
 export const frameworks = ["eu_ai_act", "nist_ai_rmf", "iso_42001"] as const;
+export const aiSystemLegalProfiles = legalProfiles;
 export const controlStatuses = ["not_started", "in_progress", "implemented", "verified"] as const;
 export const workflowStatuses = ["pending", "in_review", "approved", "rejected", "escalated"] as const;
 
@@ -704,6 +706,8 @@ export const aiSystems = pgTable("ai_systems", {
   deploymentContext: text("deployment_context"),
   dataSensitivity: text("data_sensitivity").default("internal"),
   geography: text("geography"),
+  legalProfile: text("legal_profile").notNull().default("global"),
+  lawPackIds: jsonb("law_pack_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   purpose: text("purpose"),
   usersImpacted: integer("users_impacted").default(0),
   lastAssessment: timestamp("last_assessment"),
@@ -711,11 +715,16 @@ export const aiSystems = pgTable("ai_systems", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const insertAiSystemSchema = createInsertSchema(aiSystems).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const insertAiSystemSchema = createInsertSchema(aiSystems)
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  })
+  .extend({
+    legalProfile: z.enum(aiSystemLegalProfiles).default("global"),
+    lawPackIds: z.array(z.enum(lawPackIds)).default([]),
+  });
 
 export type InsertAiSystem = z.infer<typeof insertAiSystemSchema>;
 export type AiSystem = typeof aiSystems.$inferSelect;

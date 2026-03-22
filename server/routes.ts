@@ -178,6 +178,52 @@ const clientErrorEventSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
+function getTelemetryMetadataRecord(metadata: unknown) {
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? (metadata as Record<string, unknown>)
+    : {};
+}
+
+function getTelemetryStringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
+
+function buildTelemetryAuditDetails(params: {
+  sourceLabel: string;
+  eventType: string;
+  gateway?: string | null;
+  decision: string;
+  metadata: unknown;
+}) {
+  const metadata = getTelemetryMetadataRecord(params.metadata);
+  const thresholdBreaches = getTelemetryStringArray(metadata.thresholdBreaches);
+  const reasonCodes = getTelemetryStringArray(metadata.reasonCodes);
+  const lawPackIds = getTelemetryStringArray(metadata.lawPackIdsApplied);
+  const decisionSummary =
+    typeof metadata.decisionSummary === "string" ? metadata.decisionSummary.trim() : "";
+  const legalProfileApplied =
+    typeof metadata.legalProfileApplied === "string" ? metadata.legalProfileApplied : null;
+
+  const suffix: string[] = [];
+  if (decisionSummary) {
+    suffix.push(decisionSummary);
+  }
+  if (reasonCodes.length > 0) {
+    suffix.push(`Reason codes: ${reasonCodes.join(", ")}`);
+  }
+  if (thresholdBreaches.length > 0) {
+    suffix.push(`Threshold breaches: ${thresholdBreaches.join(", ")}`);
+  }
+  if (legalProfileApplied) {
+    suffix.push(`Legal profile: ${legalProfileApplied}`);
+  }
+  if (lawPackIds.length > 0) {
+    suffix.push(`Law packs: ${lawPackIds.join(", ")}`);
+  }
+
+  return `${params.sourceLabel} "${params.eventType}" recorded${params.gateway ? ` from ${params.gateway}` : ""} with decision "${params.decision}"${suffix.length > 0 ? `. ${suffix.join(". ")}` : ""}`;
+}
+
 async function notifyUser(
   organizationId: string,
   userId: string,
@@ -4211,7 +4257,12 @@ export async function registerRoutes(
             entityId: created.id,
             action: "created",
             performedBy: req.user!.fullName,
-            details: `Telemetry event \"${created.eventType}\" recorded with action \"${created.actionTaken}\"${Array.isArray((created.metadata as any)?.thresholdBreaches) && (created.metadata as any).thresholdBreaches.length > 0 ? ` and threshold breaches: ${(created.metadata as any).thresholdBreaches.join(", ")}` : ""}`,
+            details: buildTelemetryAuditDetails({
+              sourceLabel: "Telemetry event",
+              eventType: created.eventType,
+              decision: created.actionTaken,
+              metadata: created.metadata,
+            }),
           },
         });
         res.status(201).json(created);
@@ -4288,7 +4339,13 @@ export async function registerRoutes(
           entityId: created.id,
           action: "sdk_ingested",
           performedBy: "Telemetry SDK",
-          details: `Telemetry SDK event "${created.eventType}" recorded${parsed.gateway ? ` from ${parsed.gateway}` : ""} with decision "${created.actionTaken}"`,
+          details: buildTelemetryAuditDetails({
+            sourceLabel: "Telemetry SDK event",
+            eventType: created.eventType,
+            gateway: parsed.gateway ?? null,
+            decision: created.actionTaken,
+            metadata: created.metadata,
+          }),
         },
       });
 
@@ -4305,6 +4362,16 @@ export async function registerRoutes(
           typeof metadata?.escalatedIncidentId === "string" ? metadata.escalatedIncidentId : null,
         restrictedPromptMatches: Array.isArray(metadata?.restrictedPromptMatches)
           ? (metadata.restrictedPromptMatches as string[])
+          : [],
+        reasonCodes: Array.isArray(metadata?.reasonCodes)
+          ? (metadata.reasonCodes as string[])
+          : [],
+        decisionSummary:
+          typeof metadata?.decisionSummary === "string" ? metadata.decisionSummary : null,
+        legalProfileApplied:
+          typeof metadata?.legalProfileApplied === "string" ? metadata.legalProfileApplied : null,
+        lawPackIdsApplied: Array.isArray(metadata?.lawPackIdsApplied)
+          ? (metadata.lawPackIdsApplied as string[])
           : [],
       });
       } catch (err: any) {

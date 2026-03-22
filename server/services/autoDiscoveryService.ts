@@ -1,4 +1,5 @@
 import type { InsertAiSystem } from "@shared/schema";
+import { getDefaultLawPackIdsForProfile, normalizeLegalProfile } from "@shared/law-packs";
 
 type AutoDiscoveryManifest = {
   systemName: string;
@@ -172,6 +173,13 @@ export const autoDiscoveryService = {
     return "Other";
   },
 
+  inferLawPackIds(manifest: AutoDiscoveryManifest) {
+    const profile = normalizeLegalProfile(manifest.geography);
+    return getDefaultLawPackIdsForProfile(profile, {
+      financeDomain: manifest.domain === "finance",
+    });
+  },
+
   buildAutoRegisteredSystemInput(manifest: AutoDiscoveryManifest, riskLevel: string): InsertAiSystem {
     return {
       name: manifest.systemName,
@@ -185,6 +193,8 @@ export const autoDiscoveryService = {
       deploymentContext: manifest.deploymentContext || "SDK Connected Application",
       dataSensitivity: this.mapPersonalDataToSensitivity(manifest.personalData),
       geography: this.mapGeographyLabel(manifest.geography),
+      legalProfile: normalizeLegalProfile(manifest.geography),
+      lawPackIds: this.inferLawPackIds(manifest),
       purpose: manifest.purpose,
       usersImpacted: this.mapUsersImpacted(manifest.usersImpacted),
     };
@@ -200,6 +210,8 @@ export const autoDiscoveryService = {
       deploymentContext: manifest.deploymentContext || undefined,
       dataSensitivity: this.mapPersonalDataToSensitivity(manifest.personalData),
       geography: this.mapGeographyLabel(manifest.geography),
+      legalProfile: normalizeLegalProfile(manifest.geography),
+      lawPackIds: this.inferLawPackIds(manifest),
       purpose: manifest.purpose,
       usersImpacted: this.mapUsersImpacted(manifest.usersImpacted),
     };

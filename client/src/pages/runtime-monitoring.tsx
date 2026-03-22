@@ -20,7 +20,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { resolveApiUrl } from "@/lib/api-url";
+import {
+  formatGovernanceReasonCode,
+  formatLawPackLabel,
+  formatLegalProfileLabel,
+} from "@/lib/governance-display";
 import { captureCsrfTokenFromResponse } from "@/lib/queryClient";
+import { resolveSystemLawPackIds } from "@shared/law-packs";
 import type { AiSystem } from "@shared/schema";
 
 type RuntimeDecision = "allow" | "warn" | "escalate" | "block";
@@ -33,6 +39,10 @@ type RuntimeResponse = {
   thresholdBreaches?: Array<{ type?: string; severity?: string; message?: string }>;
   escalatedIncidentId?: string | null;
   restrictedPromptMatches?: string[];
+  reasonCodes?: string[];
+  decisionSummary?: string | null;
+  legalProfileApplied?: string | null;
+  lawPackIdsApplied?: string[];
   [key: string]: unknown;
 };
 
@@ -279,6 +289,7 @@ export default function RuntimeMonitoringPage() {
   const adapterGateways = Array.isArray(adapter.allowedGateways) && adapter.allowedGateways.length
     ? adapter.allowedGateways.join(", ")
     : "Any gateway";
+  const selectedSystemLawPackIds = selectedSystem ? resolveSystemLawPackIds(selectedSystem) : [];
   const sampleGateway =
     Array.isArray(adapter.allowedGateways) && adapter.allowedGateways.length
       ? String(adapter.allowedGateways[0])
@@ -286,6 +297,12 @@ export default function RuntimeMonitoringPage() {
   const responseBreaches = extractThresholdLabels(runtimeResponse);
   const responseRestrictedMatches = Array.isArray(runtimeResponse?.restrictedPromptMatches)
     ? runtimeResponse.restrictedPromptMatches
+    : [];
+  const responseReasonCodes = Array.isArray(runtimeResponse?.reasonCodes)
+    ? runtimeResponse.reasonCodes
+    : [];
+  const responseLawPackIds = Array.isArray(runtimeResponse?.lawPackIdsApplied)
+    ? runtimeResponse.lawPackIdsApplied
     : [];
 
   const totalEvents = telemetrySummary.total ?? telemetrySummary.events ?? 0;
@@ -470,6 +487,8 @@ export default function RuntimeMonitoringPage() {
                 <div>Key prefix: <span className="font-medium text-foreground">{adapter.keyPrefix ?? "Not rotated"}</span></div>
                 <div>Allowed gateways: <span className="font-medium text-foreground">{adapterGateways}</span></div>
                 <div>System scope: <span className="font-medium text-foreground">{selectedSystem ? selectedSystem.name : "Organization defaults"}</span></div>
+                <div>Legal profile: <span className="font-medium text-foreground">{selectedSystem ? formatLegalProfileLabel(selectedSystem.legalProfile) : "Global"}</span></div>
+                <div>Law packs: <span className="font-medium text-foreground">{selectedSystemLawPackIds.length > 0 ? selectedSystemLawPackIds.map((packId) => formatLawPackLabel(packId)).join(", ") : "Global Baseline"}</span></div>
               </div>
             </div>
 
@@ -652,6 +671,40 @@ export default function RuntimeMonitoringPage() {
                     <p className="mt-2 text-sm font-medium break-all">{runtimeResponse.escalatedIncidentId ?? "None"}</p>
                   </div>
                 </div>
+                {runtimeResponse.decisionSummary ? (
+                  <div className="rounded-lg border bg-background p-3">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Decision summary</p>
+                    <p className="mt-2 text-sm text-muted-foreground">{runtimeResponse.decisionSummary}</p>
+                  </div>
+                ) : null}
+                {responseReasonCodes.length || runtimeResponse.legalProfileApplied || responseLawPackIds.length ? (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-lg border bg-background p-3 md:col-span-2">
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Governance reason codes</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {responseReasonCodes.length > 0 ? responseReasonCodes.map((reasonCode) => (
+                          <Badge key={reasonCode} variant="secondary">{formatGovernanceReasonCode(reasonCode)}</Badge>
+                        )) : (
+                          <span className="text-sm text-muted-foreground">No explicit governance reason codes.</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Legal profile</p>
+                      <p className="mt-2 text-sm font-medium">
+                        {formatLegalProfileLabel(runtimeResponse.legalProfileApplied)}
+                      </p>
+                      <p className="mt-3 text-xs uppercase tracking-[0.16em] text-muted-foreground">Law packs</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {responseLawPackIds.length > 0 ? responseLawPackIds.map((packId) => (
+                          <Badge key={packId} variant="outline">{formatLawPackLabel(packId)}</Badge>
+                        )) : (
+                          <span className="text-sm text-muted-foreground">Global Baseline</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
                 {responseBreaches.length || responseRestrictedMatches.length ? (
                   <div className="space-y-2">
                     <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Detected triggers</p>

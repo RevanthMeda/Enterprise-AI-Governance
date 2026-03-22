@@ -31,6 +31,10 @@ export type TelemetryIngestResult = {
   thresholdBreaches: string[];
   escalatedIncidentId: string | null;
   restrictedPromptMatches: string[];
+  reasonCodes?: string[];
+  decisionSummary?: string | null;
+  legalProfileApplied?: string | null;
+  lawPackIdsApplied?: string[];
 };
 
 export type GuardStage = "input" | "output";

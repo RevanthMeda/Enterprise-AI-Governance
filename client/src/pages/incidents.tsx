@@ -5,9 +5,28 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  formatGovernanceReasonCode,
+  formatLawPackLabel,
+  formatLegalProfileLabel,
+} from "@/lib/governance-display";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatDateTime } from "@/lib/date-format";
 import type { AiSystem } from "@shared/schema";
+
+type IncidentPlaybook = {
+  targetContainmentHours?: number;
+  steps?: string[];
+  decision?: string;
+  decisionSummary?: string;
+  thresholdBreaches?: string[];
+  restrictedPromptMatches?: string[];
+  reasonCodes?: string[];
+  legalProfileApplied?: string;
+  lawPackIdsApplied?: string[];
+  telemetryEventId?: string;
+  correlationId?: string | null;
+};
 
 type Incident = {
   id: string;
@@ -33,7 +52,7 @@ type Incident = {
   updatedAt?: string | null;
   resolvedAt: string | null;
   postmortemCompletedAt: string | null;
-  playbook: { targetContainmentHours?: number; steps?: string[] };
+  playbook: IncidentPlaybook;
 };
 
 type IncidentSummary = {
@@ -143,6 +162,8 @@ export default function IncidentsPage() {
 
     return systemNameById.get(systemId) ?? systemId;
   };
+
+  const selectedIncidentEvidence = getIncidentGovernanceEvidence(selectedIncident?.playbook);
 
   return (
     <div className="page-shell">
@@ -286,6 +307,7 @@ export default function IncidentsPage() {
                         <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{incident.description}</p>
                         <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
                           {incident.systemId ? <Badge variant="outline">{getSystemLabel(incident.systemId)}</Badge> : null}
+                          {incident.playbook?.decision ? <Badge variant="secondary">{incident.playbook.decision}</Badge> : null}
                           {incident.dueAt ? <Badge variant="outline">Contain by {formatDateTime(incident.dueAt)}</Badge> : null}
                         </div>
                       </button>
@@ -323,6 +345,83 @@ export default function IncidentsPage() {
                         <SectionBlock title="Incident summary">
                           <p className="whitespace-pre-wrap text-sm text-muted-foreground">{selectedIncident.description}</p>
                         </SectionBlock>
+
+                        {selectedIncidentEvidence ? (
+                          <SectionBlock title="Governance evidence">
+                            <div className="space-y-4">
+                              {selectedIncidentEvidence.decisionSummary ? (
+                                <p className="text-sm text-muted-foreground">{selectedIncidentEvidence.decisionSummary}</p>
+                              ) : null}
+
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <MetaBlock label="Policy decision" value={selectedIncidentEvidence.decision ?? "Not recorded"} />
+                                <MetaBlock
+                                  label="Legal profile"
+                                  value={formatLegalProfileLabel(selectedIncidentEvidence.legalProfileApplied)}
+                                />
+                                <MetaBlock
+                                  label="Telemetry event"
+                                  value={selectedIncidentEvidence.telemetryEventId ?? "Not recorded"}
+                                  mono
+                                />
+                                <MetaBlock
+                                  label="Correlation ID"
+                                  value={selectedIncidentEvidence.correlationId ?? "Not recorded"}
+                                  mono
+                                />
+                              </div>
+
+                              {selectedIncidentEvidence.reasonCodes.length > 0 ? (
+                                <div>
+                                  <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Reason codes</p>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {selectedIncidentEvidence.reasonCodes.map((reasonCode) => (
+                                      <Badge key={reasonCode} variant="secondary">
+                                        {formatGovernanceReasonCode(reasonCode)}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {selectedIncidentEvidence.lawPackIdsApplied.length > 0 ? (
+                                <div>
+                                  <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Law packs</p>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {selectedIncidentEvidence.lawPackIdsApplied.map((packId) => (
+                                      <Badge key={packId} variant="outline">
+                                        {formatLawPackLabel(packId)}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {selectedIncidentEvidence.thresholdBreaches.length > 0 || selectedIncidentEvidence.restrictedPromptMatches.length > 0 ? (
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <div>
+                                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Threshold breaches</p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {selectedIncidentEvidence.thresholdBreaches.map((threshold) => (
+                                        <Badge key={threshold} variant="outline">{threshold.replace(/_/g, " ")}</Badge>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Restricted matches</p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {selectedIncidentEvidence.restrictedPromptMatches.length > 0 ? selectedIncidentEvidence.restrictedPromptMatches.map((match) => (
+                                        <Badge key={match} variant="destructive">{match}</Badge>
+                                      )) : (
+                                        <span className="text-sm text-muted-foreground">None recorded</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          </SectionBlock>
+                        ) : null}
 
                         <SectionBlock title="Playbook">
                           {(selectedIncident.playbook?.steps ?? []).length > 0 ? (
@@ -543,4 +642,52 @@ function parseNotificationLines(value: string) {
       notes: null,
       completedAt: null,
     }));
+}
+
+function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | null) {
+  if (!playbook) {
+    return null;
+  }
+
+  const reasonCodes = Array.isArray(playbook.reasonCodes)
+    ? playbook.reasonCodes.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  const thresholdBreaches = Array.isArray(playbook.thresholdBreaches)
+    ? playbook.thresholdBreaches.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  const restrictedPromptMatches = Array.isArray(playbook.restrictedPromptMatches)
+    ? playbook.restrictedPromptMatches.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  const lawPackIdsApplied = Array.isArray(playbook.lawPackIdsApplied)
+    ? playbook.lawPackIdsApplied.filter((entry): entry is string => typeof entry === "string")
+    : [];
+
+  const hasEvidence =
+    typeof playbook.decision === "string" ||
+    typeof playbook.decisionSummary === "string" ||
+    reasonCodes.length > 0 ||
+    thresholdBreaches.length > 0 ||
+    restrictedPromptMatches.length > 0 ||
+    lawPackIdsApplied.length > 0 ||
+    typeof playbook.telemetryEventId === "string" ||
+    typeof playbook.correlationId === "string" ||
+    typeof playbook.legalProfileApplied === "string";
+
+  if (!hasEvidence) {
+    return null;
+  }
+
+  return {
+    decision: typeof playbook.decision === "string" ? playbook.decision : null,
+    decisionSummary: typeof playbook.decisionSummary === "string" ? playbook.decisionSummary : null,
+    thresholdBreaches,
+    restrictedPromptMatches,
+    reasonCodes,
+    legalProfileApplied:
+      typeof playbook.legalProfileApplied === "string" ? playbook.legalProfileApplied : "global",
+    lawPackIdsApplied,
+    telemetryEventId: typeof playbook.telemetryEventId === "string" ? playbook.telemetryEventId : null,
+    correlationId:
+      typeof playbook.correlationId === "string" ? playbook.correlationId : null,
+  };
 }

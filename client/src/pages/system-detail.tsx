@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import {
   ArrowLeft,
@@ -27,8 +28,29 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { AiSystem, SystemControl, ApprovalWorkflow, AuditLog, ComplianceControl } from "@shared/schema";
 import { EvidenceUpload } from "@/components/evidence-upload";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
+import {
+  LAW_PACKS,
+  LAW_PACKS_BY_ID,
+  compileLawPackRuntimeOverlay,
+  getDefaultLawPackIdsForProfile,
+  normalizeLegalProfile,
+  resolveSystemLawPackIds,
+  type LegalProfile,
+  type LawPackId,
+} from "@shared/law-packs";
 
 const riskColors: Record<string, string> = {
   unacceptable: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
@@ -83,7 +105,230 @@ function InfoItem({ icon: Icon, label, value }: { icon: any; label: string; valu
   );
 }
 
-function OverviewTab({ system }: { system: AiSystem }) {
+const EDITABLE_ORG_ROLES = new Set([
+  "owner",
+  "admin",
+  "cro",
+  "ciso",
+  "compliance_lead",
+  "system_owner",
+]);
+
+const SOURCE_LABELS: Record<string, string> = {
+  baseline_privacy: "Baseline Privacy",
+  baseline_security: "Baseline Security",
+  baseline_safety: "Baseline Safety",
+  gdpr: "GDPR",
+  eu_ai_act: "EU AI Act",
+  dora: "DORA",
+  aml: "AML",
+  uk_gdpr: "UK GDPR",
+  dpa_2018: "DPA 2018",
+  uk_aml: "UK AML",
+  fca_pra_expectations: "FCA / PRA",
+  security: "Security",
+  accountability: "Accountability",
+  glba: "GLBA",
+  bsa_aml: "BSA / AML",
+  ecoa_fcra: "ECOA / FCRA",
+  dpdp: "DPDP Act",
+  rbi: "RBI",
+  pmla: "PMLA",
+};
+
+function inferFinanceDomain(system: Pick<AiSystem, "name" | "department" | "purpose" | "description">) {
+  const corpus = [system.name, system.department, system.purpose, system.description]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return /(bank|loan|credit|mortgage|aml|fraud|collections|underwriting|insurance|payment|financ)/.test(corpus);
+}
+
+function formatLegalProfile(profile: string | null | undefined) {
+  switch (normalizeLegalProfile(profile)) {
+    case "eu":
+      return "EU";
+    case "uk":
+      return "UK";
+    case "us":
+      return "US";
+    case "india":
+      return "India";
+    default:
+      return "Global";
+  }
+}
+
+function LegalGovernanceCard({ system, canEdit }: { system: AiSystem; canEdit: boolean }) {
+  const { toast } = useToast();
+  const financeDomain = useMemo(() => inferFinanceDomain(system), [system]);
+  const effectiveLawPackIds = useMemo(() => resolveSystemLawPackIds(system), [system]);
+  const effectiveLawPackLabels = effectiveLawPackIds.map((packId) => LAW_PACKS_BY_ID.get(packId)?.label ?? packId);
+
+  const [legalProfile, setLegalProfile] = useState<LegalProfile>(normalizeLegalProfile(system.legalProfile));
+  const [selectedLawPackIds, setSelectedLawPackIds] = useState<LawPackId[]>(effectiveLawPackIds);
+
+  useEffect(() => {
+    setLegalProfile(normalizeLegalProfile(system.legalProfile));
+    setSelectedLawPackIds(effectiveLawPackIds);
+  }, [effectiveLawPackIds, system.legalProfile]);
+
+  const overlay = useMemo(
+    () => compileLawPackRuntimeOverlay(selectedLawPackIds),
+    [selectedLawPackIds],
+  );
+
+  const normalizedCurrent = [...effectiveLawPackIds].sort().join("|");
+  const normalizedSelected = [...selectedLawPackIds].sort().join("|");
+  const hasExplicitSelection = Array.isArray(system.lawPackIds) && system.lawPackIds.length > 0;
+  const isDirty =
+    legalProfile !== normalizeLegalProfile(system.legalProfile) ||
+    normalizedCurrent !== normalizedSelected;
+
+  const saveMutation = useMutation({
+    mutationFn: async (payload: { legalProfile: LegalProfile; lawPackIds: LawPackId[] }) => {
+      const res = await apiRequest("PATCH", `/api/ai-systems/${system.id}`, payload);
+      return (await res.json()) as AiSystem;
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["/api/ai-systems", system.id], updated);
+      queryClient.invalidateQueries({ queryKey: ["/api/ai-systems", system.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ai-systems"] });
+      toast({ title: "Legal profile updated" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to update legal profile", description: error.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-xs font-semibold">Legal & Jurisdiction Profile</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline">Profile: {formatLegalProfile(legalProfile)}</Badge>
+          <Badge variant="outline">{hasExplicitSelection ? "Explicit law packs" : "Profile-derived defaults"}</Badge>
+          {financeDomain ? <Badge variant="outline">Finance domain</Badge> : null}
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[220px,1fr]">
+          <div className="space-y-2">
+            <p className="text-xs font-medium">Applicable legal profile</p>
+            <Select
+              value={legalProfile}
+              onValueChange={(value) => {
+                const nextProfile = normalizeLegalProfile(value) as LegalProfile;
+                setLegalProfile(nextProfile);
+                setSelectedLawPackIds(getDefaultLawPackIdsForProfile(nextProfile, { financeDomain }));
+              }}
+              disabled={!canEdit || saveMutation.isPending}
+            >
+              <SelectTrigger data-testid="select-system-legal-profile">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="global">Global baseline</SelectItem>
+                <SelectItem value="eu">EU</SelectItem>
+                <SelectItem value="uk">UK</SelectItem>
+                <SelectItem value="us">US</SelectItem>
+                <SelectItem value="india">India</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              This profile seeds default packs and acts as the jurisdiction label for runtime evidence.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium">Applicable law packs</p>
+            <div className="space-y-2 rounded-lg border bg-muted/20 p-3" data-testid="panel-system-law-packs">
+              {LAW_PACKS.map((pack) => {
+                const checked = selectedLawPackIds.includes(pack.id);
+                return (
+                  <label key={pack.id} className="flex items-start gap-3 rounded-md border bg-background p-3">
+                    <Checkbox
+                      checked={checked}
+                      disabled={!canEdit || saveMutation.isPending}
+                      onCheckedChange={(nextChecked) => {
+                        const next = nextChecked
+                          ? Array.from(new Set<LawPackId>(["global_baseline", ...selectedLawPackIds, pack.id]))
+                          : selectedLawPackIds.filter((entry) => entry !== pack.id);
+                        setSelectedLawPackIds(next.length > 0 ? next : ["global_baseline"]);
+                      }}
+                      data-testid={`checkbox-system-law-pack-${pack.id}`}
+                    />
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-medium">{pack.label}</span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {formatLegalProfile(pack.profile)}
+                        </Badge>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">{pack.summary}</p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
+          <div className="space-y-1">
+            <p className="text-xs font-medium">Effective runtime constraints</p>
+            <div className="flex flex-wrap gap-2">
+              {effectiveLawPackLabels.map((label) => (
+                <Badge key={label} variant="secondary">{label}</Badge>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="space-y-2">
+              <p className="text-[11px] font-medium text-muted-foreground">Decision constraints</p>
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                {overlay.decisionConstraints.map((constraint) => (
+                  <li key={constraint}>- {constraint}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="space-y-2">
+              <p className="text-[11px] font-medium text-muted-foreground">Source references</p>
+              <div className="flex flex-wrap gap-2">
+                {overlay.sourceRefs.map((source) => (
+                  <Badge key={source} variant="outline">{SOURCE_LABELS[source] ?? source}</Badge>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Runtime decisions now carry these law-pack references into telemetry metadata and evidence.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] text-muted-foreground">
+            {canEdit
+              ? "Save to persist explicit jurisdiction packs for this system."
+              : "Your current role can view the applied packs but cannot change them."}
+          </p>
+          <Button
+            size="sm"
+            disabled={!canEdit || !isDirty || saveMutation.isPending}
+            onClick={() => saveMutation.mutate({ legalProfile, lawPackIds: selectedLawPackIds })}
+            data-testid="button-save-system-legal-profile"
+          >
+            {saveMutation.isPending ? "Saving..." : "Save legal profile"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function OverviewTab({ system, canEdit }: { system: AiSystem; canEdit: boolean }) {
   return (
     <div className="space-y-4" data-testid="tab-overview">
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -92,10 +337,12 @@ function OverviewTab({ system }: { system: AiSystem }) {
         <InfoItem icon={Server} label="Vendor" value={system.vendor || "Internal"} />
         <InfoItem icon={Database} label="Data Sensitivity" value={system.dataSensitivity || "N/A"} />
         <InfoItem icon={Globe} label="Geography" value={system.geography || "N/A"} />
+        <InfoItem icon={ShieldCheck} label="Legal Profile" value={formatLegalProfile(system.legalProfile)} />
         <InfoItem icon={MapPin} label="Deployment" value={system.deploymentContext || "N/A"} />
         <InfoItem icon={Users} label="Users Impacted" value={(system.usersImpacted || 0).toLocaleString()} />
         <InfoItem icon={Clock} label="Last Assessment" value={system.lastAssessment ? new Date(system.lastAssessment).toLocaleDateString() : "Not assessed"} />
       </div>
+      <LegalGovernanceCard system={system} canEdit={canEdit} />
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-xs font-semibold">Runtime Governance</CardTitle>
@@ -327,6 +574,13 @@ function AuditTab({ logs }: { logs: AuditLog[] }) {
 export default function SystemDetail() {
   const [, params] = useRoute("/systems/:id");
   const systemId = params?.id;
+  const { user } = useAuth();
+
+  const currentOrgRole =
+    user?.organizations.find((organization) => organization.id === user.currentOrganizationId)?.role ??
+    user?.role ??
+    "member";
+  const canEditSystemGovernance = EDITABLE_ORG_ROLES.has(currentOrgRole);
 
   const { data: system, isLoading: loadingSystem } = useQuery<AiSystem>({
     queryKey: ["/api/ai-systems", systemId],
@@ -435,7 +689,7 @@ export default function SystemDetail() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="mt-4">
-          <OverviewTab system={system} />
+          <OverviewTab system={system} canEdit={canEditSystemGovernance} />
         </TabsContent>
         <TabsContent value="controls" className="mt-4">
           <ControlsTab controls={controls} allComplianceControls={allComplianceControls} systemId={systemId!} />
