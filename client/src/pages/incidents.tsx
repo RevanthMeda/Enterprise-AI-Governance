@@ -6,10 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  formatCapabilityLabel,
+  formatCapabilityProfileLabel,
   formatGovernanceCriticVerdict,
   formatGovernanceReasonCode,
+  formatGovernancePolicyCategoryLabel,
   formatLawPackLabel,
   formatLegalProfileLabel,
+  formatStrictnessLabel,
 } from "@/lib/governance-display";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatDateTime } from "@/lib/date-format";
@@ -25,6 +29,12 @@ type IncidentPlaybook = {
   reasonCodes?: string[];
   legalProfileApplied?: string;
   lawPackIdsApplied?: string[];
+  capabilityProfileApplied?: string;
+  allowedCapabilitiesApplied?: string[];
+  strictnessApplied?: string;
+  policyCategories?: string[];
+  requestedCapabilities?: string[];
+  outOfScopeCapabilities?: string[];
   telemetryEventId?: string;
   correlationId?: string | null;
   rulesEngine?: Record<string, unknown>;
@@ -389,6 +399,14 @@ export default function IncidentsPage() {
                                   value={formatLegalProfileLabel(selectedIncidentEvidence.legalProfileApplied)}
                                 />
                                 <MetaBlock
+                                  label="Capability profile"
+                                  value={formatCapabilityProfileLabel(selectedIncidentEvidence.capabilityProfileApplied)}
+                                />
+                                <MetaBlock
+                                  label="Strictness"
+                                  value={formatStrictnessLabel(selectedIncidentEvidence.strictnessApplied)}
+                                />
+                                <MetaBlock
                                   label="Telemetry event"
                                   value={selectedIncidentEvidence.telemetryEventId ?? "Not recorded"}
                                   mono
@@ -537,6 +555,43 @@ export default function IncidentsPage() {
                                         {formatLawPackLabel(packId)}
                                       </Badge>
                                     ))}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {selectedIncidentEvidence.policyCategories.length > 0 ||
+                              selectedIncidentEvidence.requestedCapabilities.length > 0 ? (
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  <div>
+                                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Policy categories</p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {selectedIncidentEvidence.policyCategories.length > 0 ? selectedIncidentEvidence.policyCategories.map((category) => (
+                                        <Badge key={category} variant="outline">
+                                          {formatGovernancePolicyCategoryLabel(category)}
+                                        </Badge>
+                                      )) : (
+                                        <span className="text-sm text-muted-foreground">None recorded</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Capabilities</p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {selectedIncidentEvidence.requestedCapabilities.map((capability) => (
+                                        <Badge key={capability} variant="secondary">
+                                          {formatCapabilityLabel(capability)}
+                                        </Badge>
+                                      ))}
+                                      {selectedIncidentEvidence.outOfScopeCapabilities.map((capability) => (
+                                        <Badge key={capability} variant="destructive">
+                                          {formatCapabilityLabel(capability)}
+                                        </Badge>
+                                      ))}
+                                      {selectedIncidentEvidence.requestedCapabilities.length === 0 &&
+                                      selectedIncidentEvidence.outOfScopeCapabilities.length === 0 ? (
+                                        <span className="text-sm text-muted-foreground">None recorded</span>
+                                      ) : null}
+                                    </div>
                                   </div>
                                 </div>
                               ) : null}
@@ -1038,6 +1093,18 @@ function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | 
   const lawPackIdsApplied = Array.isArray(playbook.lawPackIdsApplied)
     ? playbook.lawPackIdsApplied.filter((entry): entry is string => typeof entry === "string")
     : [];
+  const allowedCapabilitiesApplied = Array.isArray(playbook.allowedCapabilitiesApplied)
+    ? playbook.allowedCapabilitiesApplied.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  const policyCategories = Array.isArray(playbook.policyCategories)
+    ? playbook.policyCategories.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  const requestedCapabilities = Array.isArray(playbook.requestedCapabilities)
+    ? playbook.requestedCapabilities.filter((entry): entry is string => typeof entry === "string")
+    : [];
+  const outOfScopeCapabilities = Array.isArray(playbook.outOfScopeCapabilities)
+    ? playbook.outOfScopeCapabilities.filter((entry): entry is string => typeof entry === "string")
+    : [];
 
   const hasEvidence =
     typeof playbook.decision === "string" ||
@@ -1046,9 +1113,15 @@ function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | 
     thresholdBreaches.length > 0 ||
     restrictedPromptMatches.length > 0 ||
     lawPackIdsApplied.length > 0 ||
+    allowedCapabilitiesApplied.length > 0 ||
+    policyCategories.length > 0 ||
+    requestedCapabilities.length > 0 ||
+    outOfScopeCapabilities.length > 0 ||
     typeof playbook.telemetryEventId === "string" ||
     typeof playbook.correlationId === "string" ||
     typeof playbook.legalProfileApplied === "string" ||
+    typeof playbook.capabilityProfileApplied === "string" ||
+    typeof playbook.strictnessApplied === "string" ||
     Boolean(rulesEngine) ||
     Boolean(governanceCritic) ||
     Boolean(sourceAttributionVerifier) ||
@@ -1070,6 +1143,14 @@ function getIncidentGovernanceEvidence(playbook: IncidentPlaybook | undefined | 
     legalProfileApplied:
       typeof playbook.legalProfileApplied === "string" ? playbook.legalProfileApplied : "global",
     lawPackIdsApplied,
+    capabilityProfileApplied:
+      typeof playbook.capabilityProfileApplied === "string" ? playbook.capabilityProfileApplied : "general_assistant",
+    allowedCapabilitiesApplied,
+    strictnessApplied:
+      typeof playbook.strictnessApplied === "string" ? playbook.strictnessApplied : "normal",
+    policyCategories,
+    requestedCapabilities,
+    outOfScopeCapabilities,
     telemetryEventId: typeof playbook.telemetryEventId === "string" ? playbook.telemetryEventId : null,
     correlationId:
       typeof playbook.correlationId === "string" ? playbook.correlationId : null,

@@ -22,9 +22,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { resolveApiUrl } from "@/lib/api-url";
 import {
+  formatCapabilityLabel,
+  formatCapabilityProfileLabel,
   formatGovernanceReasonCode,
+  formatGovernancePolicyCategoryLabel,
   formatLawPackLabel,
   formatLegalProfileLabel,
+  formatStrictnessLabel,
 } from "@/lib/governance-display";
 import { captureCsrfTokenFromResponse } from "@/lib/queryClient";
 import { resolveSystemLawPackIds } from "@shared/law-packs";
@@ -44,6 +48,14 @@ type RuntimeResponse = {
   decisionSummary?: string | null;
   legalProfileApplied?: string | null;
   lawPackIdsApplied?: string[];
+  capabilityProfileApplied?: string | null;
+  allowedCapabilitiesApplied?: string[];
+  strictnessApplied?: string | null;
+  policyCategories?: string[];
+  policyLayers?: string[];
+  alwaysLogPolicyCategories?: string[];
+  requestedCapabilities?: string[];
+  outOfScopeCapabilities?: string[];
   rulesEngine?: {
     decision?: RuntimeDecision;
     blocked?: boolean;
@@ -397,6 +409,24 @@ export default function RuntimeMonitoringPage() {
   const responseLawPackIds = Array.isArray(runtimeResponse?.lawPackIdsApplied)
     ? runtimeResponse.lawPackIdsApplied
     : [];
+  const responseAllowedCapabilities = Array.isArray(runtimeResponse?.allowedCapabilitiesApplied)
+    ? runtimeResponse.allowedCapabilitiesApplied
+    : [];
+  const responsePolicyCategories = Array.isArray(runtimeResponse?.policyCategories)
+    ? runtimeResponse.policyCategories
+    : [];
+  const responsePolicyLayers = Array.isArray(runtimeResponse?.policyLayers)
+    ? runtimeResponse.policyLayers
+    : [];
+  const responseAlwaysLogCategories = Array.isArray(runtimeResponse?.alwaysLogPolicyCategories)
+    ? runtimeResponse.alwaysLogPolicyCategories
+    : [];
+  const responseRequestedCapabilities = Array.isArray(runtimeResponse?.requestedCapabilities)
+    ? runtimeResponse.requestedCapabilities
+    : [];
+  const responseOutOfScopeCapabilities = Array.isArray(runtimeResponse?.outOfScopeCapabilities)
+    ? runtimeResponse.outOfScopeCapabilities
+    : [];
   const rulesEngine = runtimeResponse?.rulesEngine ?? null;
   const critic = runtimeResponse?.governanceCritic ?? null;
   const rulesEngineReasonCodes = Array.isArray(rulesEngine?.reasonCodes) ? rulesEngine.reasonCodes : [];
@@ -628,6 +658,8 @@ export default function RuntimeMonitoringPage() {
                 <div>System scope: <span className="font-medium text-foreground">{selectedSystem ? selectedSystem.name : "Organization defaults"}</span></div>
                 <div>Legal profile: <span className="font-medium text-foreground">{selectedSystem ? formatLegalProfileLabel(selectedSystem.legalProfile) : "Global"}</span></div>
                 <div>Law packs: <span className="font-medium text-foreground">{selectedSystemLawPackIds.length > 0 ? selectedSystemLawPackIds.map((packId) => formatLawPackLabel(packId)).join(", ") : "Global Baseline"}</span></div>
+                <div>Capability profile: <span className="font-medium text-foreground">{selectedSystem ? formatCapabilityProfileLabel(selectedSystem.capabilityProfile) : "General Assistant"}</span></div>
+                <div>Strictness: <span className="font-medium text-foreground">{selectedSystem ? formatStrictnessLabel(selectedSystem.strictness) : "Normal"}</span></div>
               </div>
             </div>
 
@@ -916,6 +948,61 @@ export default function RuntimeMonitoringPage() {
                           <span className="text-sm text-muted-foreground">Global Baseline</span>
                         )}
                       </div>
+                    </div>
+                  </div>
+                ) : null}
+                {runtimeResponse.capabilityProfileApplied || responseRequestedCapabilities.length || responsePolicyCategories.length ? (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Capability profile</p>
+                      <p className="mt-2 text-sm font-medium">
+                        {formatCapabilityProfileLabel(runtimeResponse.capabilityProfileApplied)}
+                      </p>
+                      <p className="mt-3 text-xs uppercase tracking-[0.16em] text-muted-foreground">Strictness</p>
+                      <p className="mt-2 text-sm font-medium">
+                        {formatStrictnessLabel(runtimeResponse.strictnessApplied)}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Requested capabilities</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {responseRequestedCapabilities.length > 0 ? responseRequestedCapabilities.map((capability) => (
+                          <Badge key={capability} variant="secondary">{formatCapabilityLabel(capability)}</Badge>
+                        )) : (
+                          <span className="text-sm text-muted-foreground">No action-class capabilities were detected.</span>
+                        )}
+                      </div>
+                      {responseOutOfScopeCapabilities.length > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {responseOutOfScopeCapabilities.map((capability) => (
+                            <Badge key={capability} variant="destructive">{formatCapabilityLabel(capability)}</Badge>
+                          ))}
+                        </div>
+                      ) : responseAllowedCapabilities.length > 0 ? (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Allowed surface capabilities: {responseAllowedCapabilities.map((capability) => formatCapabilityLabel(capability)).join(", ")}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Policy categories</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {responsePolicyCategories.length > 0 ? responsePolicyCategories.map((category) => (
+                          <Badge key={category} variant="outline">{formatGovernancePolicyCategoryLabel(category)}</Badge>
+                        )) : (
+                          <span className="text-sm text-muted-foreground">No additional policy categories were recorded.</span>
+                        )}
+                      </div>
+                      {responsePolicyLayers.length > 0 ? (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Layers: {responsePolicyLayers.join(", ")}
+                        </p>
+                      ) : null}
+                      {responseAlwaysLogCategories.length > 0 ? (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Always log: {responseAlwaysLogCategories.map((category) => formatGovernancePolicyCategoryLabel(category)).join(", ")}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}

@@ -52,7 +52,13 @@ import { EvidenceUpload } from "@/components/evidence-upload";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { formatLawPackLabel, formatLegalProfileLabel } from "@/lib/governance-display";
+import {
+  formatCapabilityLabel,
+  formatCapabilityProfileLabel,
+  formatLawPackLabel,
+  formatLegalProfileLabel,
+  formatStrictnessLabel,
+} from "@/lib/governance-display";
 import {
   LAW_PACKS,
   LAW_PACKS_BY_ID,
@@ -63,6 +69,17 @@ import {
   type LegalProfile,
   type LawPackId,
 } from "@shared/law-packs";
+import {
+  CAPABILITY_PROFILES,
+  inferCapabilityProfile,
+  inferStrictnessMode,
+  normalizeCapabilityProfileId,
+  normalizeStrictnessMode,
+  resolveAllowedCapabilities,
+  type CapabilityId,
+  type CapabilityProfileId,
+  type StrictnessMode,
+} from "@shared/governance-policy-registry";
 import {
   normalizeApprovedSourceCatalog,
   normalizeAuthoritativeFactCatalog,
@@ -344,6 +361,189 @@ function LegalGovernanceCard({ system, canEdit }: { system: AiSystem; canEdit: b
   );
 }
 
+function CapabilityGovernanceCard({ system, canEdit }: { system: AiSystem; canEdit: boolean }) {
+  const { toast } = useToast();
+  const defaultCapabilityProfile = useMemo(
+    () =>
+      inferCapabilityProfile({
+        capabilityProfile: system.capabilityProfile,
+        name: system.name,
+        department: system.department,
+        purpose: system.purpose,
+        description: system.description,
+      }),
+    [system.capabilityProfile, system.department, system.description, system.name, system.purpose],
+  );
+  const defaultAllowedCapabilities = useMemo(
+    () => resolveAllowedCapabilities(defaultCapabilityProfile, system.allowedCapabilities),
+    [defaultCapabilityProfile, system.allowedCapabilities],
+  );
+  const defaultStrictness = useMemo(
+    () =>
+      inferStrictnessMode({
+        strictness: system.strictness,
+        riskLevel: system.riskLevel,
+        capabilityProfile: defaultCapabilityProfile,
+        name: system.name,
+        department: system.department,
+        purpose: system.purpose,
+        description: system.description,
+      }),
+    [defaultCapabilityProfile, system.department, system.description, system.name, system.purpose, system.riskLevel, system.strictness],
+  );
+
+  const [capabilityProfile, setCapabilityProfile] = useState<CapabilityProfileId>(defaultCapabilityProfile);
+  const [selectedCapabilities, setSelectedCapabilities] = useState<CapabilityId[]>(defaultAllowedCapabilities);
+  const [strictness, setStrictness] = useState<StrictnessMode>(defaultStrictness);
+
+  useEffect(() => {
+    setCapabilityProfile(defaultCapabilityProfile);
+    setSelectedCapabilities(defaultAllowedCapabilities);
+    setStrictness(defaultStrictness);
+  }, [defaultAllowedCapabilities, defaultCapabilityProfile, defaultStrictness]);
+
+  const hasExplicitSelection = Array.isArray(system.allowedCapabilities) && system.allowedCapabilities.length > 0;
+  const isDirty =
+    capabilityProfile !== normalizeCapabilityProfileId(defaultCapabilityProfile) ||
+    strictness !== normalizeStrictnessMode(defaultStrictness) ||
+    [...selectedCapabilities].sort().join("|") !== [...defaultAllowedCapabilities].sort().join("|");
+
+  const saveMutation = useMutation({
+    mutationFn: async (payload: {
+      capabilityProfile: CapabilityProfileId;
+      allowedCapabilities: CapabilityId[];
+      strictness: StrictnessMode;
+    }) => {
+      const res = await apiRequest("PATCH", `/api/ai-systems/${system.id}`, payload);
+      return (await res.json()) as AiSystem;
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["/api/ai-systems", system.id], updated);
+      queryClient.invalidateQueries({ queryKey: ["/api/ai-systems", system.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ai-systems"] });
+      toast({ title: "Capability profile updated" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to update capability profile", description: error.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-xs font-semibold">Capability & Strictness</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline">Profile: {formatCapabilityProfileLabel(capabilityProfile)}</Badge>
+          <Badge variant="outline">Strictness: {formatStrictnessLabel(strictness)}</Badge>
+          <Badge variant="outline">{hasExplicitSelection ? "Explicit capability set" : "Profile defaults"}</Badge>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[220px,1fr]">
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <p className="text-xs font-medium">Capability profile</p>
+              <Select
+                value={capabilityProfile}
+                onValueChange={(value) => {
+                  const nextProfile = normalizeCapabilityProfileId(value) as CapabilityProfileId;
+                  setCapabilityProfile(nextProfile);
+                  setSelectedCapabilities(resolveAllowedCapabilities(nextProfile, []));
+                }}
+                disabled={!canEdit || saveMutation.isPending}
+              >
+                <SelectTrigger data-testid="select-system-capability-profile">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CAPABILITY_PROFILES.map((profile) => (
+                    <SelectItem key={profile.id} value={profile.id}>
+                      {profile.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                Capability profiles define the kinds of actions the linked surface is allowed to request.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-medium">Strictness mode</p>
+              <Select
+                value={strictness}
+                onValueChange={(value) => setStrictness(normalizeStrictnessMode(value))}
+                disabled={!canEdit || saveMutation.isPending}
+              >
+                <SelectTrigger data-testid="select-system-strictness">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="normal">Normal</SelectItem>
+                  <SelectItem value="high_risk">High risk</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                High-risk mode promotes ambiguous or unsupported turns into review or block paths sooner.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium">Allowed capabilities</p>
+            <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+              {resolveAllowedCapabilities(capabilityProfile, []).map((defaultCapability) => (
+                <label key={defaultCapability} className="flex items-start gap-3 rounded-md border bg-background p-3">
+                  <Checkbox
+                    checked={selectedCapabilities.includes(defaultCapability)}
+                    disabled={!canEdit || saveMutation.isPending}
+                    onCheckedChange={(nextChecked) => {
+                      const next = nextChecked
+                        ? Array.from(new Set<CapabilityId>([...selectedCapabilities, defaultCapability]))
+                        : selectedCapabilities.filter((entry) => entry !== defaultCapability);
+                      setSelectedCapabilities(next);
+                    }}
+                    data-testid={`checkbox-system-capability-${defaultCapability}`}
+                  />
+                  <div className="space-y-1">
+                    <span className="text-xs font-medium">{formatCapabilityLabel(defaultCapability)}</span>
+                    <p className="text-[11px] text-muted-foreground">
+                      Allowed for the {formatCapabilityProfileLabel(capabilityProfile)} surface profile.
+                    </p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] text-muted-foreground">
+            {canEdit
+              ? "Persist the capability profile so runtime enforcement can block out-of-scope actions structurally."
+              : "Your current role can view surface capabilities but cannot change them."}
+          </p>
+          <Button
+            size="sm"
+            disabled={!canEdit || !isDirty || saveMutation.isPending}
+            onClick={() =>
+              saveMutation.mutate({
+                capabilityProfile,
+                allowedCapabilities: selectedCapabilities,
+                strictness,
+              })
+            }
+            data-testid="button-save-system-capabilities"
+          >
+            {saveMutation.isPending ? "Saving..." : "Save capabilities"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function AgentGovernanceOverridesCard({
   system,
   workflows,
@@ -367,12 +567,40 @@ function AgentGovernanceOverridesCard({
   const [workflowId, setWorkflowId] = useState<string>("system");
   const [legalProfile, setLegalProfile] = useState<LegalProfile>(defaultProfile);
   const [selectedLawPackIds, setSelectedLawPackIds] = useState<LawPackId[]>(defaultLawPackIds);
+  const defaultCapabilityProfile = useMemo(
+    () =>
+      inferCapabilityProfile({
+        capabilityProfile: system.capabilityProfile,
+        name: system.name,
+        department: system.department,
+        purpose: system.purpose,
+        description: system.description,
+      }),
+    [system.capabilityProfile, system.department, system.description, system.name, system.purpose],
+  );
+  const defaultStrictness = useMemo(
+    () =>
+      inferStrictnessMode({
+        strictness: system.strictness,
+        riskLevel: system.riskLevel,
+        capabilityProfile: defaultCapabilityProfile,
+        name: system.name,
+        department: system.department,
+        purpose: system.purpose,
+        description: system.description,
+      }),
+    [defaultCapabilityProfile, system.department, system.description, system.name, system.purpose, system.riskLevel, system.strictness],
+  );
+  const [capabilityProfile, setCapabilityProfile] = useState<CapabilityProfileId>(defaultCapabilityProfile);
+  const [strictness, setStrictness] = useState<StrictnessMode>(defaultStrictness);
   const [notes, setNotes] = useState("");
 
   useEffect(() => {
     setLegalProfile(defaultProfile);
     setSelectedLawPackIds(defaultLawPackIds);
-  }, [defaultLawPackIds, defaultProfile]);
+    setCapabilityProfile(defaultCapabilityProfile);
+    setStrictness(defaultStrictness);
+  }, [defaultCapabilityProfile, defaultLawPackIds, defaultProfile, defaultStrictness]);
 
   const { data: profiles = [] } = useQuery<AgentGovernanceProfile[]>({
     queryKey: ["/api/ai-systems", system.id, "agent-governance"],
@@ -391,6 +619,9 @@ function AgentGovernanceOverridesCard({
         workflowId: workflowId === "system" ? null : workflowId,
         legalProfile,
         lawPackIds: selectedLawPackIds,
+        capabilityProfile,
+        allowedCapabilities: resolveAllowedCapabilities(capabilityProfile, []),
+        strictness,
         notes: notes || null,
       });
       return response.json();
@@ -402,6 +633,8 @@ function AgentGovernanceOverridesCard({
       setWorkflowId("system");
       setLegalProfile(defaultProfile);
       setSelectedLawPackIds(defaultLawPackIds);
+      setCapabilityProfile(defaultCapabilityProfile);
+      setStrictness(defaultStrictness);
       setNotes("");
       toast({ title: "Agent governance override saved" });
     },
@@ -505,6 +738,44 @@ function AgentGovernanceOverridesCard({
           </div>
         </div>
 
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="space-y-2">
+            <p className="text-xs font-medium">Capability profile</p>
+            <Select
+              value={capabilityProfile}
+              onValueChange={(value) => setCapabilityProfile(normalizeCapabilityProfileId(value))}
+              disabled={!canEdit || saveMutation.isPending}
+            >
+              <SelectTrigger data-testid="select-agent-governance-capability-profile">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CAPABILITY_PROFILES.map((profile) => (
+                  <SelectItem key={profile.id} value={profile.id}>
+                    {profile.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-medium">Strictness</p>
+            <Select
+              value={strictness}
+              onValueChange={(value) => setStrictness(normalizeStrictnessMode(value))}
+              disabled={!canEdit || saveMutation.isPending}
+            >
+              <SelectTrigger data-testid="select-agent-governance-strictness">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="normal">Normal</SelectItem>
+                <SelectItem value="high_risk">High risk</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
         <div className="space-y-2">
           <p className="text-xs font-medium">Applicable law packs</p>
           <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
@@ -577,6 +848,8 @@ function AgentGovernanceOverridesCard({
                       <span className="text-sm font-medium">{profile.actorLabel || profile.actorId}</span>
                       <Badge variant="outline">{profile.workflowId ? workflowNameById.get(profile.workflowId) || profile.workflowId : "System-wide"}</Badge>
                       <Badge variant="outline">{formatLegalProfile(profile.legalProfile)}</Badge>
+                      <Badge variant="outline">{formatCapabilityProfileLabel(profile.capabilityProfile)}</Badge>
+                      <Badge variant="outline">{formatStrictnessLabel(profile.strictness)}</Badge>
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {(Array.isArray(profile.lawPackIds) ? profile.lawPackIds : []).map((packId) => (
@@ -604,6 +877,8 @@ function AgentGovernanceOverridesCard({
                             ? (profile.lawPackIds as LawPackId[])
                             : defaultLawPackIds,
                         );
+                        setCapabilityProfile(normalizeCapabilityProfileId(profile.capabilityProfile));
+                        setStrictness(normalizeStrictnessMode(profile.strictness));
                         setNotes(profile.notes || "");
                       }}
                       disabled={!canEdit}
@@ -737,6 +1012,7 @@ function OverviewTab({
         <InfoItem icon={Clock} label="Last Assessment" value={system.lastAssessment ? new Date(system.lastAssessment).toLocaleDateString() : "Not assessed"} />
       </div>
       <LegalGovernanceCard system={system} canEdit={canEdit} />
+      <CapabilityGovernanceCard system={system} canEdit={canEdit} />
       <AgentGovernanceOverridesCard system={system} workflows={workflows} canEdit={canEdit} />
       <GovernanceCatalogCard system={system} canEdit={canEdit} />
       <Card>

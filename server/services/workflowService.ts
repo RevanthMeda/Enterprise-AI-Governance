@@ -6,6 +6,11 @@ import {
   resolveWorkflowLawPackIds,
   resolveWorkflowLegalProfile,
 } from "@shared/law-packs";
+import {
+  inferCapabilityProfile,
+  inferStrictnessMode,
+  resolveAllowedCapabilities,
+} from "@shared/governance-policy-registry";
 
 type Actor = {
   id: string;
@@ -180,6 +185,28 @@ export class WorkflowService {
     await this.ensureReviewerInOrg(params.organizationId, params.input.reviewer);
     const legalProfile = resolveWorkflowLegalProfile(params.input, system);
     const lawPackIds = resolveWorkflowLawPackIds(params.input, system);
+    const capabilityProfile = inferCapabilityProfile({
+      capabilityProfile: params.input.capabilityProfile ?? system.capabilityProfile,
+      name: system.name,
+      department: system.department,
+      purpose: system.purpose,
+      description: system.description,
+    });
+    const allowedCapabilities = resolveAllowedCapabilities(
+      capabilityProfile,
+      Array.isArray(params.input.allowedCapabilities) && params.input.allowedCapabilities.length > 0
+        ? params.input.allowedCapabilities
+        : system.allowedCapabilities,
+    );
+    const strictness = inferStrictnessMode({
+      strictness: params.input.strictness ?? system.strictness,
+      riskLevel: system.riskLevel,
+      capabilityProfile,
+      name: system.name,
+      department: system.department,
+      purpose: system.purpose,
+      description: system.description,
+    });
     const lawPackRequirements = deriveLawPackGovernanceRequirements(lawPackIds);
     const routing = this.mergeRoutingWithLawPackRequirements(
       this.deriveRouting(params.input, system.riskLevel),
@@ -193,6 +220,9 @@ export class WorkflowService {
       reviewer: suggestedReviewer,
       legalProfile,
       lawPackIds,
+      capabilityProfile,
+      allowedCapabilities,
+      strictness,
       decisionTier: routing.decisionTier,
       committeeType: routing.committeeType,
       requiredApprovers: routing.requiredApprovers,
@@ -241,6 +271,28 @@ export class WorkflowService {
       (await storage.getAiSystemById(params.organizationId, merged.systemId)) ?? null;
     const legalProfile = resolveWorkflowLegalProfile(merged, resolvedSystem ?? undefined);
     const lawPackIds = resolveWorkflowLawPackIds(merged, resolvedSystem ?? undefined);
+    const capabilityProfile = inferCapabilityProfile({
+      capabilityProfile: merged.capabilityProfile ?? resolvedSystem?.capabilityProfile,
+      name: resolvedSystem?.name,
+      department: resolvedSystem?.department,
+      purpose: resolvedSystem?.purpose,
+      description: resolvedSystem?.description,
+    });
+    const allowedCapabilities = resolveAllowedCapabilities(
+      capabilityProfile,
+      Array.isArray(merged.allowedCapabilities) && merged.allowedCapabilities.length > 0
+        ? merged.allowedCapabilities
+        : resolvedSystem?.allowedCapabilities,
+    );
+    const strictness = inferStrictnessMode({
+      strictness: merged.strictness ?? resolvedSystem?.strictness,
+      riskLevel: resolvedSystemRiskLevel,
+      capabilityProfile,
+      name: resolvedSystem?.name,
+      department: resolvedSystem?.department,
+      purpose: resolvedSystem?.purpose,
+      description: resolvedSystem?.description,
+    });
     const lawPackRequirements = deriveLawPackGovernanceRequirements(lawPackIds);
     const routing = this.mergeRoutingWithLawPackRequirements(
       this.deriveRouting(merged as InsertApprovalWorkflow, resolvedSystemRiskLevel),
@@ -289,6 +341,9 @@ export class WorkflowService {
       reviewer: assignedReviewer,
       legalProfile,
       lawPackIds,
+      capabilityProfile,
+      allowedCapabilities,
+      strictness,
       decisionTier: routing.decisionTier,
       committeeType: routing.committeeType,
       requiredApprovers: routing.requiredApprovers,

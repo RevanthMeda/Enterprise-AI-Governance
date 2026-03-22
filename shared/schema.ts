@@ -3,6 +3,11 @@ import { pgTable, text, varchar, integer, timestamp, boolean, jsonb, index, uniq
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { legalProfiles, lawPackIds } from "./law-packs";
+import {
+  capabilityIds,
+  capabilityProfileIds,
+  strictnessModes,
+} from "./governance-policy-registry";
 
 export const userRoles = ["admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"] as const;
 export const authProviders = ["local", "saml", "oidc"] as const;
@@ -695,6 +700,8 @@ export const systemStatuses = ["active", "under_review", "approved", "deprecated
 export const dataSensitivities = ["public", "internal", "confidential", "restricted"] as const;
 export const frameworks = ["eu_ai_act", "nist_ai_rmf", "iso_42001"] as const;
 export const aiSystemLegalProfiles = legalProfiles;
+export const aiSystemCapabilityProfiles = capabilityProfileIds;
+export const aiSystemStrictnessModes = strictnessModes;
 export const controlStatuses = ["not_started", "in_progress", "implemented", "verified"] as const;
 export const workflowStatuses = ["pending", "in_review", "approved", "rejected", "escalated"] as const;
 
@@ -714,6 +721,9 @@ export const aiSystems = pgTable("ai_systems", {
   geography: text("geography"),
   legalProfile: text("legal_profile").notNull().default("global"),
   lawPackIds: jsonb("law_pack_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  capabilityProfile: text("capability_profile").notNull().default("general_assistant"),
+  allowedCapabilities: jsonb("allowed_capabilities").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  strictness: text("strictness").notNull().default("normal"),
   sourceCatalog: jsonb("source_catalog").$type<Record<string, unknown>[]>().notNull().default(sql`'[]'::jsonb`),
   authoritativeFactCatalog: jsonb("authoritative_fact_catalog").$type<Record<string, unknown>[]>()
     .notNull()
@@ -734,6 +744,9 @@ export const insertAiSystemSchema = createInsertSchema(aiSystems)
   .extend({
     legalProfile: z.enum(aiSystemLegalProfiles).default("global"),
     lawPackIds: z.array(z.enum(lawPackIds)).default([]),
+    capabilityProfile: z.enum(aiSystemCapabilityProfiles).default("general_assistant"),
+    allowedCapabilities: z.array(z.enum(capabilityIds)).default([]),
+    strictness: z.enum(aiSystemStrictnessModes).default("normal"),
     sourceCatalog: z.array(
       z.object({
         id: z.string().trim().min(1).max(120).optional(),
@@ -817,6 +830,9 @@ export const approvalWorkflows = pgTable("approval_workflows", {
   safetyCritical: boolean("safety_critical").notNull().default(false),
   legalProfile: text("legal_profile").notNull().default("global"),
   lawPackIds: jsonb("law_pack_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  capabilityProfile: text("capability_profile").notNull().default("general_assistant"),
+  allowedCapabilities: jsonb("allowed_capabilities").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  strictness: text("strictness").notNull().default("normal"),
   sourceCatalog: jsonb("source_catalog").$type<Record<string, unknown>[]>().notNull().default(sql`'[]'::jsonb`),
   authoritativeFactCatalog: jsonb("authoritative_fact_catalog").$type<Record<string, unknown>[]>()
     .notNull()
@@ -843,6 +859,9 @@ export const insertApprovalWorkflowSchema = createInsertSchema(approvalWorkflows
   .extend({
     legalProfile: z.enum(aiSystemLegalProfiles).default("global"),
     lawPackIds: z.array(z.enum(lawPackIds)).default(["global_baseline"]),
+    capabilityProfile: z.enum(aiSystemCapabilityProfiles).default("general_assistant"),
+    allowedCapabilities: z.array(z.enum(capabilityIds)).default([]),
+    strictness: z.enum(aiSystemStrictnessModes).default("normal"),
     sourceCatalog: z.array(
       z.object({
         id: z.string().trim().min(1).max(120).optional(),
@@ -880,6 +899,9 @@ export const agentGovernanceProfiles = pgTable("agent_governance_profiles", {
   workflowId: varchar("workflow_id").references(() => approvalWorkflows.id, { onDelete: "cascade" }),
   legalProfile: text("legal_profile").notNull().default("global"),
   lawPackIds: jsonb("law_pack_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  capabilityProfile: text("capability_profile").notNull().default("general_assistant"),
+  allowedCapabilities: jsonb("allowed_capabilities").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  strictness: text("strictness").notNull().default("normal"),
   notes: text("notes"),
   createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -905,6 +927,9 @@ export const insertAgentGovernanceProfileSchema = createInsertSchema(agentGovern
   .extend({
     legalProfile: z.enum(aiSystemLegalProfiles).default("global"),
     lawPackIds: z.array(z.enum(lawPackIds)).default(["global_baseline"]),
+    capabilityProfile: z.enum(aiSystemCapabilityProfiles).default("general_assistant"),
+    allowedCapabilities: z.array(z.enum(capabilityIds)).default([]),
+    strictness: z.enum(aiSystemStrictnessModes).default("normal"),
   });
 
 export type InsertAgentGovernanceProfile = z.infer<typeof insertAgentGovernanceProfileSchema>;

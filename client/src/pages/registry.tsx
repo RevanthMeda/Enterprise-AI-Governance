@@ -63,6 +63,13 @@ import {
   lawPackIds,
   resolveSystemLawPackIds,
 } from "@shared/law-packs";
+import {
+  CAPABILITY_PROFILES,
+  capabilityIds,
+  capabilityProfileIds,
+  normalizeCapabilityProfileId,
+  strictnessModes,
+} from "@shared/governance-policy-registry";
 
 const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -78,6 +85,9 @@ const formSchema = z.object({
   geography: z.string().optional(),
   legalProfile: z.enum(legalProfiles).default("global"),
   lawPackIds: z.array(z.enum(lawPackIds)).default(["global_baseline"]),
+  capabilityProfile: z.enum(capabilityProfileIds).default("general_assistant"),
+  allowedCapabilities: z.array(z.enum(capabilityIds)).default([]),
+  strictness: z.enum(strictnessModes).default("normal"),
   purpose: z.string().optional(),
   usersImpacted: z.number().int().min(0).default(0),
 });
@@ -144,7 +154,7 @@ export default function Registry() {
     defaultValues: {
       name: "", description: "", owner: "", department: "", vendor: "",
       modelType: "", riskLevel: "minimal", status: "draft", deploymentContext: "",
-      dataSensitivity: "internal", geography: "", legalProfile: "global", lawPackIds: ["global_baseline"], purpose: "", usersImpacted: 0,
+      dataSensitivity: "internal", geography: "", legalProfile: "global", lawPackIds: ["global_baseline"], capabilityProfile: "general_assistant", allowedCapabilities: [], strictness: "normal", purpose: "", usersImpacted: 0,
     },
   });
 
@@ -377,6 +387,74 @@ export default function Registry() {
                               <div className="space-y-1">
                                 <div className="text-xs font-medium">{pack.label}</div>
                                 <div className="text-[11px] text-muted-foreground">{pack.summary}</div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <div className="grid grid-cols-2 gap-3">
+                    <FormField control={form.control} name="capabilityProfile" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Capability Profile</FormLabel>
+                        <Select
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            const profile = CAPABILITY_PROFILES.find((entry) => entry.id === normalizeCapabilityProfileId(value));
+                            form.setValue("allowedCapabilities", profile?.allowedCapabilities ?? []);
+                          }}
+                          defaultValue={field.value || "general_assistant"}
+                        >
+                          <FormControl><SelectTrigger data-testid="select-capability-profile"><SelectValue /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            {CAPABILITY_PROFILES.map((profile) => (
+                              <SelectItem key={profile.id} value={profile.id}>{profile.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="strictness" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Strictness</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value || "normal"}>
+                          <FormControl><SelectTrigger data-testid="select-system-strictness"><SelectValue /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            <SelectItem value="normal">Normal</SelectItem>
+                            <SelectItem value="high_risk">High risk</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
+                  <FormField control={form.control} name="allowedCapabilities" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Allowed Capabilities</FormLabel>
+                      <div className="space-y-2 rounded-md border bg-muted/20 p-3" data-testid="panel-capabilities">
+                        {(CAPABILITY_PROFILES.find((profile) => profile.id === normalizeCapabilityProfileId(form.watch("capabilityProfile")))?.allowedCapabilities ?? []).map((capability) => {
+                          const checked = field.value?.includes(capability) ?? false;
+                          return (
+                            <label key={capability} className="flex items-start gap-3 rounded-md border bg-background p-3">
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(nextChecked) => {
+                                  const current = field.value ?? [];
+                                  const next = nextChecked
+                                    ? Array.from(new Set([...current, capability]))
+                                    : current.filter((entry) => entry !== capability);
+                                  field.onChange(next);
+                                }}
+                                data-testid={`checkbox-capability-${capability}`}
+                              />
+                              <div className="space-y-1">
+                                <div className="text-xs font-medium">{capability.replace(/_/g, " ")}</div>
+                                <div className="text-[11px] text-muted-foreground">
+                                  Persisted as part of the system surface profile for runtime capability enforcement.
+                                </div>
                               </div>
                             </label>
                           );

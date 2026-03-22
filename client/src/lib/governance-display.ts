@@ -1,5 +1,13 @@
 import { LAW_PACKS_BY_ID, normalizeLegalProfile, type LawPackId } from "@shared/law-packs";
 import type { GovernanceReasonCode } from "@shared/governance-reasoning";
+import {
+  CAPABILITY_PROFILES_BY_ID,
+  GOVERNANCE_POLICY_CATEGORIES_BY_ID,
+  normalizeCapabilityProfileId,
+  normalizeStrictnessMode,
+  type CapabilityId,
+  type GovernancePolicyCategoryId,
+} from "@shared/governance-policy-registry";
 
 const LEGAL_PROFILE_LABELS: Record<string, string> = {
   global: "Global",
@@ -61,6 +69,10 @@ export function formatGovernanceReasonCode(value: string | GovernanceReasonCode)
       return "Mixed request rewrite available";
     case "deceptive_or_fraudulent_instruction":
       return "Deceptive or fraudulent instruction";
+    case "capability_out_of_scope_for_surface":
+      return "Capability out of scope for surface";
+    case "high_risk_strictness_review_required":
+      return "High-risk strictness review required";
     default:
       return value.replace(/_/g, " ");
   }
@@ -80,5 +92,54 @@ export function formatGovernanceCriticVerdict(verdict: string | null | undefined
       return "Unsafe";
     default:
       return "Not run";
+  }
+}
+
+export function formatCapabilityProfileLabel(profile: string | null | undefined) {
+  return CAPABILITY_PROFILES_BY_ID.get(normalizeCapabilityProfileId(profile))?.label ?? "General Assistant";
+}
+
+export function formatStrictnessLabel(value: string | null | undefined) {
+  return normalizeStrictnessMode(value) === "high_risk" ? "High Risk" : "Normal";
+}
+
+export function formatGovernancePolicyCategoryLabel(value: string | GovernancePolicyCategoryId) {
+  return GOVERNANCE_POLICY_CATEGORIES_BY_ID.get(value as GovernancePolicyCategoryId)?.label ?? value.replace(/_/g, " ");
+}
+
+export function formatCapabilityLabel(value: string | CapabilityId) {
+  switch (value) {
+    case "draft_customer_communications":
+      return "Draft customer communications";
+    case "summarize_case_material":
+      return "Summarize case material";
+    case "create_internal_notes":
+      return "Create internal notes";
+    case "cross_customer_analytics":
+      return "Cross-customer analytics";
+    case "customer_account_changes":
+      return "Customer account changes";
+    case "fund_movement":
+      return "Fund movement";
+    case "aml_case_adjudication":
+      return "AML case adjudication";
+    case "prod_write_actions":
+      return "Production write actions";
+    case "medical_treatment_planning":
+      return "Medical treatment planning";
+    case "personalized_investment_advice":
+      return "Personalized investment advice";
+    case "political_persuasion":
+      return "Political persuasion";
+    case "security_attack_guidance":
+      return "Security attack guidance";
+    case "abusive_targeted_messaging":
+      return "Abusive targeted messaging";
+    case "governance_configuration_change":
+      return "Governance configuration change";
+    case "employment_decisioning":
+      return "Employment decisioning";
+    default:
+      return value.replace(/_/g, " ");
   }
 }

@@ -215,10 +215,17 @@ function buildTelemetryAuditDetails(params: {
   const thresholdBreaches = getTelemetryStringArray(metadata.thresholdBreaches);
   const reasonCodes = getTelemetryStringArray(metadata.reasonCodes);
   const lawPackIds = getTelemetryStringArray(metadata.lawPackIdsApplied);
+  const policyCategories = getTelemetryStringArray(metadata.policyCategories);
+  const requestedCapabilities = getTelemetryStringArray(metadata.requestedCapabilities);
+  const outOfScopeCapabilities = getTelemetryStringArray(metadata.outOfScopeCapabilities);
   const decisionSummary =
     typeof metadata.decisionSummary === "string" ? metadata.decisionSummary.trim() : "";
   const legalProfileApplied =
     typeof metadata.legalProfileApplied === "string" ? metadata.legalProfileApplied : null;
+  const capabilityProfileApplied =
+    typeof metadata.capabilityProfileApplied === "string" ? metadata.capabilityProfileApplied : null;
+  const strictnessApplied =
+    typeof metadata.strictnessApplied === "string" ? metadata.strictnessApplied : null;
   const governanceCritic =
     metadata.governanceCritic && typeof metadata.governanceCritic === "object" && !Array.isArray(metadata.governanceCritic)
       ? (metadata.governanceCritic as Record<string, unknown>)
@@ -259,6 +266,21 @@ function buildTelemetryAuditDetails(params: {
   }
   if (lawPackIds.length > 0) {
     suffix.push(`Law packs: ${lawPackIds.join(", ")}`);
+  }
+  if (capabilityProfileApplied) {
+    suffix.push(`Capability profile: ${capabilityProfileApplied}`);
+  }
+  if (strictnessApplied) {
+    suffix.push(`Strictness: ${strictnessApplied}`);
+  }
+  if (policyCategories.length > 0) {
+    suffix.push(`Policy categories: ${policyCategories.join(", ")}`);
+  }
+  if (requestedCapabilities.length > 0) {
+    suffix.push(`Requested capabilities: ${requestedCapabilities.join(", ")}`);
+  }
+  if (outOfScopeCapabilities.length > 0) {
+    suffix.push(`Out-of-scope capabilities: ${outOfScopeCapabilities.join(", ")}`);
   }
   if (governanceCritic && governanceCritic.enabled) {
     const verdict = typeof governanceCritic.verdict === "string" ? governanceCritic.verdict : null;
@@ -3748,6 +3770,9 @@ export async function registerRoutes(
             workflowId: true,
             legalProfile: true,
             lawPackIds: true,
+            capabilityProfile: true,
+            allowedCapabilities: true,
+            strictness: true,
             notes: true,
           })
           .extend({
@@ -3772,6 +3797,9 @@ export async function registerRoutes(
             workflowId: parsed.workflowId ?? null,
             legalProfile: parsed.legalProfile,
             lawPackIds: parsed.lawPackIds,
+            capabilityProfile: parsed.capabilityProfile,
+            allowedCapabilities: parsed.allowedCapabilities,
+            strictness: parsed.strictness,
             notes: parsed.notes ?? null,
           },
         });
@@ -5005,6 +5033,28 @@ export async function registerRoutes(
           typeof metadata?.legalProfileApplied === "string" ? metadata.legalProfileApplied : null,
         lawPackIdsApplied: Array.isArray(metadata?.lawPackIdsApplied)
           ? (metadata.lawPackIdsApplied as string[])
+          : [],
+        capabilityProfileApplied:
+          typeof metadata?.capabilityProfileApplied === "string" ? metadata.capabilityProfileApplied : null,
+        allowedCapabilitiesApplied: Array.isArray(metadata?.allowedCapabilitiesApplied)
+          ? (metadata.allowedCapabilitiesApplied as string[])
+          : [],
+        strictnessApplied:
+          typeof metadata?.strictnessApplied === "string" ? metadata.strictnessApplied : null,
+        policyCategories: Array.isArray(metadata?.policyCategories)
+          ? (metadata.policyCategories as string[])
+          : [],
+        policyLayers: Array.isArray(metadata?.policyLayers)
+          ? (metadata.policyLayers as string[])
+          : [],
+        alwaysLogPolicyCategories: Array.isArray(metadata?.alwaysLogPolicyCategories)
+          ? (metadata.alwaysLogPolicyCategories as string[])
+          : [],
+        requestedCapabilities: Array.isArray(metadata?.requestedCapabilities)
+          ? (metadata.requestedCapabilities as string[])
+          : [],
+        outOfScopeCapabilities: Array.isArray(metadata?.outOfScopeCapabilities)
+          ? (metadata.outOfScopeCapabilities as string[])
           : [],
         rulesEngine:
           metadata?.rulesEngine && typeof metadata.rulesEngine === "object" && !Array.isArray(metadata.rulesEngine)

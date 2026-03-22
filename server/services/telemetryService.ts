@@ -25,6 +25,10 @@ import {
   mergeSourceReferences,
 } from "@shared/governance-catalogs";
 import {
+  assessSurfaceGovernance,
+  type SurfaceGovernanceAssessment,
+} from "@shared/governance-policy-registry";
+import {
   verifyActionExecutionClaims,
   verifyAuthoritativeFactGrounding,
   type ActionConfirmationVerificationResult,
@@ -144,6 +148,7 @@ const NON_RECOVERABLE_REASON_CODES = new Set<GovernanceReasonCode>([
   "internal_policy_or_prompt_exfiltration",
   "protected_trait_or_proxy_discrimination",
   "governance_tampering_or_runtime_override",
+  "capability_out_of_scope_for_surface",
 ]);
 
 const DECISION_PRIORITY: Record<TelemetryDecision, number> = {
@@ -432,6 +437,8 @@ function deriveSeverityFromBreaches(
     "tool_argument_enum_violation",
     "governance_hard_block_required",
     "governance_critic_unsafe",
+    "capability_out_of_scope",
+    "high_risk_block_required",
   ]);
 
   return thresholdBreaches.some((breach) => criticalBreaches.has(breach)) ? "critical" : "warning";
@@ -448,9 +455,13 @@ function deriveIncidentCategoryFromBreaches(thresholdBreaches: string[]) {
     thresholdBreaches.includes("tool_argument_missing_required") ||
     thresholdBreaches.includes("tool_argument_type_mismatch") ||
     thresholdBreaches.includes("tool_argument_out_of_range") ||
-    thresholdBreaches.includes("tool_argument_enum_violation")
+    thresholdBreaches.includes("tool_argument_enum_violation") ||
+    thresholdBreaches.includes("capability_out_of_scope")
   ) {
     return "security" as const;
+  }
+  if (thresholdBreaches.includes("high_risk_block_required") || thresholdBreaches.includes("high_risk_review_required")) {
+    return "safety" as const;
   }
   if (thresholdBreaches.includes("prompt_injection_detected") || thresholdBreaches.includes("repeat_attack_detected")) {
     return "security" as const;
@@ -535,6 +546,8 @@ function buildThresholdOutcome(params: {
     "tool_argument_type_mismatch",
     "tool_argument_out_of_range",
     "tool_argument_enum_violation",
+    "capability_out_of_scope",
+    "high_risk_block_required",
   ]);
   const hasRestrictedPromptOnly =
     params.thresholdBreaches.includes("restricted_prompt_detected") &&
@@ -900,6 +913,54 @@ function evaluateThresholds(
   };
 }
 
+function applySurfaceGovernanceAssessment(params: {
+  inputSeverity: TelemetrySeverity | undefined;
+  policy: Awaited<ReturnType<typeof telemetryPolicyService.getEffectiveForOrg>>;
+  evaluation: ThresholdEvaluation;
+  assessment: SurfaceGovernanceAssessment;
+}): ThresholdEvaluation {
+  const nextReasonCodes = Array.from(
+    new Set([...params.evaluation.reasonCodes, ...params.assessment.promotedReasonCodes]),
+  );
+  const nextThresholdBreaches = Array.from(
+    new Set([...params.evaluation.thresholdBreaches, ...params.assessment.promotedThresholdBreaches]),
+  );
+
+  if (
+    nextReasonCodes.join("|") === params.evaluation.reasonCodes.join("|") &&
+    nextThresholdBreaches.join("|") === params.evaluation.thresholdBreaches.join("|")
+  ) {
+    return params.evaluation;
+  }
+
+  const thresholdOutcome = buildThresholdOutcome({
+    inputSeverity: params.inputSeverity,
+    thresholdBreaches: nextThresholdBreaches,
+    reasonCodes: nextReasonCodes,
+    mixedRewriteEligible: nextReasonCodes.includes("mixed_request_rewrite_available"),
+    forceHardBlock: nextReasonCodes.some((reasonCode) => isNonRecoverableReasonCode(reasonCode)),
+    policy: params.policy,
+  });
+
+  return {
+    ...params.evaluation,
+    thresholdBreaches: nextThresholdBreaches,
+    shouldEscalateIncident: thresholdOutcome.shouldEscalateIncident,
+    shouldNotify: thresholdOutcome.shouldNotify,
+    shouldBlock: thresholdOutcome.shouldBlock,
+    incidentCategory: thresholdOutcome.incidentCategory,
+    severity: thresholdOutcome.severity,
+    decision: thresholdOutcome.decision,
+    reasonCodes: nextReasonCodes,
+    decisionSummary: buildGovernanceDecisionSummary({
+      decision: thresholdOutcome.decision,
+      blocked: thresholdOutcome.shouldBlock,
+      reasonCodes: nextReasonCodes,
+    }),
+    notificationRoles: thresholdOutcome.notificationRoles,
+  };
+}
+
 function buildRulesEngineSnapshot(evaluation: ThresholdEvaluation): RulesEngineSnapshot {
   return {
     decision: evaluation.decision,
@@ -1233,6 +1294,13 @@ export class TelemetryService {
       : {
           legalProfileApplied: "global" as const,
           lawPackIdsApplied: ["global_baseline"] as LawPackId[],
+          capabilityProfileApplied: "general_assistant" as const,
+          allowedCapabilitiesApplied: [
+            "draft_customer_communications",
+            "summarize_case_material",
+            "create_internal_notes",
+          ],
+          strictnessApplied: "normal" as const,
           source: "system" as const,
         };
     const appliedLawPackIds = effectiveGovernanceScope.lawPackIdsApplied;
@@ -1241,6 +1309,20 @@ export class TelemetryService {
       lawPackIds: appliedLawPackIds,
       restrictedPromptPatterns: compiledLawPackOverlay.restrictedPromptPatterns,
       guidanceTags: compiledLawPackOverlay.guidanceTags,
+    });
+    const surfaceGovernance = assessSurfaceGovernance({
+      promptText: governedInput.promptText,
+      modelOutput: governedInput.modelOutput,
+      reasonCodes: evaluation.reasonCodes,
+      capabilityProfile: effectiveGovernanceScope.capabilityProfileApplied,
+      allowedCapabilities: effectiveGovernanceScope.allowedCapabilitiesApplied,
+      strictness: effectiveGovernanceScope.strictnessApplied,
+    });
+    evaluation = applySurfaceGovernanceAssessment({
+      inputSeverity: normalizeTelemetrySeverity(governedInput.severity),
+      policy,
+      evaluation,
+      assessment: surfaceGovernance,
     });
     evaluation = await this.applyReviewerExceptions(organizationId, governedInput, evaluation, policy);
     const guardResult = await this.applyAdvancedGuards(organizationId, governedInput, evaluation, policy);
@@ -1269,6 +1351,11 @@ export class TelemetryService {
         lawPackIds: appliedLawPackIds,
         restrictedPromptPatterns: compiledLawPackOverlay.restrictedPromptPatterns,
         guidanceTags: compiledLawPackOverlay.guidanceTags,
+      },
+      surfaceGovernance: {
+        capabilityProfileApplied: effectiveGovernanceScope.capabilityProfileApplied,
+        allowedCapabilitiesApplied: effectiveGovernanceScope.allowedCapabilitiesApplied,
+        strictnessApplied: effectiveGovernanceScope.strictnessApplied,
       },
     });
     const collectionProfile = options?.collectionProfile ?? "full_evidence";
@@ -1341,8 +1428,18 @@ export class TelemetryService {
       shadowPolicy,
       legalProfileApplied: effectiveGovernanceScope.legalProfileApplied,
       lawPackIdsApplied: appliedLawPackIds,
+      capabilityProfileApplied: effectiveGovernanceScope.capabilityProfileApplied,
+      allowedCapabilitiesApplied: effectiveGovernanceScope.allowedCapabilitiesApplied,
+      strictnessApplied: effectiveGovernanceScope.strictnessApplied,
       governanceScopeSource: effectiveGovernanceScope.source,
       workflowIdApplied: workflow?.id ?? null,
+      policyCategories: surfaceGovernance.policyCategories,
+      policyLayers: surfaceGovernance.policyLayers,
+      alwaysLogPolicyCategories: surfaceGovernance.alwaysLogCategories,
+      requestedCapabilities: surfaceGovernance.requestedCapabilities,
+      outOfScopeCapabilities: surfaceGovernance.outOfScopeCapabilities,
+      fictionFramingDetected: surfaceGovernance.fictionFramingDetected,
+      fictionBypassPrevented: surfaceGovernance.fictionBypassPrevented,
       lawPackGuidanceTags: compiledLawPackOverlay.guidanceTags,
       lawPackDecisionConstraints: compiledLawPackOverlay.decisionConstraints,
       lawPackSources: compiledLawPackOverlay.sourceRefs,
@@ -1525,6 +1622,11 @@ export class TelemetryService {
       restrictedPromptPatterns: string[];
       guidanceTags?: string[];
     };
+    surfaceGovernance: {
+      capabilityProfileApplied: string;
+      allowedCapabilitiesApplied: string[];
+      strictnessApplied: "normal" | "high_risk";
+    };
   }): ShadowPolicyEvaluation {
     if (!params.config) {
       return {
@@ -1540,7 +1642,20 @@ export class TelemetryService {
     }
 
     const shadowPolicy = buildShadowPolicy(params.policy);
-    const shadowEvaluation = evaluateThresholds(params.input, shadowPolicy, params.lawPackOverlay);
+    let shadowEvaluation = evaluateThresholds(params.input, shadowPolicy, params.lawPackOverlay);
+    shadowEvaluation = applySurfaceGovernanceAssessment({
+      inputSeverity: normalizeTelemetrySeverity(params.input.severity),
+      policy: shadowPolicy,
+      evaluation: shadowEvaluation,
+      assessment: assessSurfaceGovernance({
+        promptText: params.input.promptText,
+        modelOutput: params.input.modelOutput,
+        reasonCodes: shadowEvaluation.reasonCodes,
+        capabilityProfile: params.surfaceGovernance.capabilityProfileApplied,
+        allowedCapabilities: params.surfaceGovernance.allowedCapabilitiesApplied,
+        strictness: params.surfaceGovernance.strictnessApplied,
+      }),
+    });
     return {
       enabled: true,
       label: params.config.label,
@@ -2022,6 +2137,18 @@ export class TelemetryService {
       legalProfileApplied:
         typeof eventMetadata.legalProfileApplied === "string" ? eventMetadata.legalProfileApplied : "global",
       lawPackIdsApplied: getStringArray(eventMetadata.lawPackIdsApplied),
+      capabilityProfileApplied:
+        typeof eventMetadata.capabilityProfileApplied === "string"
+          ? eventMetadata.capabilityProfileApplied
+          : "general_assistant",
+      allowedCapabilitiesApplied: getStringArray(eventMetadata.allowedCapabilitiesApplied),
+      strictnessApplied:
+        typeof eventMetadata.strictnessApplied === "string" ? eventMetadata.strictnessApplied : "normal",
+      policyCategories: getStringArray(eventMetadata.policyCategories),
+      policyLayers: getStringArray(eventMetadata.policyLayers),
+      alwaysLogPolicyCategories: getStringArray(eventMetadata.alwaysLogPolicyCategories),
+      requestedCapabilities: getStringArray(eventMetadata.requestedCapabilities),
+      outOfScopeCapabilities: getStringArray(eventMetadata.outOfScopeCapabilities),
       telemetryEventId: event.id,
       correlationId: event.correlationId ?? null,
     };

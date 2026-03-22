@@ -1,5 +1,6 @@
 import type { InsertAiSystem } from "@shared/schema";
 import { getDefaultLawPackIdsForProfile, normalizeLegalProfile } from "@shared/law-packs";
+import { inferCapabilityProfile, inferStrictnessMode } from "@shared/governance-policy-registry";
 
 type AutoDiscoveryManifest = {
   systemName: string;
@@ -181,6 +182,11 @@ export const autoDiscoveryService = {
   },
 
   buildAutoRegisteredSystemInput(manifest: AutoDiscoveryManifest, riskLevel: string): InsertAiSystem {
+    const capabilityProfile = inferCapabilityProfile({
+      department: manifest.department,
+      purpose: manifest.purpose,
+      description: manifest.purpose,
+    });
     return {
       name: manifest.systemName,
       description: `Auto-discovered via SDK/application manifest. ${manifest.purpose}`,
@@ -195,6 +201,15 @@ export const autoDiscoveryService = {
       geography: this.mapGeographyLabel(manifest.geography),
       legalProfile: normalizeLegalProfile(manifest.geography),
       lawPackIds: this.inferLawPackIds(manifest),
+      capabilityProfile,
+      allowedCapabilities: [],
+      strictness: inferStrictnessMode({
+        riskLevel,
+        capabilityProfile,
+        department: manifest.department,
+        purpose: manifest.purpose,
+        description: manifest.purpose,
+      }),
       sourceCatalog: [],
       authoritativeFactCatalog: [],
       purpose: manifest.purpose,
@@ -203,6 +218,11 @@ export const autoDiscoveryService = {
   },
 
   buildAutoReassessedSystemInput(manifest: AutoDiscoveryManifest, riskLevel: string): Partial<InsertAiSystem> {
+    const capabilityProfile = inferCapabilityProfile({
+      department: manifest.department,
+      purpose: manifest.purpose,
+      description: manifest.purpose,
+    });
     return {
       department: manifest.department || undefined,
       vendor: manifest.vendor || manifest.provider || undefined,
@@ -214,6 +234,14 @@ export const autoDiscoveryService = {
       geography: this.mapGeographyLabel(manifest.geography),
       legalProfile: normalizeLegalProfile(manifest.geography),
       lawPackIds: this.inferLawPackIds(manifest),
+      capabilityProfile,
+      strictness: inferStrictnessMode({
+        riskLevel,
+        capabilityProfile,
+        department: manifest.department,
+        purpose: manifest.purpose,
+        description: manifest.purpose,
+      }),
       purpose: manifest.purpose,
       usersImpacted: this.mapUsersImpacted(manifest.usersImpacted),
     };

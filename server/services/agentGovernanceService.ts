@@ -5,6 +5,7 @@ import {
 } from "@shared/schema";
 import { resolveEffectiveGovernanceScope } from "@shared/governance-scope";
 import { type LegalProfile } from "@shared/law-packs";
+import type { CapabilityId, CapabilityProfileId, StrictnessMode } from "@shared/governance-policy-registry";
 
 type Actor = {
   id: string;
@@ -105,6 +106,9 @@ export class AgentGovernanceService {
       workflowId?: string | null;
       legalProfile: LegalProfile;
       lawPackIds: string[];
+      capabilityProfile?: CapabilityProfileId;
+      allowedCapabilities?: CapabilityId[];
+      strictness?: StrictnessMode;
       notes?: string | null;
     };
   }) {
@@ -115,6 +119,9 @@ export class AgentGovernanceService {
       workflowId: params.input.workflowId ?? null,
       legalProfile: params.input.legalProfile,
       lawPackIds: params.input.lawPackIds,
+      capabilityProfile: params.input.capabilityProfile ?? "general_assistant",
+      allowedCapabilities: params.input.allowedCapabilities ?? [],
+      strictness: params.input.strictness ?? "normal",
       notes: params.input.notes ?? null,
       createdBy: params.actor.id,
     });
@@ -137,6 +144,9 @@ export class AgentGovernanceService {
         actorLabel: parsed.actorLabel,
         legalProfile: parsed.legalProfile,
         lawPackIds: parsed.lawPackIds,
+        capabilityProfile: parsed.capabilityProfile,
+        allowedCapabilities: parsed.allowedCapabilities,
+        strictness: parsed.strictness,
         notes: parsed.notes,
         createdBy: parsed.createdBy,
       });
@@ -158,16 +168,23 @@ export class AgentGovernanceService {
       legalProfile?: string | null;
       geography?: string | null;
       lawPackIds?: unknown;
+      capabilityProfile?: string | null;
+      allowedCapabilities?: unknown;
+      strictness?: string | null;
       name?: string | null;
       department?: string | null;
       purpose?: string | null;
       description?: string | null;
+      riskLevel?: string | null;
       id?: string | null;
     };
     workflow?: {
       id?: string | null;
       legalProfile?: string | null;
       lawPackIds?: unknown;
+      capabilityProfile?: string | null;
+      allowedCapabilities?: unknown;
+      strictness?: string | null;
     } | null;
     actor?: Partial<Actor> | null;
     runtimeContext?: unknown;

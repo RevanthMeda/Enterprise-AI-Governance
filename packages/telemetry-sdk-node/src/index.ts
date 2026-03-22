@@ -36,6 +36,14 @@ export type TelemetryIngestResult = {
   decisionSummary?: string | null;
   legalProfileApplied?: string | null;
   lawPackIdsApplied?: string[];
+  capabilityProfileApplied?: string | null;
+  allowedCapabilitiesApplied?: string[];
+  strictnessApplied?: string | null;
+  policyCategories?: string[];
+  policyLayers?: string[];
+  alwaysLogPolicyCategories?: string[];
+  requestedCapabilities?: string[];
+  outOfScopeCapabilities?: string[];
   rulesEngine?: {
     decision?: TelemetryDecision;
     blocked?: boolean;

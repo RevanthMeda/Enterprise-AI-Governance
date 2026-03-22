@@ -56,10 +56,23 @@ import {
   type LawPackId,
 } from "@shared/law-packs";
 import {
+  CAPABILITY_PROFILES,
+  capabilityIds,
+  capabilityProfileIds,
+  strictnessModes,
+  normalizeCapabilityProfileId,
+  resolveAllowedCapabilities,
+} from "@shared/governance-policy-registry";
+import {
   normalizeApprovedSourceCatalog,
   normalizeAuthoritativeFactCatalog,
 } from "@shared/governance-catalogs";
-import { formatLawPackLabel, formatLegalProfileLabel } from "@/lib/governance-display";
+import {
+  formatCapabilityProfileLabel,
+  formatLawPackLabel,
+  formatLegalProfileLabel,
+  formatStrictnessLabel,
+} from "@/lib/governance-display";
 
 const formSchema = z.object({
   systemId: z.string().min(1, "System is required"),
@@ -76,6 +89,9 @@ const formSchema = z.object({
   safetyCritical: z.boolean().default(false),
   legalProfile: z.enum(legalProfiles).default("global"),
   lawPackIds: z.array(z.string()).default(["global_baseline"]),
+  capabilityProfile: z.enum(capabilityProfileIds).default("general_assistant"),
+  allowedCapabilities: z.array(z.enum(capabilityIds)).default([]),
+  strictness: z.enum(strictnessModes).default("normal"),
   sourceCatalogJson: z.string().default("[]"),
   authoritativeFactCatalogJson: z.string().default("[]"),
 });
@@ -161,6 +177,9 @@ export default function Approvals() {
       safetyCritical: false,
       legalProfile: "global",
       lawPackIds: ["global_baseline"],
+      capabilityProfile: "general_assistant",
+      allowedCapabilities: [],
+      strictness: "normal",
       sourceCatalogJson: "[]",
       authoritativeFactCatalogJson: "[]",
     },
@@ -284,6 +303,15 @@ export default function Approvals() {
                             if (selectedSystem) {
                               form.setValue("legalProfile", normalizeLegalProfile(selectedSystem.legalProfile));
                               form.setValue("lawPackIds", resolveSystemLawPackIds(selectedSystem));
+                              form.setValue(
+                                "capabilityProfile",
+                                normalizeCapabilityProfileId(selectedSystem.capabilityProfile),
+                              );
+                              form.setValue(
+                                "allowedCapabilities",
+                                resolveAllowedCapabilities(selectedSystem.capabilityProfile, selectedSystem.allowedCapabilities),
+                              );
+                              form.setValue("strictness", selectedSystem.strictness === "high_risk" ? "high_risk" : "normal");
                               form.setValue(
                                 "sourceCatalogJson",
                                 JSON.stringify(normalizeApprovedSourceCatalog(selectedSystem.sourceCatalog), null, 2),
@@ -446,6 +474,59 @@ export default function Approvals() {
                       </FormItem>
                     )}
                   />
+                  <FormField
+                    control={form.control}
+                    name="capabilityProfile"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Workflow Capability Profile</FormLabel>
+                        <Select
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            form.setValue("allowedCapabilities", resolveAllowedCapabilities(value, []));
+                          }}
+                          defaultValue={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-workflow-capability-profile">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {CAPABILITY_PROFILES.map((profile) => (
+                              <SelectItem key={profile.id} value={profile.id}>
+                                {profile.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="strictness"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Workflow Strictness</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-workflow-strictness">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="normal">Normal</SelectItem>
+                            <SelectItem value="high_risk">High risk</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </div>
                 <FormField
                   control={form.control}
@@ -472,6 +553,42 @@ export default function Approvals() {
                               <div className="space-y-1">
                                 <div className="text-xs font-medium">{pack.label}</div>
                                 <div className="text-[11px] text-muted-foreground">{pack.summary}</div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="allowedCapabilities"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs">Workflow allowed capabilities</FormLabel>
+                      <div className="space-y-2 rounded-md border bg-muted/20 p-3" data-testid="panel-workflow-capabilities">
+                        {(CAPABILITY_PROFILES.find((profile) => profile.id === normalizeCapabilityProfileId(form.watch("capabilityProfile")))?.allowedCapabilities ?? []).map((capability) => {
+                          const checked = field.value?.includes(capability) ?? false;
+                          return (
+                            <label key={capability} className="flex items-start gap-3 rounded-md border bg-background p-3">
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(nextChecked) => {
+                                  const current = field.value ?? [];
+                                  const next = nextChecked
+                                    ? Array.from(new Set([...current, capability]))
+                                    : current.filter((entry) => entry !== capability);
+                                  field.onChange(next);
+                                }}
+                                data-testid={`checkbox-workflow-capability-${capability}`}
+                              />
+                              <div className="space-y-1">
+                                <div className="text-xs font-medium">{capability.replace(/_/g, " ")}</div>
+                                <div className="text-[11px] text-muted-foreground">
+                                  Enforced at runtime when this workflow overrides the system surface profile.
+                                </div>
                               </div>
                             </label>
                           );
@@ -605,6 +722,9 @@ export default function Approvals() {
                       <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium">
                         {formatLegalProfileLabel(workflow.legalProfile)}
                       </span>
+                      <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium">
+                        {formatCapabilityProfileLabel(workflow.capabilityProfile)}
+                      </span>
                     </div>
                   </div>
                   {workflow.description ? <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{workflow.description}</p> : null}
@@ -664,6 +784,12 @@ export default function Approvals() {
                     </span>
                     <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium">
                       {formatLegalProfileLabel(workflow.legalProfile)}
+                    </span>
+                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium">
+                      {formatCapabilityProfileLabel(workflow.capabilityProfile)}
+                    </span>
+                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium">
+                      {formatStrictnessLabel(workflow.strictness)}
                     </span>
                   </div>
                 </div>
