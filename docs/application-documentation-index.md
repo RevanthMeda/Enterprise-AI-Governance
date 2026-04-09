@@ -9,6 +9,7 @@ Use these documents in this order:
 3. [Admin Operations Guide](./admin-operations-guide.md)
 4. [Role-Based Usage Guide](./role-based-usage-guide.md)
 5. [Architecture and Data Flow Summary](./architecture-data-flow-summary.md)
+6. [Full Application Report](./full-application-report.md)
 
 ## What each document covers
 
@@ -43,6 +44,13 @@ Use these documents in this order:
 `architecture-data-flow-summary.md`
 - frontend, backend, database, auth, tenancy, jobs, telemetry, audit, portfolio, and deployment flow
 
+`full-application-report.md`
+- complete product and architecture synthesis
+- capability-by-capability explanation
+- API and data-model summary
+- deployment and operational posture
+- strengths, caveats, and recommended mental model
+
 ## Recommended reading paths
 
 For product review:
@@ -60,7 +68,14 @@ For internal enablement:
 For technical handoff:
 - Architecture and Data Flow Summary
 - Admin Operations Guide
+- Full Application Report
 
-## Important current limitation
+## Password reset status
 
-The platform has visible password recovery guidance on the login page, but it still does not have a full self-service email/token reset flow. That is the main remaining auth-product gap from a user-experience standpoint.
+The current repo includes a self-service password reset flow for local accounts:
+
+- forgot-password request
+- signed reset-token flow
+- reset page and backend reset endpoint
+
+Operationally, password reset delivery still depends on SMTP or webhook configuration in the target environment.

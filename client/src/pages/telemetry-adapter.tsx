@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { apiRequest, captureCsrfTokenFromResponse, queryClient } from "@/lib/queryClient";
@@ -7,6 +7,7 @@ import { resolveApiUrl } from "@/lib/api-url";
 import { usePageCopy } from "@/lib/page-copy";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -161,18 +162,7 @@ export default function TelemetryAdapterPage() {
     queryKey: ["/api/organization/telemetry-adapter"],
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/organization/telemetry-adapter");
-      const payload = await response.json();
-      setDraftGateways(Array.isArray(payload.allowedGateways) ? payload.allowedGateways.join(", ") : "");
-      setDraftAllowedTools(Array.isArray(payload.allowedToolNames) ? payload.allowedToolNames.join(", ") : "");
-      setDraftToolArgumentPolicy(JSON.stringify(payload.toolArgumentPolicy ?? {}, null, 2));
-      setDraftUpstreamProviders(JSON.stringify(payload.upstreamProviders ?? {}, null, 2));
-      setDraftDefaultSystemId(typeof payload.defaultSystemId === "string" ? payload.defaultSystemId : "");
-      setDraftCollectionProfile(
-        payload.collectionProfile === "minimal" || payload.collectionProfile === "redacted"
-          ? payload.collectionProfile
-          : "full_evidence",
-      );
-      return payload;
+      return response.json();
     },
   });
   const systemsQuery = useQuery<AiSystem[]>({
@@ -188,6 +178,29 @@ export default function TelemetryAdapterPage() {
       return response.json();
     },
   });
+
+  useEffect(() => {
+    if (!adapterQuery.data) {
+      return;
+    }
+
+    setDraftGateways(
+      Array.isArray(adapterQuery.data.allowedGateways) ? adapterQuery.data.allowedGateways.join(", ") : "",
+    );
+    setDraftAllowedTools(
+      Array.isArray(adapterQuery.data.allowedToolNames) ? adapterQuery.data.allowedToolNames.join(", ") : "",
+    );
+    setDraftToolArgumentPolicy(JSON.stringify(adapterQuery.data.toolArgumentPolicy ?? {}, null, 2));
+    setDraftUpstreamProviders(JSON.stringify(adapterQuery.data.upstreamProviders ?? {}, null, 2));
+    setDraftDefaultSystemId(
+      typeof adapterQuery.data.defaultSystemId === "string" ? adapterQuery.data.defaultSystemId : "",
+    );
+    setDraftCollectionProfile(
+      adapterQuery.data.collectionProfile === "minimal" || adapterQuery.data.collectionProfile === "redacted"
+        ? adapterQuery.data.collectionProfile
+        : "full_evidence",
+    );
+  }, [adapterQuery.data]);
 
   const updateMutation = useMutation({
     mutationFn: async () => {
@@ -325,11 +338,45 @@ export default function TelemetryAdapterPage() {
     },
   });
 
-  if (adapterQuery.isLoading || !adapter) {
+  if (adapterQuery.isLoading) {
     return (
       <div className="page-shell">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-56 w-full" />
+      </div>
+    );
+  }
+
+  if (adapterQuery.isError || !adapter) {
+    const message =
+      adapterQuery.error instanceof Error
+        ? adapterQuery.error.message
+        : "Failed to load telemetry adapter.";
+
+    return (
+      <div className="page-shell space-y-4">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">{pageCopy.telemetryAdapter.title}</h1>
+          <p className="text-sm text-muted-foreground">{pageCopy.telemetryAdapter.description}</p>
+        </div>
+        <Alert variant="destructive">
+          <AlertTitle>Telemetry adapter failed to load</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>{message}</p>
+            <p>
+              This usually means the backend route failed, your active organization lacks adapter access,
+              or the database schema for telemetry adapters is not available in the connected environment.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={() => void adapterQuery.refetch()}>
+                Retry
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/runtime-monitoring">Open runtime monitoring</Link>
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
       </div>
     );
   }

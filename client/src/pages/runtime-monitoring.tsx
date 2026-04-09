@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -341,7 +342,8 @@ export default function RuntimeMonitoringPage() {
       const response = await fetch(resolveApiUrl("/api/organization/telemetry-adapter"), { credentials: "include" });
       captureCsrfTokenFromResponse(response);
       if (!response.ok) {
-        throw new Error("Failed to load telemetry adapter");
+        const detail = (await response.text()) || response.statusText;
+        throw new Error(`${response.status}: ${detail}`);
       }
       return response.json();
     },
@@ -401,6 +403,10 @@ export default function RuntimeMonitoringPage() {
     Array.isArray(adapter.allowedGateways) && adapter.allowedGateways.length
       ? String(adapter.allowedGateways[0])
       : "customer-support-gateway";
+  const adapterErrorMessage =
+    adapterQuery.error instanceof Error
+      ? adapterQuery.error.message
+      : "Telemetry adapter details are unavailable right now.";
   const responseBreaches = extractThresholdLabels(runtimeResponse);
   const responseRestrictedMatches = Array.isArray(runtimeResponse?.restrictedPromptMatches)
     ? runtimeResponse.restrictedPromptMatches
@@ -688,6 +694,19 @@ export default function RuntimeMonitoringPage() {
           </CardContent>
         </Card>
       </div>
+
+      {adapterQuery.isError ? (
+        <Alert variant="destructive">
+          <AlertTitle>Telemetry adapter details could not be loaded</AlertTitle>
+          <AlertDescription className="space-y-2">
+            <p>{adapterErrorMessage}</p>
+            <p>
+              The rest of runtime monitoring can still load, but adapter-specific setup like key rotation,
+              gateway scope, and default system binding should be checked after this backend error is fixed.
+            </p>
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
