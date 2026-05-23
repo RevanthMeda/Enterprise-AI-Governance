@@ -29,7 +29,7 @@ Set these on the backend service if you want events forwarded to an external sin
 
 - `MONITORING_WEBHOOK_URL`
 - `MONITORING_WEBHOOK_TOKEN` optional bearer token
-- `MONITORING_SERVICE_NAME` optional, defaults to `ai-control-tower`
+- `MONITORING_SERVICE_NAME` optional, defaults to `ai-control-grid`
 - `MONITORING_ENVIRONMENT` optional, defaults to `NODE_ENV`
 
 If `MONITORING_WEBHOOK_URL` is not set, the app still logs structured events locally but does not forward them.

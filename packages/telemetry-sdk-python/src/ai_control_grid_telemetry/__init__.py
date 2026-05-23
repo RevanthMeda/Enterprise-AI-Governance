@@ -1,12 +1,12 @@
 from .client import (
-    AiControlTowerTelemetryClient,
+    AiControlGridTelemetryClient,
     TelemetryClientConfig,
     TelemetrySdkError,
     create_client,
 )
 
 __all__ = [
-    "AiControlTowerTelemetryClient",
+    "AiControlGridTelemetryClient",
     "TelemetryClientConfig",
     "TelemetrySdkError",
     "create_client",

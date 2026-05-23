@@ -40,6 +40,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import type {
   AiSystem,
   SystemControl,
@@ -50,6 +57,7 @@ import type {
   RiskAssessment,
 } from "@shared/schema";
 import { EvidenceUpload } from "@/components/evidence-upload";
+import { JiraTicketLink } from "@/components/jira-ticket-link";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -1013,7 +1021,7 @@ function OverviewTab({
         <InfoItem icon={Users} label="Users Impacted" value={(system.usersImpacted || 0).toLocaleString()} />
         <InfoItem icon={Clock} label="Last Assessment" value={system.lastAssessment ? new Date(system.lastAssessment).toLocaleDateString() : "Not assessed"} />
       </div>
-      <RiskAssessmentHistoryCard systemId={system.id} currentRiskLevel={system.riskLevel} />
+      <RiskAssessmentHistoryCard systemId={system.id} systemName={system.name} currentRiskLevel={system.riskLevel} />
       <LegalGovernanceCard system={system} canEdit={canEdit} />
       <CapabilityGovernanceCard system={system} canEdit={canEdit} />
       <AgentGovernanceOverridesCard system={system} workflows={workflows} canEdit={canEdit} />
@@ -1063,11 +1071,27 @@ function OverviewTab({
 
 function RiskAssessmentHistoryCard({
   systemId,
+  systemName,
   currentRiskLevel,
 }: {
   systemId: string;
+  systemName: string;
   currentRiskLevel: string;
 }) {
+  const { toast } = useToast();
+  const [reassessOpen, setReassessOpen] = useState(false);
+  const [reassessmentAnswers, setReassessmentAnswers] = useState({
+    intendedUse: "decision_support",
+    domain: "general",
+    personalData: "basic",
+    usersImpacted: "under_1k",
+    decisionImpact: "minor",
+    humanOversight: "in_loop",
+    geography: "global",
+    biometricUse: "no",
+    vulnerableGroups: "no",
+    purpose: "",
+  });
   const assessmentsQuery = useQuery<RiskAssessment[]>({
     queryKey: ["/api/risk-assessments/system", systemId],
     queryFn: async () => {
@@ -1085,10 +1109,97 @@ function RiskAssessmentHistoryCard({
   const scoreDelta = latest && previous ? latest.riskScore - previous.riskScore : null;
   const latestIsRuntime = /runtime telemetry/i.test(latest?.completedBy ?? "");
 
+  useEffect(() => {
+    if (!reassessOpen || !latest) return;
+    const answers =
+      latest.answers && typeof latest.answers === "object" && !Array.isArray(latest.answers)
+        ? (latest.answers as Record<string, unknown>)
+        : {};
+    setReassessmentAnswers({
+      intendedUse: typeof answers.intendedUse === "string" ? answers.intendedUse : "decision_support",
+      domain: typeof answers.domain === "string" ? answers.domain : "general",
+      personalData: typeof answers.personalData === "string" ? answers.personalData : "basic",
+      usersImpacted: typeof answers.usersImpacted === "string" ? answers.usersImpacted : "under_1k",
+      decisionImpact: typeof answers.decisionImpact === "string" ? answers.decisionImpact : "minor",
+      humanOversight: typeof answers.humanOversight === "string" ? answers.humanOversight : "in_loop",
+      geography: typeof answers.geography === "string" ? answers.geography : "global",
+      biometricUse: typeof answers.biometricUse === "string" ? answers.biometricUse : "no",
+      vulnerableGroups: typeof answers.vulnerableGroups === "string" ? answers.vulnerableGroups : "no",
+      purpose: typeof answers.purpose === "string" ? answers.purpose : latest.riskExplanation,
+    });
+  }, [latest, reassessOpen]);
+
+  const reassessMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/risk-assessments", {
+        systemId,
+        systemName,
+        answers: reassessmentAnswers,
+      });
+      return response.json();
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/risk-assessments/system", systemId] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/ai-systems", systemId] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/ai-systems"] });
+      setReassessOpen(false);
+      toast({ title: "Risk reassessment saved" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to save reassessment", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const setReassessmentField = (field: keyof typeof reassessmentAnswers, value: string) => {
+    setReassessmentAnswers((current) => ({ ...current, [field]: value }));
+  };
+
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-xs font-semibold">Risk score history</CardTitle>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-xs font-semibold">Risk score history</CardTitle>
+          <Dialog open={reassessOpen} onOpenChange={setReassessOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" variant="outline" disabled={!latest} data-testid="button-risk-reassess">
+                Re-assess
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle className="text-base">Re-assess risk</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                  <div className="text-xs font-medium text-muted-foreground">Latest outcome</div>
+                  <div className="mt-1 font-semibold">{latest?.riskOutcome ?? currentRiskLevel} risk · {latest?.riskScore ?? 0}/100</div>
+                  <p className="mt-2 text-xs text-muted-foreground">{latest?.riskExplanation ?? "No prior notes recorded."}</p>
+                </div>
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium">Notes / changed context</span>
+                  <Textarea
+                    value={reassessmentAnswers.purpose}
+                    onChange={(event) => setReassessmentField("purpose", event.target.value)}
+                    className="min-h-[104px]"
+                    data-testid="input-reassessment-notes"
+                  />
+                </label>
+                <RiskSelect label="Intended use" value={reassessmentAnswers.intendedUse} onChange={(value) => setReassessmentField("intendedUse", value)} options={["autonomous_decisions", "decision_support", "automation", "analytics"]} />
+                <RiskSelect label="Domain" value={reassessmentAnswers.domain} onChange={(value) => setReassessmentField("domain", value)} options={["healthcare", "law_enforcement", "finance", "employment", "education", "critical_infrastructure", "general"]} />
+                <RiskSelect label="Personal data" value={reassessmentAnswers.personalData} onChange={(value) => setReassessmentField("personalData", value)} options={["special_category", "sensitive", "basic", "none"]} />
+                <RiskSelect label="Users impacted" value={reassessmentAnswers.usersImpacted} onChange={(value) => setReassessmentField("usersImpacted", value)} options={["over_100k", "10k_100k", "1k_10k", "under_1k"]} />
+                <RiskSelect label="Decision impact" value={reassessmentAnswers.decisionImpact} onChange={(value) => setReassessmentField("decisionImpact", value)} options={["legal_significant", "material", "minor", "none"]} />
+                <RiskSelect label="Human oversight" value={reassessmentAnswers.humanOversight} onChange={(value) => setReassessmentField("humanOversight", value)} options={["none", "post_hoc", "in_loop", "full_control"]} />
+                <RiskSelect label="Geography" value={reassessmentAnswers.geography} onChange={(value) => setReassessmentField("geography", value)} options={["eu", "global", "us", "other"]} />
+                <RiskSelect label="Biometric use" value={reassessmentAnswers.biometricUse} onChange={(value) => setReassessmentField("biometricUse", value)} options={["yes", "no"]} />
+                <RiskSelect label="Vulnerable groups" value={reassessmentAnswers.vulnerableGroups} onChange={(value) => setReassessmentField("vulnerableGroups", value)} options={["yes", "no"]} />
+              </div>
+              <Button onClick={() => reassessMutation.mutate()} disabled={reassessMutation.isPending} data-testid="button-submit-reassessment">
+                {reassessMutation.isPending ? "Saving..." : "Save reassessment"}
+              </Button>
+            </DialogContent>
+          </Dialog>
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
         {assessmentsQuery.isLoading ? (
@@ -1132,6 +1243,36 @@ function RiskAssessmentHistoryCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function RiskSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="space-y-1 text-sm">
+      <span className="font-medium">{label}</span>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option} value={option}>
+              {option.replace(/_/g, " ")}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </label>
   );
 }
 
@@ -1256,6 +1397,12 @@ function WorkflowsTab({ workflows }: { workflows: ApprovalWorkflow[] }) {
                 {wf.reviewer && <span>Reviewer: <strong>{wf.reviewer}</strong></span>}
                 {wf.priority && <Badge variant="outline" className="text-[10px] h-4">{wf.priority}</Badge>}
                 <Badge variant="outline" className="text-[10px] h-4">{formatLegalProfileLabel(wf.legalProfile)}</Badge>
+                <JiraTicketLink
+                  issueKey={wf.jiraIssueKey}
+                  issueUrl={wf.jiraIssueUrl}
+                  syncStatus={wf.jiraSyncStatus}
+                  compact
+                />
                 {wf.createdAt && <span>{new Date(wf.createdAt).toLocaleDateString()}</span>}
               </div>
               {Array.isArray(wf.lawPackIds) && wf.lawPackIds.length > 0 && (

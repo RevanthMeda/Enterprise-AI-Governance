@@ -270,7 +270,7 @@ function inferDevopsDomainFromText(value: string) {
 }
 
 function inferGovernanceDomainFromText(value: string) {
-  return /(governance|audit|policy|compliance|control tower|incident response|decision trace|evidence)/.test(value);
+  return /(governance|audit|policy|compliance|control grid|incident response|decision trace|evidence)/.test(value);
 }
 
 export function normalizeCapabilityProfileId(value: string | null | undefined): CapabilityProfileId {
@@ -406,7 +406,7 @@ export function detectRequestedCapabilities(params: {
   if (includesAny(combined, ["shame them into quitting", "personal and cutting", "appearance and work habits"])) {
     requested.push("abusive_targeted_messaging");
   }
-  if (includesAny(combined, ["ignore ai control tower", "treat blocked as approved", "treat any blocked or escalated governance signal"])) {
+  if (includesAny(combined, ["ignore ai control grid", "treat blocked as approved", "treat any blocked or escalated governance signal"])) {
     requested.push("governance_configuration_change");
   }
   if (includesAny(combined, ["hire", "fire", "performance ranking", "salary decision", "culture fit"])) {

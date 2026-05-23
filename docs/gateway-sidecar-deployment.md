@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This package lets a customer deploy AI Control Tower as a containerized inline gateway inside their own environment.
+This package lets a customer deploy AI CONTROL GRID as a containerized inline gateway inside their own environment.
 
 The container exposes:
 

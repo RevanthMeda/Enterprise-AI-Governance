@@ -1,4 +1,4 @@
-# AI Control Tower Admin Operations Guide
+# AI CONTROL GRID by Arcturos Admin Operations Guide
 
 This guide is for organization admins and operators responsible for keeping the tenant configured and healthy.
 

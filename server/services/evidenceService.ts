@@ -20,6 +20,7 @@ export interface CreateEvidenceInput {
   fileSize: number;
   mimeType: string;
   filePath: string;
+  metadata?: Record<string, unknown>;
 }
 
 export class EvidenceService {
@@ -87,6 +88,7 @@ export class EvidenceService {
       filePath: params.input.filePath,
       uploadedBy: params.actor.fullName,
       metadata: {
+        ...(params.input.metadata ?? {}),
         legalProfileApplied: effectiveGovernanceScope.legalProfileApplied,
         lawPackIdsApplied: effectiveGovernanceScope.lawPackIdsApplied,
         governanceScopeSource: effectiveGovernanceScope.source,

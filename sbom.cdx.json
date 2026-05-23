@@ -2,10 +2,10 @@
   "$schema": "http://cyclonedx.org/schema/bom-1.5.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:***",
+  "serialNumber": "urn:uuid:adea7d34-1138-4ae8-9ef3-0ad9eedbf60c",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-03-21T19:23:13.201Z",
+    "timestamp": "2026-05-15T17:10:22.689Z",
     "lifecycles": [
       {
         "phase": "pre-build"
@@ -15,7 +15,7 @@
       {
         "vendor": "npm",
         "name": "cli",
-        "version": "11.6.0"
+        "version": "11.11.0"
       }
     ],
     "component": {
@@ -19802,13 +19802,13 @@
       ]
     },
     {
-      "bom-ref": "@ai-control-tower/telemetry-sdk-node@0.1.0",
+      "bom-ref": "@ai-control-grid/telemetry-sdk-node@0.1.0",
       "type": "library",
       "name": "telemetry-sdk-node",
       "version": "0.1.0",
       "scope": "required",
-      "description": "Typed Node SDK for AI Control Tower telemetry ingestion",
-      "purl": "pkg:npm/%40ai-control-tower/telemetry-sdk-node@0.1.0",
+      "description": "Typed Node SDK for AI CONTROL GRID telemetry ingestion",
+      "purl": "pkg:npm/%40ai-control-grid/telemetry-sdk-node@0.1.0",
       "properties": [],
       "externalReferences": []
     }
@@ -19817,7 +19817,7 @@
     {
       "ref": "rest-express@1.0.0",
       "dependsOn": [
-        "@ai-control-tower/telemetry-sdk-node@0.1.0",
+        "@ai-control-grid/telemetry-sdk-node@0.1.0",
         "@hookform/resolvers@3.10.0",
         "@jridgewell/trace-mapping@0.3.31",
         "@node-saml/node-saml@5.1.0",
@@ -24510,7 +24510,7 @@
       ]
     },
     {
-      "ref": "@ai-control-tower/telemetry-sdk-node@0.1.0",
+      "ref": "@ai-control-grid/telemetry-sdk-node@0.1.0",
       "dependsOn": []
     }
   ]

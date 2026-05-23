@@ -68,7 +68,7 @@
     "security:all": "npm run security:sast && npm run security:deps && npm run security:secrets && npm run security:sbom"
   },
   "dependencies": {
-    "@ai-control-tower/telemetry-sdk-node": "file:packages/telemetry-sdk-node",
+    "@ai-control-grid/telemetry-sdk-node": "file:packages/telemetry-sdk-node",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
     "@node-saml/node-saml": "^5.1.0",

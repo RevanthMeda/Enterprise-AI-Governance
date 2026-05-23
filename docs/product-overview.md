@@ -1,8 +1,10 @@
-# AI Control Tower Product Overview
+# AI CONTROL GRID by Arcturos Product Overview
 
 ## 1. What this application is
 
-AI Control Tower is an enterprise AI governance platform.
+AI CONTROL GRID is an enterprise AI governance platform by Arcturos.
+
+The product is founder-built by [Revanth Meda](https://ie.linkedin.com/in/revanth-meda-1ab294226) and shaped around the operating model he has discussed publicly on LinkedIn: replace spreadsheet-led AI governance with a live system for registration, risk assessment, control mapping, role-based approvals, and audit-ready evidence.
 
 It is designed to give an organization one operating layer for:
 - AI system inventory
@@ -16,7 +18,7 @@ It is designed to give an organization one operating layer for:
 - retention and legal hold
 - portfolio-level oversight
 
-It is not just a registry and not just a compliance dashboard. In the current state, it behaves more like an operational control plane for governed AI programs.
+It is not just a registry and not just a compliance dashboard. In the current state, it behaves more like an operational control grid for governed AI programs.
 
 ## 2. Core outcomes it supports
 

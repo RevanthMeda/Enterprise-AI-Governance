@@ -183,7 +183,7 @@ export class TelemetrySdkError extends Error {
   }
 }
 
-export class AiControlTowerTelemetryClient {
+export class AiControlGridTelemetryClient {
   private readonly baseUrl: string;
   private readonly telemetryKey: string;
   private readonly defaults: TelemetryClientDefaults;
@@ -348,8 +348,9 @@ export class AiControlTowerTelemetryClient {
 }
 
 export function createTelemetryClient(config: TelemetryClientConfig) {
-  return new AiControlTowerTelemetryClient(config);
+  return new AiControlGridTelemetryClient(config);
 }
+
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 

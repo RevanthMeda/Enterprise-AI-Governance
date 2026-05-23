@@ -3,14 +3,14 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ai-control-tower-telemetry"
+name = "ai-control-grid-telemetry"
 version = "0.1.0"
-description = "Python SDK for AI Control Tower runtime telemetry ingestion and evaluation"
+description = "Python SDK for AI CONTROL GRID runtime telemetry ingestion and evaluation"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Proprietary" }
 authors = [
-  { name = "AI Control Tower" }
+  { name = "AI CONTROL GRID" }
 ]
 keywords = ["ai", "governance", "telemetry", "runtime-monitoring", "compliance"]
 classifiers = [
@@ -25,7 +25,7 @@ classifiers = [
 package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]
-ai_control_tower_telemetry = ["py.typed"]
+ai_control_grid_telemetry = ["py.typed"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

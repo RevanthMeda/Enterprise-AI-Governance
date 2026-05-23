@@ -248,7 +248,7 @@ export default function AuthPage() {
                 <div className="space-y-2">
                   <CardTitle className="flex items-center gap-2 text-2xl">
                     <LogIn className="h-5 w-5" />
-                    Sign in to AI Control Tower
+                    Sign in to AI CONTROL GRID
                   </CardTitle>
                   <p className="text-sm leading-6 text-muted-foreground">
                     Use your organization account to access approvals, evidence, telemetry, and governance operations.

@@ -45,6 +45,10 @@ import { usePageCopy, type PageCopyCatalog } from "@/lib/page-copy";
 const glassClass =
   "bg-white/[0.03] border border-white/[0.08] backdrop-blur-xl shadow-[0_0_40px_rgba(0,255,209,0.05)]";
 
+const PRODUCT_NAME = "AI CONTROL GRID";
+const COMPANY_BYLINE = "by Arcturos";
+const FOUNDER_LINKEDIN_URL = "https://ie.linkedin.com/in/revanth-meda-1ab294226";
+
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
@@ -309,7 +313,7 @@ const TOUR_STEPS = [
   },
   {
     title: "Escalation",
-    body: "Control Tower opens a runtime incident and routes ownership to compliance and system operations.",
+    body: "Control Grid opens a runtime incident and routes ownership to compliance and system operations.",
     status: "incident opened automatically",
   },
   {
@@ -494,10 +498,10 @@ function Navbar({ copy }: { copy: LandingCopy }) {
           </span>
           <div className="flex flex-col">
             <span className="text-[clamp(1rem,1.5vw,1.25rem)] font-bold tracking-[0.18em] text-white sm:tracking-[0.24em]">
-              AI CONTROL TOWER
+              {PRODUCT_NAME}
             </span>
             <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500 sm:text-[11px] sm:tracking-[0.22em]">
-              {badges.runtimeGovernance ?? "Runtime governance"}
+              {badges.runtimeGovernance ?? COMPANY_BYLINE}
             </span>
           </div>
         </a>
@@ -522,7 +526,7 @@ function Navbar({ copy }: { copy: LandingCopy }) {
           <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.98 }}>
             <SmartLink
               href="/book-demo"
-              className="rounded-full border border-[#00FFD1] px-4 py-2 text-sm font-semibold text-[#00FFD1] transition-all duration-300 hover:bg-[#00FFD1] hover:text-black sm:px-5 xl:px-6"
+              className="shrink-0 whitespace-nowrap rounded-full border border-[#00FFD1] px-3 py-2 text-xs font-semibold text-[#00FFD1] transition-all duration-300 hover:bg-[#00FFD1] hover:text-black sm:px-5 sm:text-sm xl:px-6"
             >
               {badges.bookDemo ?? "Book a Demo"}
             </SmartLink>
@@ -655,6 +659,14 @@ function SmartLink({
   if (href.startsWith("#")) {
     return (
       <a href={href} className={className} onClick={onClick}>
+        {children}
+      </a>
+    );
+  }
+
+  if (/^https?:\/\//.test(href)) {
+    return (
+      <a href={href} className={className} onClick={onClick} target="_blank" rel="noreferrer">
         {children}
       </a>
     );
@@ -1841,7 +1853,7 @@ function HeroSection({ velocity, isMobile, copy }: { velocity: number; isMobile:
         }}
       >
         <SceneCanvas
-          label="hero control plane"
+          label="hero control grid"
           isMobile={isMobile}
           camera={{ position: [0, 0, 9.5], fov: 42 }}
           className="pointer-events-none absolute inset-0"
@@ -1902,6 +1914,15 @@ function HeroSection({ velocity, isMobile, copy }: { velocity: number; isMobile:
             <p className="mt-4 max-w-2xl text-sm font-medium uppercase tracking-[0.22em] text-slate-500">
               {badges.heroAudience ?? "For PE funds and regulated enterprises that cannot afford AI guesswork."}
             </p>
+            <a
+              href={FOUNDER_LINKEDIN_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300 transition-colors hover:border-[#00FFD1]/40 hover:text-white"
+            >
+              Founder-built by Revanth Meda
+              <ArrowRight className="h-3.5 w-3.5 text-[#00FFD1]" />
+            </a>
 
             <div className="mt-8 flex flex-col items-center gap-4 sm:flex-row md:items-start">
               <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
@@ -2622,11 +2643,12 @@ function FinalCTASection({ copy }: { copy: LandingCopy }) {
         </div>
         <SectionLabel tone="emerald">Enterprise activation</SectionLabel>
         <h2 className="max-w-4xl text-[clamp(2.4rem,5.5vw,3rem)] font-extrabold tracking-tight text-white">
-          Bring your AI systems into one control tower.
+          Bring your AI systems onto AI CONTROL GRID.
         </h2>
         <p className="mt-6 max-w-2xl text-[clamp(1rem,1.6vw,1.125rem)] leading-8 text-slate-400">
-          Bring runtime policy, incident response, cryptographic evidence, and
-          portfolio oversight into one institutional-grade operating layer.
+          Arcturos gives regulated teams one institutional-grade operating layer
+          for runtime policy, incident response, cryptographic evidence, and
+          portfolio oversight.
         </p>
         <div className="mt-12" id="pricing">
           <MagneticButton href="/book-demo">
@@ -2674,6 +2696,7 @@ function Footer({ copy }: { copy: LandingCopy }) {
         { label: badges.enterpriseDemos ?? "Enterprise demos", href: "/book-demo" },
         { label: badges.securityReviews ?? "Security reviews", href: "/trust-center" },
         { label: "Private equity", href: "/start-pilot" },
+        { label: "Revanth Meda on LinkedIn", href: FOUNDER_LINKEDIN_URL },
         { label: badges.support ?? "Support", href: "/auth/login" },
       ],
     },
@@ -2685,12 +2708,21 @@ function Footer({ copy }: { copy: LandingCopy }) {
           <div className="flex items-center gap-3">
             <span className="h-3 w-3 rounded-full bg-[#00FFD1] shadow-[0_0_24px_rgba(0,255,209,0.9)]" />
             <span className="text-lg font-bold tracking-[0.28em] text-white">
-              AI CONTROL TOWER
+              {PRODUCT_NAME}
             </span>
+          </div>
+          <div className="mt-2 font-mono text-[11px] uppercase tracking-[0.24em] text-[#00FFD1]">
+            {COMPANY_BYLINE}
           </div>
           <p className="mt-4 max-w-xs text-sm leading-7 text-slate-500">
             {badges.footerDescription ?? "Institutional-grade AI runtime governance for private equity, regulated operators, and high-consequence enterprise workflows."}
           </p>
+          <SmartLink
+            href={FOUNDER_LINKEDIN_URL}
+            className="mt-4 inline-flex text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 transition-colors hover:text-[#00FFD1]"
+          >
+            Founder-built by Revanth Meda
+          </SmartLink>
         </div>
 
         {footerColumns.map((column) => (
@@ -2713,7 +2745,621 @@ function Footer({ copy }: { copy: LandingCopy }) {
 
       <div className="mx-auto mt-12 flex max-w-[1500px] flex-col gap-4 border-t border-white/10 pt-6 text-xs uppercase tracking-[0.22em] text-slate-600 md:flex-row md:items-center md:justify-between">
         <span>{badges.footerStrip ?? "Runtime policy • incident operations • cryptographic evidence"}</span>
-        <span>© 2026 AI Control Tower</span>
+        <span>© 2026 Arcturos. AI CONTROL GRID.</span>
+      </div>
+    </footer>
+  );
+}
+
+function PremiumNavLink({ href, children }: { href: string; children: string }) {
+  return (
+    <SmartLink
+      href={href}
+      className="text-sm font-medium text-[#424245] transition-colors hover:text-[#0066cc]"
+    >
+      {children}
+    </SmartLink>
+  );
+}
+
+function PremiumNavbar({ copy }: { copy: LandingCopy }) {
+  const badges = copy.badges ?? {};
+  const navItems = [
+    { label: badges.productNav ?? "Product", href: "#product" },
+    { label: badges.solutionsNav ?? "Solutions", href: "#solutions" },
+    { label: badges.frameworksNav ?? "Frameworks", href: "#frameworks" },
+    { label: badges.pricingNav ?? "Pricing", href: "#pricing" },
+    { label: badges.trustCenterNav ?? "Trust Center", href: "/trust-center" },
+    { label: badges.docsNav ?? "Docs", href: "/api-docs" },
+  ];
+
+  return (
+    <header className="fixed left-0 top-0 z-50 w-full border-b border-black/[0.06] bg-white/80 backdrop-blur-xl">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 sm:px-6 lg:px-8">
+        <SmartLink href="#top" className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-black/[0.08] bg-[#f5f5f7] text-[#0066cc]">
+            <BrandMark className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 text-sm font-semibold text-[#1d1d1f] sm:text-base">
+            {PRODUCT_NAME}
+          </span>
+        </SmartLink>
+
+        <nav className="hidden items-center gap-7 lg:flex">
+          {navItems.map((item) => (
+            <PremiumNavLink key={item.label} href={item.href}>
+              {item.label}
+            </PremiumNavLink>
+          ))}
+        </nav>
+
+        <div className="flex items-center gap-2">
+          <SmartLink
+            href="/auth/login"
+            className="hidden rounded-full px-4 py-2 text-sm font-medium text-[#424245] transition-colors hover:text-[#0066cc] sm:inline-flex"
+          >
+            {badges.signIn ?? "Sign In"}
+          </SmartLink>
+          <SmartLink
+            href="/book-demo"
+            className="inline-flex items-center gap-2 rounded-full bg-[#1d1d1f] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#0066cc]"
+          >
+            {badges.bookDemo ?? "Book a Demo"}
+            <ArrowRight className="h-4 w-4" />
+          </SmartLink>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function PremiumEyebrow({
+  children,
+  tone = "blue",
+}: {
+  children: string;
+  tone?: "blue" | "teal" | "rose" | "amber";
+}) {
+  const tones = {
+    blue: "text-[#0066cc]",
+    teal: "text-[#067a72]",
+    rose: "text-[#b42342]",
+    amber: "text-[#b7791f]",
+  };
+
+  return (
+    <div className={`mb-4 text-sm font-semibold ${tones[tone]}`}>
+      {children}
+    </div>
+  );
+}
+
+function PremiumHeroVisual({
+  velocity,
+  isMobile,
+}: {
+  velocity: number;
+  isMobile: boolean;
+}) {
+  const [pointer, setPointer] = useState({ x: 0, y: 0 });
+  const progress = 0.38;
+
+  return (
+    <motion.div
+      className="relative mx-auto w-full max-w-5xl"
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.7, delay: 0.15, ease: "easeOut" }}
+      onMouseMove={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        setPointer({
+          x: ((event.clientX - rect.left) / rect.width - 0.5) * 1.4,
+          y: ((event.clientY - rect.top) / rect.height - 0.5) * -1.4,
+        });
+      }}
+    >
+      <div className="relative rounded-lg border border-black/[0.08] bg-[#d7d7dc] p-2 shadow-[0_34px_90px_rgba(29,29,31,0.18)]">
+        <div className="relative aspect-[16/9] overflow-hidden rounded-lg bg-[#0b0b0f]">
+          <SceneCanvas
+            label="premium control grid preview"
+            isMobile={isMobile}
+            camera={{ position: [0, 0, 9.5], fov: 42 }}
+            className="absolute inset-0"
+            rootMargin="-5% 0px -5% 0px"
+          >
+            <HeroScene progress={progress} velocity={velocity} pointer={pointer} />
+          </SceneCanvas>
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.11),transparent_36%,rgba(0,0,0,0.26))]" />
+
+          <div className="absolute left-4 right-4 top-4 grid gap-3 sm:left-6 sm:right-auto sm:w-[19rem]">
+            <div className="rounded-lg border border-white/15 bg-white/90 p-4 text-[#1d1d1f] shadow-[0_20px_70px_rgba(0,0,0,0.18)] backdrop-blur-xl">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-xs font-semibold text-[#0066cc]">Runtime policy</span>
+                <span className="rounded-full bg-[#e8f3ff] px-3 py-1 text-xs font-semibold text-[#0066cc]">
+                  Live
+                </span>
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                {[
+                  ["1.2M", "Calls"],
+                  ["94%", "Auto-open"],
+                  ["<250ms", "Median"],
+                ].map(([value, label]) => (
+                  <div key={label} className="rounded-lg bg-[#f5f5f7] p-3">
+                    <div className="text-lg font-semibold">{value}</div>
+                    <div className="mt-1 text-xs text-[#6e6e73]">{label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="hidden rounded-lg border border-white/15 bg-white/85 p-4 text-[#1d1d1f] shadow-[0_20px_70px_rgba(0,0,0,0.16)] backdrop-blur-xl sm:block">
+              <div className="flex items-center gap-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#fff4e5] text-[#b7791f]">
+                  <TriangleAlert className="h-4 w-4" />
+                </span>
+                <div>
+                  <div className="text-sm font-semibold">Sensitive prompt blocked</div>
+                  <div className="mt-1 text-xs text-[#6e6e73]">Incident opened with evidence attached</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="absolute bottom-4 right-4 hidden w-[20rem] rounded-lg border border-white/15 bg-white/90 p-4 text-[#1d1d1f] shadow-[0_20px_70px_rgba(0,0,0,0.18)] backdrop-blur-xl md:block">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm font-semibold">Evidence chain</span>
+              <Lock className="h-4 w-4 text-[#067a72]" />
+            </div>
+            <div className="mt-4 space-y-3">
+              {VAULT_RECEIPTS.map((receipt) => (
+                <div key={receipt.hash} className="flex items-center justify-between gap-4 rounded-lg bg-[#f5f5f7] px-3 py-2">
+                  <span className="text-xs font-semibold text-[#424245]">{receipt.tag}</span>
+                  <span className="text-xs text-[#6e6e73]">{receipt.hash}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="mx-auto mt-4 h-2 w-2/3 rounded-full bg-[linear-gradient(90deg,transparent,rgba(29,29,31,0.18),transparent)]" />
+    </motion.div>
+  );
+}
+
+function PremiumHero({
+  copy,
+  velocity,
+  isMobile,
+}: {
+  copy: LandingCopy;
+  velocity: number;
+  isMobile: boolean;
+}) {
+  const badges = copy.badges ?? {};
+
+  return (
+    <section id="top" className="relative overflow-hidden bg-[#f5f5f7] px-5 pb-16 pt-28 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl">
+        <div className="mx-auto max-w-5xl text-center">
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55, ease: "easeOut" }}
+            className="mb-5 inline-flex items-center gap-2 rounded-full border border-black/[0.08] bg-white px-4 py-2 text-sm font-semibold text-[#424245] shadow-sm"
+          >
+            <span className="h-2 w-2 rounded-full bg-[#067a72]" />
+            {badges.runtimeGovernance ?? COMPANY_BYLINE}
+          </motion.div>
+
+          <motion.h1
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.05, ease: "easeOut" }}
+            className="text-5xl font-semibold leading-none text-[#1d1d1f] sm:text-6xl lg:text-7xl"
+          >
+            {badges.heroHeadline ?? copy.title}
+          </motion.h1>
+
+          <motion.p
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.1, ease: "easeOut" }}
+            className="mx-auto mt-6 max-w-3xl text-xl leading-8 text-[#424245] sm:text-2xl sm:leading-9"
+          >
+            {badges.heroBody ?? copy.description}
+          </motion.p>
+
+          <motion.p
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55, delay: 0.16, ease: "easeOut" }}
+            className="mx-auto mt-5 max-w-2xl text-base leading-7 text-[#6e6e73]"
+          >
+            {badges.heroAudience ?? "Founder-built by Revanth Meda for PE funds and regulated enterprises."}
+          </motion.p>
+
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55, delay: 0.22, ease: "easeOut" }}
+            className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row"
+          >
+            <SmartLink
+              href="/book-demo"
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#1d1d1f] px-7 py-3 text-base font-semibold text-white transition-colors hover:bg-[#0066cc]"
+            >
+              {badges.bookDemo ?? "Book a Demo"}
+              <ArrowRight className="h-4 w-4" />
+            </SmartLink>
+            <SmartLink
+              href="#product"
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-black/[0.12] bg-white px-7 py-3 text-base font-semibold text-[#1d1d1f] transition-colors hover:border-[#0066cc] hover:text-[#0066cc]"
+            >
+              Explore product
+              <ArrowRight className="h-4 w-4" />
+            </SmartLink>
+          </motion.div>
+        </div>
+
+        <div className="mt-14 sm:mt-16">
+          <PremiumHeroVisual velocity={velocity} isMobile={isMobile} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PremiumProofStrip() {
+  return (
+    <section className="bg-white px-5 py-16 sm:px-6 lg:px-8">
+      <div className="mx-auto grid max-w-7xl gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {PROOF_STRIP.map((item) => (
+          <div key={item.label} className="rounded-lg border border-black/[0.08] bg-white p-6">
+            <div className="text-3xl font-semibold text-[#1d1d1f]">{item.value}</div>
+            <div className="mt-3 text-sm font-semibold text-[#0066cc]">{item.label}</div>
+            <p className="mt-3 text-sm leading-6 text-[#6e6e73]">{item.detail}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PremiumProductSection() {
+  return (
+    <section id="product" className="bg-[#f5f5f7] px-5 py-24 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl">
+        <div className="mx-auto max-w-3xl text-center">
+          <PremiumEyebrow>Product</PremiumEyebrow>
+          <h2 className="text-4xl font-semibold leading-tight text-[#1d1d1f] sm:text-5xl">
+            A control plane that acts before AI risk reaches production.
+          </h2>
+          <p className="mt-5 text-lg leading-8 text-[#6e6e73]">
+            AI CONTROL GRID places policy, incident operations, and evidence in the same runtime path.
+          </p>
+        </div>
+
+        <div className="mt-14 grid gap-5 md:grid-cols-3">
+          {PILLARS.map((pillar, index) => {
+            const Icon = pillar.icon;
+            const tones = [
+              { surface: "bg-[#e8f3ff]", color: "text-[#0066cc]" },
+              { surface: "bg-[#fff4e5]", color: "text-[#b7791f]" },
+              { surface: "bg-[#e8f7f5]", color: "text-[#067a72]" },
+            ];
+            const tone = tones[index % tones.length];
+
+            return (
+              <motion.div
+                key={pillar.id}
+                whileHover={{ y: -4 }}
+                className="rounded-lg border border-black/[0.08] bg-white p-7 shadow-sm"
+              >
+                <span className={`flex h-12 w-12 items-center justify-center rounded-lg ${tone.surface} ${tone.color}`}>
+                  <Icon className="h-5 w-5" />
+                </span>
+                <h3 className="mt-6 text-2xl font-semibold text-[#1d1d1f]">{pillar.title}</h3>
+                <p className="mt-4 text-base leading-7 text-[#6e6e73]">{pillar.body}</p>
+                <div className="mt-6 text-sm font-semibold text-[#424245]">{pillar.metric}</div>
+              </motion.div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PremiumEngineSection() {
+  return (
+    <section id="engine" className="bg-white px-5 py-24 sm:px-6 lg:px-8">
+      <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+        <div>
+          <PremiumEyebrow tone="teal">Enforcement engine</PremiumEyebrow>
+          <h2 className="text-4xl font-semibold leading-tight text-[#1d1d1f] sm:text-5xl">
+            Inspect. Constrain. Escalate. In the same motion.
+          </h2>
+          <p className="mt-6 text-lg leading-8 text-[#6e6e73]">
+            Prompts, outputs, and tool calls pass through runtime policy before they become business exposure.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-black/[0.08] bg-[#f5f5f7] p-4 shadow-sm">
+          <div className="rounded-lg border border-black/[0.08] bg-[#1d1d1f] p-5 text-white">
+            <div className="flex items-center justify-between gap-4 border-b border-white/10 pb-4">
+              <div className="flex items-center gap-2">
+                {["#ff5f57", "#ffbd2e", "#28c840"].map((color) => (
+                  <span key={color} className="h-3 w-3 rounded-full" style={{ backgroundColor: color }} />
+                ))}
+              </div>
+              <span className="text-xs text-white/55">runtime.policy.ts</span>
+            </div>
+
+            <div className="mt-5 grid gap-3">
+              {ENGINE_STEPS.map((step, index) => (
+                <div key={step.label} className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
+                  <div className="flex items-start gap-4">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-sm font-semibold text-[#1d1d1f]">
+                      {index + 1}
+                    </span>
+                    <div>
+                      <div className="text-sm font-semibold text-[#7dd3fc]">{step.label}</div>
+                      <h3 className="mt-2 text-xl font-semibold">{step.title}</h3>
+                      <p className="mt-2 text-sm leading-6 text-white/62">{step.body}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              {HERO_SIGNAL_CARDS.map((item) => (
+                <div key={item.label} className="rounded-lg bg-white p-4 text-[#1d1d1f]">
+                  <div className="text-xs font-semibold text-[#0066cc]">{item.label}</div>
+                  <div className="mt-2 text-sm font-semibold">{item.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PremiumSolutionsSection() {
+  return (
+    <section id="solutions" className="bg-[#f5f5f7] px-5 py-24 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl">
+        <div className="max-w-3xl">
+          <PremiumEyebrow>Solutions</PremiumEyebrow>
+          <h2 className="text-4xl font-semibold leading-tight text-[#1d1d1f] sm:text-5xl">
+            Built for teams that need governance to move at product speed.
+          </h2>
+        </div>
+
+        <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          {BENTO_CARDS.map((card, index) => {
+            const Icon = card.icon;
+            const tones = ["text-[#0066cc] bg-[#e8f3ff]", "text-[#067a72] bg-[#e8f7f5]", "text-[#b42342] bg-[#fff1f3]"];
+
+            return (
+              <motion.div
+                key={card.title}
+                whileHover={{ y: -4 }}
+                className="rounded-lg border border-black/[0.08] bg-white p-7 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <span className={`flex h-12 w-12 items-center justify-center rounded-lg ${tones[index % tones.length]}`}>
+                    <Icon className="h-5 w-5" />
+                  </span>
+                  <span className="rounded-full bg-[#f5f5f7] px-3 py-1 text-xs font-semibold text-[#424245]">
+                    {card.metric}
+                  </span>
+                </div>
+                <h3 className="mt-6 text-2xl font-semibold text-[#1d1d1f]">{card.title}</h3>
+                <p className="mt-4 text-base leading-7 text-[#6e6e73]">{card.copy}</p>
+                <p className="mt-6 text-sm font-semibold text-[#424245]">{card.outcome}</p>
+              </motion.div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PremiumEvidenceSection() {
+  return (
+    <section id="vault" className="bg-white px-5 py-24 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl">
+        <div className="grid gap-12 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
+          <div>
+            <PremiumEyebrow tone="teal">Evidence vault</PremiumEyebrow>
+            <h2 className="text-4xl font-semibold leading-tight text-[#1d1d1f] sm:text-5xl">
+              Every decision, sealed into an audit-ready chain.
+            </h2>
+            <p className="mt-6 text-lg leading-8 text-[#6e6e73]">
+              Runtime context, reviewer action, incident status, and framework linkage stay connected from day one.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              {FRAMEWORK_BADGES.map((badge) => (
+                <SmartLink
+                  key={badge}
+                  href="#frameworks"
+                  className="rounded-full border border-black/[0.08] bg-[#f5f5f7] px-4 py-2 text-sm font-semibold text-[#424245] transition-colors hover:border-[#0066cc] hover:text-[#0066cc]"
+                >
+                  {badge}
+                </SmartLink>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-black/[0.08] bg-[#f5f5f7] p-4">
+            <div className="rounded-lg bg-white p-6 shadow-sm">
+              <div className="flex items-center justify-between gap-4">
+                <h3 className="text-2xl font-semibold text-[#1d1d1f]">Decision receipt stream</h3>
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#e8f7f5] text-[#067a72]">
+                  <Lock className="h-5 w-5" />
+                </span>
+              </div>
+              <div className="mt-6 space-y-4">
+                {VAULT_RECEIPTS.map((receipt, index) => (
+                  <div key={receipt.hash} className="grid gap-3 rounded-lg border border-black/[0.08] bg-white p-4 sm:grid-cols-[auto_1fr_auto] sm:items-center">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#1d1d1f] text-sm font-semibold text-white">
+                      {index + 1}
+                    </span>
+                    <div>
+                      <div className="font-semibold text-[#1d1d1f]">{receipt.tag}</div>
+                      <div className="mt-1 text-sm text-[#6e6e73]">{receipt.time}</div>
+                    </div>
+                    <div className="text-sm font-semibold text-[#0066cc]">{receipt.hash}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PremiumPortfolioSection() {
+  return (
+    <section id="frameworks" className="bg-[#f5f5f7] px-5 py-24 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl">
+        <div className="mx-auto max-w-4xl text-center">
+          <PremiumEyebrow>Frameworks</PremiumEyebrow>
+          <h2 className="text-4xl font-semibold leading-tight text-[#1d1d1f] sm:text-5xl">
+            One operating layer across regulated teams and portfolio companies.
+          </h2>
+          <p className="mt-6 text-lg leading-8 text-[#6e6e73]">
+            Central governance with local tenant isolation, framework mapping, and evidence continuity.
+          </p>
+        </div>
+
+        <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+          {PORTFOLIO_COMPANIES.map((company) => (
+            <div key={company.name} className="rounded-lg border border-black/[0.08] bg-white p-6 shadow-sm">
+              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#e8f3ff] text-[#0066cc]">
+                <SquareStack className="h-5 w-5" />
+              </div>
+              <h3 className="mt-5 text-xl font-semibold text-[#1d1d1f]">{company.name}</h3>
+              <p className="mt-3 text-base leading-7 text-[#6e6e73]">{company.detail}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PremiumBuildVerifySection() {
+  return (
+    <section className="bg-white px-5 py-24 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl">
+        <div className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
+          <div className="rounded-lg border border-black/[0.08] bg-[#f5f5f7] p-8">
+            <PremiumEyebrow>Build and verify</PremiumEyebrow>
+            <h2 className="text-4xl font-semibold leading-tight text-[#1d1d1f]">
+              Practical entry points for security, AI, and operating teams.
+            </h2>
+            <p className="mt-5 text-lg leading-8 text-[#6e6e73]">
+              Start with documentation, trust posture, or a role-specific pilot path.
+            </p>
+          </div>
+
+          <div className="grid gap-5 md:grid-cols-2">
+            {[...BUILD_VERIFY_CARDS, ...ROLE_CTA_CARDS].map((card) => (
+              <SmartLink
+                key={card.title}
+                href={card.href}
+                className="group rounded-lg border border-black/[0.08] bg-white p-6 shadow-sm transition-transform hover:-translate-y-1"
+              >
+                <h3 className="text-xl font-semibold text-[#1d1d1f]">{card.title}</h3>
+                <p className="mt-3 text-sm leading-6 text-[#6e6e73]">{card.body}</p>
+                <div className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[#0066cc]">
+                  Open
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                </div>
+              </SmartLink>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PremiumFinalCTASection({ copy }: { copy: LandingCopy }) {
+  const badges = copy.badges ?? {};
+
+  return (
+    <section id="pricing" className="bg-[#1d1d1f] px-5 py-24 text-white sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-4xl text-center">
+        <PremiumEyebrow tone="teal">Enterprise activation</PremiumEyebrow>
+        <h2 className="text-4xl font-semibold leading-tight sm:text-5xl">
+          Bring production AI into a governed operating model.
+        </h2>
+        <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-white/68">
+          Arcturos gives regulated teams one polished control plane for runtime policy, incidents, and evidence.
+        </p>
+        <div className="mt-9">
+          <SmartLink
+            href="/book-demo"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-white px-7 py-3 text-base font-semibold text-[#1d1d1f] transition-colors hover:bg-[#dff3ff]"
+          >
+            {badges.enterpriseDemoCta ?? "Book an Arcturos Demo"}
+            <ArrowRight className="h-4 w-4" />
+          </SmartLink>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PremiumFooter({ copy }: { copy: LandingCopy }) {
+  const badges = copy.badges ?? {};
+
+  return (
+    <footer className="border-t border-black/[0.08] bg-[#f5f5f7] px-5 py-12 sm:px-6 lg:px-8">
+      <div className="mx-auto grid max-w-7xl gap-10 md:grid-cols-2 xl:grid-cols-5">
+        <div>
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-black/[0.08] bg-white text-[#0066cc]">
+              <BrandMark className="h-4 w-4" />
+            </span>
+            <div>
+              <div className="text-sm font-semibold text-[#1d1d1f]">{PRODUCT_NAME}</div>
+              <div className="mt-1 text-xs text-[#6e6e73]">{COMPANY_BYLINE}</div>
+            </div>
+          </div>
+          <p className="mt-5 max-w-xs text-sm leading-6 text-[#6e6e73]">
+            {badges.footerDescription ?? "Institutional-grade AI runtime governance for regulated teams."}
+          </p>
+        </div>
+
+        {FOOTER_COLUMNS.map((column) => (
+          <div key={column.title}>
+            <h3 className="text-sm font-semibold text-[#1d1d1f]">{column.title}</h3>
+            <ul className="mt-4 space-y-3">
+              {column.links.map((link) => (
+                <li key={link.label}>
+                  <SmartLink href={link.href} className="text-sm text-[#6e6e73] transition-colors hover:text-[#0066cc]">
+                    {link.label}
+                  </SmartLink>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+
+      <div className="mx-auto mt-10 flex max-w-7xl flex-col gap-3 border-t border-black/[0.08] pt-6 text-xs text-[#6e6e73] sm:flex-row sm:items-center sm:justify-between">
+        <span>{badges.footerStrip ?? "Runtime policy • incident operations • cryptographic evidence"}</span>
+        <span>© 2026 Arcturos. AI CONTROL GRID.</span>
       </div>
     </footer>
   );
@@ -2737,22 +3383,26 @@ export default function LandingPage() {
   });
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white">
-      <Navbar copy={landingCopy} />
+    <div className="min-h-screen bg-[#f5f5f7] text-[#1d1d1f] antialiased">
+      <PremiumNavbar copy={landingCopy} />
 
-      <main className="bg-[#050505]">
-        <HeroSection velocity={velocityState} isMobile={isMobile} copy={landingCopy} />
-        <ProofArchitectureSection />
-        <ProblemSection velocity={velocityState} isMobile={isMobile} />
-        <EnforcementSection velocity={velocityState} isMobile={isMobile} />
-        <VaultSection velocity={velocityState} isMobile={isMobile} />
-        <BentoSection />
-        <PortfolioSection velocity={velocityState} isMobile={isMobile} />
-        <BuildVerifySection />
-        <FinalCTASection copy={landingCopy} />
+      <main>
+        <PremiumHero
+          velocity={velocityState}
+          isMobile={isMobile}
+          copy={landingCopy}
+        />
+        <PremiumProofStrip />
+        <PremiumProductSection />
+        <PremiumEngineSection />
+        <PremiumEvidenceSection />
+        <PremiumSolutionsSection />
+        <PremiumPortfolioSection />
+        <PremiumBuildVerifySection />
+        <PremiumFinalCTASection copy={landingCopy} />
       </main>
 
-      <Footer copy={landingCopy} />
+      <PremiumFooter copy={landingCopy} />
     </div>
   );
 }

@@ -1671,7 +1671,7 @@ export async function registerRoutes(
   app.get("/api/health", (_req, res) => {
     res.json({
       ok: true,
-      service: "ai-control-tower",
+      service: "ai-control-grid",
       timestamp: new Date().toISOString(),
     });
   });
@@ -1683,7 +1683,7 @@ export async function registerRoutes(
       res.json({
         ok: true,
         ready: true,
-        service: "ai-control-tower",
+        service: "ai-control-grid",
         queue,
         timestamp: new Date().toISOString(),
       });
@@ -1692,7 +1692,7 @@ export async function registerRoutes(
       res.status(503).json({
         ok: false,
         ready: false,
-        service: "ai-control-tower",
+        service: "ai-control-grid",
         message: error instanceof Error ? error.message : "Readiness check failed",
         code: "READINESS_CHECK_FAILED",
         timestamp: new Date().toISOString(),
@@ -4985,6 +4985,42 @@ export async function registerRoutes(
     },
   );
 
+  app.post(
+    "/api/approval-workflows/:id/jira-sync",
+    requireAuth,
+    requireTenant,
+    requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
+    async (req, res) => {
+      try {
+        const workflow = await workflowService.getWorkflow({
+          organizationId: req.tenant!.organizationId,
+          actor: req.user!,
+          workflowId: routeParam(req.params.id),
+        });
+        if (!workflow) return res.status(404).json({ message: "Workflow not found" });
+
+        const result = await jiraService.refreshWorkflowIssueStatus(req.tenant!.organizationId, workflow);
+        if (result.status === "linked" && result.remoteStatus) {
+          await auditService.createLog({
+            organizationId: req.tenant!.organizationId,
+            actor: req.user!,
+            input: {
+              entityType: "approval_workflow",
+              entityId: workflow.id,
+              action: "jira_status_synced",
+              performedBy: req.user!.fullName,
+              details: `Synced Jira issue ${workflow.jiraIssueKey}: ${result.remoteStatus.name ?? "Unknown status"}`,
+            },
+          });
+        }
+
+        res.status(200).json(result);
+      } catch (err: any) {
+        res.status(400).json({ message: err.message || "Failed to sync Jira status" });
+      }
+    },
+  );
+
   app.get(
     "/api/decision-audits",
     requireAuth,
@@ -5767,9 +5803,9 @@ export async function registerRoutes(
         await auditService.createLog({
           organizationId: adapter.organizationId,
           actor: {
-            id: "control-tower-gateway",
-            username: "control-tower-gateway",
-            fullName: "Control Tower Gateway",
+            id: "control-grid-gateway",
+            username: "control-grid-gateway",
+            fullName: "Control Grid Gateway",
             email: null,
             role: "system",
           },
@@ -5777,7 +5813,7 @@ export async function registerRoutes(
             entityType: "telemetry_event",
             entityId: decision.id,
             action: "gateway_blocked",
-            performedBy: "Control Tower Gateway",
+            performedBy: "Control Grid Gateway",
             details: `OpenAI chat completion blocked at ${result.stage} stage with decision "${decision.decision}"`,
           },
         });
@@ -5794,9 +5830,9 @@ export async function registerRoutes(
       await auditService.createLog({
         organizationId: adapter.organizationId,
         actor: {
-          id: "control-tower-gateway",
-          username: "control-tower-gateway",
-          fullName: "Control Tower Gateway",
+          id: "control-grid-gateway",
+          username: "control-grid-gateway",
+          fullName: "Control Grid Gateway",
           email: null,
           role: "system",
         },
@@ -5804,7 +5840,7 @@ export async function registerRoutes(
           entityType: "telemetry_event",
           entityId: postflightDecision.id,
           action: "gateway_proxied",
-          performedBy: "Control Tower Gateway",
+          performedBy: "Control Grid Gateway",
           details: `OpenAI chat completion proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
         },
       });
@@ -5871,9 +5907,9 @@ export async function registerRoutes(
         await auditService.createLog({
           organizationId: adapter.organizationId,
           actor: {
-            id: "control-tower-gateway",
-            username: "control-tower-gateway",
-            fullName: "Control Tower Gateway",
+            id: "control-grid-gateway",
+            username: "control-grid-gateway",
+            fullName: "Control Grid Gateway",
             email: null,
             role: "system",
           },
@@ -5881,7 +5917,7 @@ export async function registerRoutes(
             entityType: "telemetry_event",
             entityId: decision.id,
             action: "gateway_blocked",
-            performedBy: "Control Tower Gateway",
+            performedBy: "Control Grid Gateway",
             details: `OpenAI response blocked at ${result.stage} stage with decision "${decision.decision}"`,
           },
         });
@@ -5898,9 +5934,9 @@ export async function registerRoutes(
       await auditService.createLog({
         organizationId: adapter.organizationId,
         actor: {
-          id: "control-tower-gateway",
-          username: "control-tower-gateway",
-          fullName: "Control Tower Gateway",
+          id: "control-grid-gateway",
+          username: "control-grid-gateway",
+          fullName: "Control Grid Gateway",
           email: null,
           role: "system",
         },
@@ -5908,7 +5944,7 @@ export async function registerRoutes(
           entityType: "telemetry_event",
           entityId: postflightDecision.id,
           action: "gateway_proxied",
-          performedBy: "Control Tower Gateway",
+          performedBy: "Control Grid Gateway",
           details: `OpenAI response proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
         },
       });
@@ -5977,9 +6013,9 @@ export async function registerRoutes(
       await auditService.createLog({
         organizationId: adapter.organizationId,
         actor: {
-          id: "control-tower-gateway",
-          username: "control-tower-gateway",
-          fullName: "Control Tower Gateway",
+          id: "control-grid-gateway",
+          username: "control-grid-gateway",
+          fullName: "Control Grid Gateway",
           email: null,
           role: "system",
         },
@@ -5987,7 +6023,7 @@ export async function registerRoutes(
           entityType: "telemetry_event",
           entityId: postflightDecision.id,
           action: "gateway_proxied",
-          performedBy: "Control Tower Gateway",
+          performedBy: "Control Grid Gateway",
           details: `Anthropic message proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
         },
       });
@@ -6058,9 +6094,9 @@ export async function registerRoutes(
       await auditService.createLog({
         organizationId: adapter.organizationId,
         actor: {
-          id: "control-tower-gateway",
-          username: "control-tower-gateway",
-          fullName: "Control Tower Gateway",
+          id: "control-grid-gateway",
+          username: "control-grid-gateway",
+          fullName: "Control Grid Gateway",
           email: null,
           role: "system",
         },
@@ -6068,7 +6104,7 @@ export async function registerRoutes(
           entityType: "telemetry_event",
           entityId: postflightDecision.id,
           action: "gateway_proxied",
-          performedBy: "Control Tower Gateway",
+          performedBy: "Control Grid Gateway",
           details: `Gemini generateContent proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
         },
       });
@@ -6147,9 +6183,9 @@ export async function registerRoutes(
       await auditService.createLog({
         organizationId: adapter.organizationId,
         actor: {
-          id: "control-tower-gateway",
-          username: "control-tower-gateway",
-          fullName: "Control Tower Gateway",
+          id: "control-grid-gateway",
+          username: "control-grid-gateway",
+          fullName: "Control Grid Gateway",
           email: null,
           role: "system",
         },
@@ -6157,7 +6193,7 @@ export async function registerRoutes(
           entityType: "telemetry_event",
           entityId: postflightDecision.id,
           action: "gateway_proxied",
-          performedBy: "Control Tower Gateway",
+          performedBy: "Control Grid Gateway",
           details: `Azure OpenAI chat completion proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
         },
       });
@@ -6236,9 +6272,9 @@ export async function registerRoutes(
       await auditService.createLog({
         organizationId: adapter.organizationId,
         actor: {
-          id: "control-tower-gateway",
-          username: "control-tower-gateway",
-          fullName: "Control Tower Gateway",
+          id: "control-grid-gateway",
+          username: "control-grid-gateway",
+          fullName: "Control Grid Gateway",
           email: null,
           role: "system",
         },
@@ -6246,7 +6282,7 @@ export async function registerRoutes(
           entityType: "telemetry_event",
           entityId: postflightDecision.id,
           action: "gateway_proxied",
-          performedBy: "Control Tower Gateway",
+          performedBy: "Control Grid Gateway",
           details: `Vertex AI generateContent proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
         },
       });
@@ -6314,9 +6350,9 @@ export async function registerRoutes(
       await auditService.createLog({
         organizationId: adapter.organizationId,
         actor: {
-          id: "control-tower-gateway",
-          username: "control-tower-gateway",
-          fullName: "Control Tower Gateway",
+          id: "control-grid-gateway",
+          username: "control-grid-gateway",
+          fullName: "Control Grid Gateway",
           email: null,
           role: "system",
         },
@@ -6324,7 +6360,7 @@ export async function registerRoutes(
           entityType: "telemetry_event",
           entityId: postflightDecision.id,
           action: "gateway_proxied",
-          performedBy: "Control Tower Gateway",
+          performedBy: "Control Grid Gateway",
           details: `Bedrock Converse proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
         },
       });
@@ -6387,9 +6423,9 @@ export async function registerRoutes(
       await auditService.createLog({
         organizationId: adapter.organizationId,
         actor: {
-          id: "control-tower-gateway",
-          username: "control-tower-gateway",
-          fullName: "Control Tower Gateway",
+          id: "control-grid-gateway",
+          username: "control-grid-gateway",
+          fullName: "Control Grid Gateway",
           email: null,
           role: "system",
         },
@@ -6397,7 +6433,7 @@ export async function registerRoutes(
           entityType: "telemetry_event",
           entityId: postflightDecision.id,
           action: "gateway_proxied",
-          performedBy: "Control Tower Gateway",
+          performedBy: "Control Grid Gateway",
           details: `${providerName} chat completion proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
         },
       });
@@ -6465,9 +6501,9 @@ export async function registerRoutes(
       await auditService.createLog({
         organizationId: adapter.organizationId,
         actor: {
-          id: "control-tower-gateway",
-          username: "control-tower-gateway",
-          fullName: "Control Tower Gateway",
+          id: "control-grid-gateway",
+          username: "control-grid-gateway",
+          fullName: "Control Grid Gateway",
           email: null,
           role: "system",
         },
@@ -6475,7 +6511,7 @@ export async function registerRoutes(
           entityType: "telemetry_event",
           entityId: postflightDecision.id,
           action: "gateway_proxied",
-          performedBy: "Control Tower Gateway",
+          performedBy: "Control Grid Gateway",
           details: `${providerName} response proxied with preflight "${preflightDecision.decision}" and postflight "${postflightDecision.decision}"`,
         },
       });
@@ -6628,6 +6664,20 @@ export async function registerRoutes(
       if (!systemId) {
         return res.status(400).json({ message: "systemId is required" });
       }
+      const metadata: Record<string, unknown> = {};
+      if (typeof req.body.category === "string" && req.body.category.trim()) {
+        metadata.category = req.body.category.trim().slice(0, 80);
+      }
+      if (typeof req.body.tags === "string" && req.body.tags.trim()) {
+        metadata.tags = req.body.tags
+          .split(",")
+          .map((tag: string) => tag.trim())
+          .filter(Boolean)
+          .slice(0, 12);
+      }
+      if (typeof req.body.expiryDate === "string" && req.body.expiryDate.trim()) {
+        metadata.expiryDate = req.body.expiryDate.trim();
+      }
       const evidence = await evidenceService.createEvidence({
         organizationId: req.tenant!.organizationId,
         actor: req.user!,
@@ -6639,6 +6689,7 @@ export async function registerRoutes(
           fileSize: req.file.size,
           mimeType: req.file.mimetype,
           filePath: `${req.tenant!.organizationId}/${req.file.filename}`,
+          metadata,
         },
       });
       await auditService.createLog({

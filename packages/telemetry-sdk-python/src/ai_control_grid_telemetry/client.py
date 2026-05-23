@@ -30,7 +30,7 @@ class TelemetryClientConfig:
 
 
 @dataclass(slots=True)
-class AiControlTowerTelemetryClient:
+class AiControlGridTelemetryClient:
     config: TelemetryClientConfig
 
     def emit_event(self, payload: JsonMapping) -> JsonDict:
@@ -139,7 +139,7 @@ class AiControlTowerTelemetryClient:
 
         if status_code >= 400:
             raise TelemetrySdkError(
-                parsed_payload.get("message", "AI Control Tower telemetry request failed."),
+                parsed_payload.get("message", "AI CONTROL GRID telemetry request failed."),
                 status_code=status_code,
                 payload=parsed_payload,
             )
@@ -167,8 +167,8 @@ def create_client(
     default_provider: str | None = None,
     default_model_name: str | None = None,
     post_func: HttpPost | None = None,
-) -> AiControlTowerTelemetryClient:
-    return AiControlTowerTelemetryClient(
+) -> AiControlGridTelemetryClient:
+    return AiControlGridTelemetryClient(
         TelemetryClientConfig(
             base_url=base_url,
             api_key=api_key,
@@ -192,7 +192,7 @@ def _default_post(url: str, body: bytes, headers: Mapping[str, str], timeout: fl
         raw = exc.read().decode("utf-8")
         return exc.code, _parse_json(raw)
     except error.URLError as exc:
-        raise TelemetrySdkError(f"Unable to reach AI Control Tower endpoint: {exc.reason}") from exc
+        raise TelemetrySdkError(f"Unable to reach AI CONTROL GRID endpoint: {exc.reason}") from exc
 
 
 def _parse_json(raw: str) -> JsonDict:

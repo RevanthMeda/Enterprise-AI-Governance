@@ -41,7 +41,7 @@ Optional path overrides:
 
 This repo still stores evidence uploads and generated exports on the local filesystem.
 
-On Vercel those paths default to `/tmp/ai-control-tower/...`, which is writable but not durable.
+On Vercel those paths default to `/tmp/ai-control-grid/...`, which is writable but not durable.
 
 That means:
 

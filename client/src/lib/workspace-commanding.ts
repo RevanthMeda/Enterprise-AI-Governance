@@ -134,7 +134,7 @@ export const workspaceRouteGuides: WorkspaceRouteGuide[] = [
     key: "knowledge-center",
     title: "Knowledge center guide",
     prefixes: ["/knowledge-center"],
-    summary: "Use the knowledge center to onboard new operators faster and show that Control Tower includes enablement, not only governance controls.",
+    summary: "Use the knowledge center to onboard new operators faster and show that Control Grid includes enablement, not only governance controls.",
     tips: [
       "The role-based tracks are the fastest way to show reviewers and compliance leads where they should live inside the product.",
       "Pair the certification cards with governance maturity when buyers ask how teams should operationalize the platform.",

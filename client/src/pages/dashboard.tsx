@@ -1390,7 +1390,7 @@ export default function Dashboard() {
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div className="max-w-2xl">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline">AI Control Tower</Badge>
+                    <Badge variant="outline">AI CONTROL GRID</Badge>
                     <Badge variant={ready?.ready ? "default" : "secondary"}>
                       {ready?.ready ? "Platform ready" : "Readiness degraded"}
                     </Badge>

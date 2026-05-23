@@ -51,8 +51,8 @@ Because Firebase Hosting and your API are on different origins, your backend mus
 Set these backend env vars:
 
 ```env
-PUBLIC_APP_URL=https://ai-control-tower-d9854.web.app
-CORS_ALLOWED_ORIGINS=https://ai-control-tower-d9854.web.app,https://ai-control-tower-d9854.firebaseapp.com
+PUBLIC_APP_URL=https://aicontrolgrid.com
+CORS_ALLOWED_ORIGINS=https://aicontrolgrid.com,https://ai-control-grid.web.app,https://ai-control-grid.firebaseapp.com
 PASSWORD_RESET_SECRET=<dedicated-long-random-secret>
 CONTROL_TOWER_VAULT_SECRET=<dedicated-long-random-secret>
 CSRF_ENFORCED=true

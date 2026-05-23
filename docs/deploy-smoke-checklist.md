@@ -3,13 +3,13 @@
 Run the automated smoke script after each deploy:
 
 ```bash
-npm run smoke:deploy -- https://ai-control-tower.netlify.app https://enterprise-ai-governance.onrender.com
+npm run smoke:deploy -- https://ai-control-grid.netlify.app https://enterprise-ai-governance.onrender.com
 ```
 
 Environment variable form:
 
 ```bash
-SMOKE_FRONTEND_URL=https://ai-control-tower.netlify.app \
+SMOKE_FRONTEND_URL=https://ai-control-grid.netlify.app \
 SMOKE_BACKEND_URL=https://enterprise-ai-governance.onrender.com \
 npm run smoke:deploy
 ```
@@ -17,7 +17,7 @@ npm run smoke:deploy
 Authenticated admin coverage:
 
 ```bash
-SMOKE_FRONTEND_URL=https://ai-control-tower.netlify.app \
+SMOKE_FRONTEND_URL=https://ai-control-grid.netlify.app \
 SMOKE_BACKEND_URL=https://enterprise-ai-governance.onrender.com \
 SMOKE_ADMIN_USERNAME=admin_test \
 SMOKE_ADMIN_PASSWORD=TestUser123! \

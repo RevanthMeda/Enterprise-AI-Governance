@@ -1,4 +1,4 @@
-# AI Control Tower Route-by-Route User Manual
+# AI CONTROL GRID by Arcturos Route-by-Route User Manual
 
 This document explains every major user-facing route, what appears on it, what it is for, and how it connects to the rest of the product.
 

@@ -2634,7 +2634,7 @@ export async function seedRealWorldDemo(): Promise<DemoSeedSummary> {
   console.log(`[seed:real-world-demo] Decision traces seeded: ${decisionTraces.length}`);
   console.log(`[seed:real-world-demo] Manual incidents seeded: ${manualIncidents.length}`);
   console.log(`[seed:real-world-demo] Telemetry events seeded: ${telemetryEvents.length}`);
-  console.log(`[seed:real-world-demo] Control Tower login: ${baselineUsers[0].email} / ${demoUserPassword}`);
+  console.log(`[seed:real-world-demo] Control Grid login: ${baselineUsers[0].email} / ${demoUserPassword}`);
   console.log(`[seed:real-world-demo] Linked runtime system: ${primaryOrg.name} / Collections Hardship Assistant`);
   console.log(`[seed:real-world-demo] Complete`);
 

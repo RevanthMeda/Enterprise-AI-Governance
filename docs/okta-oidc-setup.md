@@ -1,12 +1,12 @@
 # Okta OIDC Setup Guide
 
-This guide configures AI Control Tower with Okta using OpenID Connect.
+This guide configures AI CONTROL GRID with Okta using OpenID Connect.
 
 ## Before you start
 
 You need:
 
-- organization admin access in AI Control Tower
+- organization admin access in AI CONTROL GRID
 - access to the Okta admin console
 - a verified organization domain
 - your production backend URL
@@ -39,7 +39,7 @@ Scopes:
 - `profile`
 - `email`
 
-## AI Control Tower OIDC settings
+## AI CONTROL GRID OIDC settings
 
 Use these values in the `Identity` tab:
 
@@ -89,4 +89,4 @@ Audience mismatch:
 
 Domain denied:
 
-- verify the user email domain is allowlisted and verified in AI Control Tower
+- verify the user email domain is allowlisted and verified in AI CONTROL GRID

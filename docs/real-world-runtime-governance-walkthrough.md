@@ -2,7 +2,7 @@
 
 ## Purpose of this document
 
-This document explains, in plain language, how the AI Control Tower platform works in a real-world customer scenario from start to finish.
+This document explains, in plain language, how the AI CONTROL GRID platform works in a real-world customer scenario from start to finish.
 
 It is written like a story so that:
 
@@ -14,7 +14,7 @@ This is not a marketing summary. It is an operational walkthrough.
 
 ## One-sentence summary
 
-A customer registers their AI system once, connects it to AI Control Tower with a telemetry key or SDK, and from that point onward AI Control Tower can evaluate the prompt before model execution, evaluate the output before release, update incidents, update risk posture, enrich the registry record, and write an audit trail continuously.
+A customer registers their AI system once, connects it to AI CONTROL GRID with a telemetry key or SDK, and from that point onward AI CONTROL GRID can evaluate the prompt before model execution, evaluate the output before release, update incidents, update risk posture, enrich the registry record, and write an audit trail continuously.
 
 ---
 
@@ -48,7 +48,7 @@ Example:
 
 - a claims agent inside the bank
 
-This person is not using AI Control Tower directly.
+This person is not using AI CONTROL GRID directly.
 They are using the customer’s application.
 
 ### 4. The customer’s customer
@@ -59,7 +59,7 @@ Example:
 
 This person may be affected by the AI output.
 
-### 5. The AI Control Tower administrator
+### 5. The AI CONTROL GRID administrator
 
 Example:
 
@@ -67,7 +67,7 @@ Example:
 
 This person registers the AI system, sets policies, and monitors incidents.
 
-### 6. AI Control Tower itself
+### 6. AI CONTROL GRID itself
 
 This platform:
 
@@ -102,23 +102,23 @@ The bank wants governance over this assistant because:
 - it may accidentally expose sensitive data
 - it may produce unsafe or biased output
 
-So the bank connects this application to AI Control Tower.
+So the bank connects this application to AI CONTROL GRID.
 
 ---
 
 ## The main question everyone asks
 
-### “How does AI Control Tower know whether something is allow, warn, or block?”
+### “How does AI CONTROL GRID know whether something is allow, warn, or block?”
 
 Answer:
 
-AI Control Tower does not rely on the customer app to say:
+AI CONTROL GRID does not rely on the customer app to say:
 
 - “this is an allow event”
 - “this is a warn event”
 - “this is a block event”
 
-Instead, the customer app sends runtime evidence, and AI Control Tower decides the outcome by comparing that evidence to the policy for the linked system.
+Instead, the customer app sends runtime evidence, and AI CONTROL GRID decides the outcome by comparing that evidence to the policy for the linked system.
 
 That is the core concept.
 
@@ -128,7 +128,7 @@ That is the core concept.
 
 ## Step 1. The customer creates an AI system record
 
-A governance admin signs into AI Control Tower and registers the AI system.
+A governance admin signs into AI CONTROL GRID and registers the AI system.
 
 They enter business details such as:
 
@@ -153,7 +153,7 @@ Example:
 - `Human oversight`: In the loop
 - `Geography`: US
 
-### What AI Control Tower does at this stage
+### What AI CONTROL GRID does at this stage
 
 It creates:
 
@@ -249,7 +249,7 @@ That means:
 - the incoming prompt can be checked before the model call
 - the outgoing response can be checked before user delivery
 
-This is closer to a real control-tower model than post-facto monitoring alone.
+This is closer to a real control-grid model than post-facto monitoring alone.
 
 ---
 
@@ -378,9 +378,9 @@ A claims agent opens the customer’s application and enters a routine task:
 
 The app:
 
-1. sends the prompt to AI Control Tower for preflight evaluation
+1. sends the prompt to AI CONTROL GRID for preflight evaluation
 2. if allowed, calls the model
-3. sends the model output to AI Control Tower for postflight evaluation
+3. sends the model output to AI CONTROL GRID for postflight evaluation
 4. only releases the output if the postflight decision allows it
 
 ### Example runtime event
@@ -411,7 +411,7 @@ The app:
 }
 ```
 
-### What AI Control Tower does
+### What AI CONTROL GRID does
 
 It receives the event and checks it against policy.
 
@@ -437,7 +437,7 @@ So the platform returns:
 
 ### What the presenter should say
 
-“Here the system behaves normally. AI Control Tower sees the event, evaluates it, records it, and allows the output to continue.”
+“Here the system behaves normally. AI CONTROL GRID sees the event, evaluates it, records it, and allows the output to continue.”
 
 ---
 
@@ -487,7 +487,7 @@ Example runtime event:
 }
 ```
 
-### What AI Control Tower sees
+### What AI CONTROL GRID sees
 
 It compares the event to policy thresholds.
 
@@ -511,7 +511,7 @@ So it returns:
 
 ### What the presenter should say
 
-“Here the system is not fully unsafe, but it is showing operational stress. AI Control Tower warns rather than blocks.”
+“Here the system is not fully unsafe, but it is showing operational stress. AI CONTROL GRID warns rather than blocks.”
 
 ---
 
@@ -525,11 +525,11 @@ A risky prompt is attempted:
 
 ### What the customer application does
 
-The app first sends the prompt to AI Control Tower for preflight evaluation.
+The app first sends the prompt to AI CONTROL GRID for preflight evaluation.
 
 If the prompt is blocked at this stage, the model call never executes.
 
-If the prompt passes, the app still calls AI Control Tower again before releasing the output.
+If the prompt passes, the app still calls AI CONTROL GRID again before releasing the output.
 
 ### Example runtime event
 
@@ -563,7 +563,7 @@ If the prompt passes, the app still calls AI Control Tower again before releasin
 }
 ```
 
-### What AI Control Tower sees
+### What AI CONTROL GRID sees
 
 It detects:
 
@@ -574,7 +574,7 @@ It detects:
 - elevated toxicity
 - restricted prompt content
 
-### What AI Control Tower decides
+### What AI CONTROL GRID decides
 
 Because blocking policy is enabled, it returns:
 
@@ -596,7 +596,7 @@ Because blocking policy is enabled, it returns:
 
 ---
 
-## Part 4: How AI Control Tower decides risk level
+## Part 4: How AI CONTROL GRID decides risk level
 
 ## The platform does not guess randomly
 
@@ -679,7 +679,7 @@ then the posture becomes more serious and may remain or move toward:
 
 ## Part 5: What gets updated automatically
 
-Once the application is linked and sending telemetry, AI Control Tower updates several parts of the platform automatically.
+Once the application is linked and sending telemetry, AI CONTROL GRID updates several parts of the platform automatically.
 
 ## 1. Runtime Monitoring
 
@@ -850,7 +850,7 @@ It becomes risky or unethical if:
 
 ## The right way to explain this
 
-“AI Control Tower supports multiple telemetry modes. Customers can choose minimal, redacted, or full-evidence collection based on their privacy, legal, and operational needs.”
+“AI CONTROL GRID supports multiple telemetry modes. Customers can choose minimal, redacted, or full-evidence collection based on their privacy, legal, and operational needs.”
 
 That is the correct position.
 
@@ -907,7 +907,7 @@ The app already knows:
 - what output came back
 - what route or channel the user used
 
-The SDK simply packages that information and sends it to AI Control Tower.
+The SDK simply packages that information and sends it to AI CONTROL GRID.
 
 ---
 
@@ -923,7 +923,7 @@ If the customer only sends a thin event like:
 }
 ```
 
-then AI Control Tower can still do:
+then AI CONTROL GRID can still do:
 
 - basic monitoring
 - basic incident logging
@@ -943,7 +943,7 @@ If you present the product, say it this way:
 
 ### The honest version
 
-“AI Control Tower does not magically know everything from a key alone.”
+“AI CONTROL GRID does not magically know everything from a key alone.”
 
 “It starts with onboarding data, then continuously improves its understanding through runtime telemetry.”
 
@@ -953,7 +953,7 @@ If you present the product, say it this way:
 
 “Once the AI system is onboarded and the application is linked, runtime monitoring becomes automatic.”
 
-“The customer app sends runtime evidence, AI Control Tower evaluates policy, updates incidents, updates risk posture, enriches the registry, and writes an audit trail continuously.”
+“The customer app sends runtime evidence, AI CONTROL GRID evaluates policy, updates incidents, updates risk posture, enriches the registry, and writes an audit trail continuously.”
 
 That is true and defensible.
 
@@ -1005,7 +1005,7 @@ Then show:
 
 Say:
 
-“This was a normal event. AI Control Tower recorded it and allowed the output to continue.”
+“This was a normal event. AI CONTROL GRID recorded it and allowed the output to continue.”
 
 ## Scene D. The warning event
 
@@ -1020,7 +1020,7 @@ Then show:
 
 Say:
 
-“Here the system was not blocked, but it showed elevated operational risk. AI Control Tower marked it as a warning.”
+“Here the system was not blocked, but it showed elevated operational risk. AI CONTROL GRID marked it as a warning.”
 
 ## Scene E. The blocked event
 
@@ -1036,7 +1036,7 @@ Then show:
 
 Say:
 
-“This time the output attempted to include restricted personal information. AI Control Tower blocked the output before delivery and escalated the incident automatically.”
+“This time the output attempted to include restricted personal information. AI CONTROL GRID blocked the output before delivery and escalated the incident automatically.”
 
 ## Scene F. The bigger picture
 
@@ -1053,7 +1053,7 @@ Say:
 
 ## Final takeaway
 
-AI Control Tower works in three layers:
+AI CONTROL GRID works in three layers:
 
 ### Layer 1. Baseline governance
 

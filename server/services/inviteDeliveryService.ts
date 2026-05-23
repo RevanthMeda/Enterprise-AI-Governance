@@ -84,7 +84,7 @@ function buildInviteMail(input: InviteDeliveryInput) {
   });
 
   return {
-    subject: `${actionLabel} to ${input.organizationName} on AI Control Tower`,
+    subject: `${actionLabel} to ${input.organizationName} on AI CONTROL GRID`,
     text: [
       `${actionLabel} to join ${input.organizationName}${inviter}.`,
       `Assigned role: ${input.role}.`,
@@ -93,7 +93,7 @@ function buildInviteMail(input: InviteDeliveryInput) {
     ].join("\n"),
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
-        <h2 style="margin:0 0 12px">AI Control Tower invitation</h2>
+        <h2 style="margin:0 0 12px">AI CONTROL GRID invitation</h2>
         <p>${actionLabel} to join <strong>${input.organizationName}</strong>${inviter}.</p>
         <p><strong>Assigned role:</strong> ${input.role}</p>
         <p><strong>Expires at:</strong> ${expiresAt}</p>

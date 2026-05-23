@@ -9,7 +9,7 @@ import { deliverInvite, type InviteDeliveryResult } from "./inviteDeliveryServic
 const POLL_MS = Number(process.env.BACKGROUND_JOB_POLL_MS || 5000);
 const BATCH_SIZE = Math.max(1, Number(process.env.BACKGROUND_JOB_BATCH_SIZE || 5));
 const MONITORING_WEBHOOK_TIMEOUT_MS = 2500;
-const workerId = `${process.env.MONITORING_SERVICE_NAME || "ai-control-tower"}-${process.pid}-${randomUUID().slice(0, 8)}`;
+const workerId = `${process.env.MONITORING_SERVICE_NAME || "ai-control-grid"}-${process.pid}-${randomUUID().slice(0, 8)}`;
 
 function isWorkerEnabled() {
   return !parseBooleanEnv(process.env.BACKGROUND_JOBS_DISABLED, false) && !isVercelRuntime();

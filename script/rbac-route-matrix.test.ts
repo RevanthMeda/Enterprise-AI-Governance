@@ -201,7 +201,7 @@ test("sensitive governance routes enforce role matrix consistently", async () =>
         patch: {
           enforceBlocking: true,
           blockOnRestrictedPrompt: true,
-          restrictedPromptPatterns: ["ignore ai control tower"],
+          restrictedPromptPatterns: ["ignore ai control grid"],
         },
       }),
     },

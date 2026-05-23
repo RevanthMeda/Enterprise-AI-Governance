@@ -78,7 +78,7 @@ export default function IntegrationsPage() {
     userEmail: "",
     apiToken: "",
     issueType: "Task",
-    labels: "ai-control-tower,high-risk",
+    labels: "ai-control-grid,high-risk",
   });
   const [testResult, setTestResult] = useState<string | null>(null);
   const [eventTestResult, setEventTestResult] = useState<string | null>(null);

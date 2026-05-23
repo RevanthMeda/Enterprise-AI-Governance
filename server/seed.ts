@@ -23,43 +23,43 @@ const BASELINE_TEST_USERS: BaselineTestUser[] = [
   {
     username: "admin_test",
     fullName: "Admin Test User",
-    email: "admin_test@aicontroltower.local",
+    email: "admin_test@aicontrolgrid.local",
     role: "admin",
   },
   {
     username: "cro_test",
     fullName: "CRO Test User",
-    email: "cro_test@aicontroltower.local",
+    email: "cro_test@aicontrolgrid.local",
     role: "cro",
   },
   {
     username: "ciso_test",
     fullName: "CISO Test User",
-    email: "ciso_test@aicontroltower.local",
+    email: "ciso_test@aicontrolgrid.local",
     role: "ciso",
   },
   {
     username: "compliance_lead_test",
     fullName: "Compliance Lead Test User",
-    email: "compliance_lead_test@aicontroltower.local",
+    email: "compliance_lead_test@aicontrolgrid.local",
     role: "compliance_lead",
   },
   {
     username: "reviewer_test",
     fullName: "Reviewer Test User",
-    email: "reviewer_test@aicontroltower.local",
+    email: "reviewer_test@aicontrolgrid.local",
     role: "reviewer",
   },
   {
     username: "system_owner_test",
     fullName: "System Owner Test User",
-    email: "system_owner_test@aicontroltower.local",
+    email: "system_owner_test@aicontrolgrid.local",
     role: "system_owner",
   },
   {
     username: "auditor_test",
     fullName: "Auditor Test User",
-    email: "auditor_test@aicontroltower.local",
+    email: "auditor_test@aicontrolgrid.local",
     role: "auditor",
   },
 ];
@@ -122,7 +122,7 @@ export async function seedDatabase() {
       username: "admin",
       password: hashed,
       fullName: "Platform Administrator",
-      email: "admin@aicontroltower.com",
+      email: "admin@aicontrolgrid.com",
       role: "admin",
     });
     console.log("Default admin user created (admin / admin123)");

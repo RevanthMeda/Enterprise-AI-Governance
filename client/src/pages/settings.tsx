@@ -1402,7 +1402,7 @@ export default function SettingsPage() {
                   <Input
                     value={entityId}
                     onChange={(e) => setEntityId(e.target.value)}
-                    placeholder="urn:ai-control-tower:sp"
+                    placeholder="urn:ai-control-grid:sp"
                     data-testid="input-auth-entity-id"
                   />
                 </div>
@@ -1480,7 +1480,7 @@ export default function SettingsPage() {
                   <Input
                     value={oidcClientId}
                     onChange={(e) => setOidcClientId(e.target.value)}
-                    placeholder="ai-control-tower"
+                    placeholder="ai-control-grid"
                     data-testid="input-auth-oidc-client-id"
                   />
                 </div>

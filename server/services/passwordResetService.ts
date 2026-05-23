@@ -96,11 +96,11 @@ function buildPasswordResetMail(input: PasswordResetMailInput) {
   });
 
   return {
-    subject: "Reset your AI Control Tower password",
+    subject: "Reset your AI CONTROL GRID password",
     text: [
       `Hello ${input.fullName},`,
       "",
-      "A password reset was requested for your AI Control Tower account.",
+      "A password reset was requested for your AI CONTROL GRID account.",
       `Reset your password: ${input.resetUrl}`,
       `This link expires at: ${expiresAt}`,
       "",
@@ -110,7 +110,7 @@ function buildPasswordResetMail(input: PasswordResetMailInput) {
       <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
         <h2 style="margin:0 0 12px">Reset your password</h2>
         <p>Hello <strong>${input.fullName}</strong>,</p>
-        <p>A password reset was requested for your AI Control Tower account.</p>
+        <p>A password reset was requested for your AI CONTROL GRID account.</p>
         <p><strong>Expires at:</strong> ${expiresAt}</p>
         <p style="margin:20px 0">
           <a href="${input.resetUrl}" style="display:inline-block;padding:10px 16px;background:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:8px">

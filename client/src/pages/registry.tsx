@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -112,6 +112,8 @@ const statusColors: Record<string, string> = {
   draft: "bg-slate-100 text-slate-800 dark:bg-slate-900/30 dark:text-slate-300",
 };
 
+const REGISTRY_PAGE_SIZE = 12;
+
 function inferFinanceDomain(values: Partial<FormValues>) {
   const corpus = [values.name, values.department, values.purpose, values.description]
     .filter(Boolean)
@@ -128,6 +130,7 @@ export default function Registry() {
   const [sensitivityFilter, setSensitivityFilter] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
@@ -150,6 +153,22 @@ export default function Registry() {
       return res.json();
     },
   });
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, riskFilter, statusFilter, sensitivityFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(systems.length / REGISTRY_PAGE_SIZE));
+  const paginatedSystems = useMemo(
+    () => systems.slice((currentPage - 1) * REGISTRY_PAGE_SIZE, currentPage * REGISTRY_PAGE_SIZE),
+    [currentPage, systems],
+  );
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -618,7 +637,7 @@ export default function Registry() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {systems.map((system) => {
+          {paginatedSystems.map((system) => {
             const appliedLawPacks = resolveSystemLawPackIds(system)
               .map((packId) => LAW_PACKS_BY_ID.get(packId)?.label ?? packId)
               .slice(0, 3);
@@ -695,6 +714,33 @@ export default function Registry() {
             </Card>
             );
           })}
+          {totalPages > 1 ? (
+            <div className="col-span-full flex flex-col gap-2 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-xs text-muted-foreground" data-testid="text-registry-page-count">
+                Page {currentPage} of {totalPages}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={currentPage === 1}
+                  data-testid="button-registry-prev"
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  disabled={currentPage === totalPages}
+                  data-testid="button-registry-next"
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
     </div>

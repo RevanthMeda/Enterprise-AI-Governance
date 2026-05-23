@@ -74,7 +74,7 @@ type RegisterInput = {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 type AuthMutationError = Error & { status?: number; mfaRequired?: boolean };
-const LOGOUT_MARKER_KEY = "ai-control-tower:last-logout-at";
+const LOGOUT_MARKER_KEY = "ai-control-grid:last-logout-at";
 const PUBLIC_SESSION_PATHS = new Set([
   "/",
   "/welcome",

@@ -1,6 +1,6 @@
 # OIDC Setup Guide
 
-This guide configures AI Control Tower for OpenID Connect using the current explicit-endpoint model.
+This guide configures AI CONTROL GRID for OpenID Connect using the current explicit-endpoint model.
 
 ## Before you start
 
@@ -14,7 +14,7 @@ You need:
 
 ## Required OIDC values
 
-AI Control Tower currently expects explicit provider endpoints:
+AI CONTROL GRID currently expects explicit provider endpoints:
 
 - issuer
 - authorization URL
@@ -37,7 +37,7 @@ Recommended start URL:
 
 - `https://<backend-domain>/api/auth/oidc/start?org=<org-slug>&next=/`
 
-## AI Control Tower configuration
+## AI CONTROL GRID configuration
 
 In the `Identity` tab:
 

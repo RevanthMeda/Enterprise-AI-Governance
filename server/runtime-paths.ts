@@ -12,7 +12,7 @@ function ensureDir(dirPath: string): string {
 
 function getWritableRoot(): string {
   if (isVercelRuntime()) {
-    return "/tmp/ai-control-tower";
+    return "/tmp/ai-control-grid";
   }
 
   return process.cwd();

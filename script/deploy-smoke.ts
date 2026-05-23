@@ -158,7 +158,7 @@ async function main() {
         if (!response.ok) {
           throw new Error(`expected 200, received ${response.status}`);
         }
-        if (!text.includes("AI Control Tower")) {
+        if (!text.includes("AI CONTROL GRID")) {
           throw new Error("landing response missing expected app marker");
         }
       }),

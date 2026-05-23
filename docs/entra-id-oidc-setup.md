@@ -1,12 +1,12 @@
 # Entra ID OIDC Setup Guide
 
-This guide configures AI Control Tower with Microsoft Entra ID using OpenID Connect.
+This guide configures AI CONTROL GRID with Microsoft Entra ID using OpenID Connect.
 
 ## Before you start
 
 You need:
 
-- organization admin access in AI Control Tower
+- organization admin access in AI CONTROL GRID
 - Microsoft Entra admin access
 - a verified organization domain
 - your production backend URL
@@ -22,7 +22,7 @@ In Microsoft Entra:
    - `https://<backend-domain>/api/auth/oidc/callback`
 4. create a client secret if your tenant policy requires it
 
-## AI Control Tower OIDC settings
+## AI CONTROL GRID OIDC settings
 
 Use these values:
 

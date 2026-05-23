@@ -3,6 +3,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Upload, File, Trash2, Download, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -42,6 +44,49 @@ function getEvidenceGovernanceMetadata(file: EvidenceFile) {
   };
 }
 
+function getEvidenceUserMetadata(file: EvidenceFile) {
+  const metadata =
+    file.metadata && typeof file.metadata === "object" && !Array.isArray(file.metadata)
+      ? (file.metadata as Record<string, unknown>)
+      : null;
+
+  return {
+    category: typeof metadata?.category === "string" ? metadata.category : null,
+    tags: Array.isArray(metadata?.tags)
+      ? metadata.tags.filter((entry): entry is string => typeof entry === "string")
+      : [],
+    expiryDate: typeof metadata?.expiryDate === "string" ? metadata.expiryDate : null,
+  };
+}
+
+function getExpiryBadge(expiryDate: string | null) {
+  if (!expiryDate) return null;
+  const expiry = new Date(expiryDate);
+  if (Number.isNaN(expiry.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysUntilExpiry = Math.ceil((expiry.getTime() - today.getTime()) / 86400000);
+
+  if (daysUntilExpiry < 0) {
+    return {
+      label: `Expired ${expiry.toLocaleDateString()}`,
+      className: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300",
+    };
+  }
+
+  if (daysUntilExpiry <= 30) {
+    return {
+      label: `Expires ${expiry.toLocaleDateString()}`,
+      className: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300",
+    };
+  }
+
+  return {
+    label: `Expires ${expiry.toLocaleDateString()}`,
+    className: "border-border text-muted-foreground",
+  };
+}
+
 interface EvidenceUploadProps {
   systemId: string;
   controlId?: string;
@@ -53,6 +98,9 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
   const [dialogOpen, setDialogOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [category, setCategory] = useState("policy");
+  const [tags, setTags] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -80,6 +128,9 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
       formData.append("systemId", systemId);
       if (controlId) formData.append("controlId", controlId);
       if (workflowId) formData.append("workflowId", workflowId);
+      formData.append("category", category);
+      formData.append("tags", tags);
+      if (expiryDate) formData.append("expiryDate", expiryDate);
       const csrfToken = getCsrfToken();
       const res = await fetch(resolveApiUrl("/api/evidence"), {
         method: "POST",
@@ -160,6 +211,12 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
             onDrop={handleDrop}
             onUpload={handleUpload}
             onDelete={(id) => deleteMutation.mutate(id)}
+            category={category}
+            onCategoryChange={setCategory}
+            tags={tags}
+            onTagsChange={setTags}
+            expiryDate={expiryDate}
+            onExpiryDateChange={setExpiryDate}
           />
         </DialogContent>
       </Dialog>
@@ -178,6 +235,12 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
       onDrop={handleDrop}
       onUpload={handleUpload}
       onDelete={(id) => deleteMutation.mutate(id)}
+      category={category}
+      onCategoryChange={setCategory}
+      tags={tags}
+      onTagsChange={setTags}
+      expiryDate={expiryDate}
+      onExpiryDateChange={setExpiryDate}
     />
   );
 }
@@ -193,6 +256,12 @@ function EvidenceContent({
   onDrop,
   onUpload,
   onDelete,
+  category,
+  onCategoryChange,
+  tags,
+  onTagsChange,
+  expiryDate,
+  onExpiryDateChange,
 }: {
   files: EvidenceFile[];
   isLoading: boolean;
@@ -204,9 +273,54 @@ function EvidenceContent({
   onDrop: (e: React.DragEvent) => void;
   onUpload: (files: FileList | null) => void;
   onDelete: (id: string) => void;
+  category: string;
+  onCategoryChange: (value: string) => void;
+  tags: string;
+  onTagsChange: (value: string) => void;
+  expiryDate: string;
+  onExpiryDateChange: (value: string) => void;
 }) {
   return (
     <div className="space-y-3">
+      <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-3">
+        <label className="space-y-1 text-xs">
+          <span className="font-medium">Category</span>
+          <Select value={category} onValueChange={onCategoryChange}>
+            <SelectTrigger className="h-8 text-xs" data-testid="select-evidence-category">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="policy">Policy</SelectItem>
+              <SelectItem value="control_test">Control test</SelectItem>
+              <SelectItem value="approval">Approval</SelectItem>
+              <SelectItem value="vendor">Vendor</SelectItem>
+              <SelectItem value="runtime">Runtime</SelectItem>
+              <SelectItem value="other">Other</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+        <label className="space-y-1 text-xs">
+          <span className="font-medium">Tags</span>
+          <Input
+            value={tags}
+            onChange={(event) => onTagsChange(event.target.value)}
+            placeholder="audit, renewal"
+            className="h-8 text-xs"
+            data-testid="input-evidence-tags"
+          />
+        </label>
+        <label className="space-y-1 text-xs">
+          <span className="font-medium">Expiry date</span>
+          <Input
+            type="date"
+            value={expiryDate}
+            onChange={(event) => onExpiryDateChange(event.target.value)}
+            className="h-8 text-xs"
+            data-testid="input-evidence-expiry"
+          />
+        </label>
+      </div>
+
       <div
         className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors cursor-pointer ${
           dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/20 hover:border-muted-foreground/40"
@@ -245,12 +359,33 @@ function EvidenceContent({
               <div className="flex-1 min-w-0">
                 {(() => {
                   const governance = getEvidenceGovernanceMetadata(file);
+                  const userMetadata = getEvidenceUserMetadata(file);
+                  const expiryBadge = getExpiryBadge(userMetadata.expiryDate);
                   return (
                     <>
                 <p className="text-xs font-medium truncate">{file.fileName}</p>
                 <p className="text-[10px] text-muted-foreground">
                   {formatFileSize(file.fileSize)} - {file.uploadedBy} - {file.createdAt ? new Date(file.createdAt).toLocaleDateString() : ""}
                 </p>
+                      {(userMetadata.category || userMetadata.tags.length > 0 || expiryBadge) && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {userMetadata.category ? (
+                            <Badge variant="outline" className="h-5 px-1.5 text-[9px]">
+                              {userMetadata.category.replace(/_/g, " ")}
+                            </Badge>
+                          ) : null}
+                          {userMetadata.tags.map((tag) => (
+                            <Badge key={tag} variant="secondary" className="h-5 px-1.5 text-[9px]">
+                              {tag}
+                            </Badge>
+                          ))}
+                          {expiryBadge ? (
+                            <Badge variant="outline" className={`h-5 px-1.5 text-[9px] ${expiryBadge.className}`}>
+                              {expiryBadge.label}
+                            </Badge>
+                          ) : null}
+                        </div>
+                      )}
                       {(governance.legalProfileApplied || governance.lawPackIdsApplied.length > 0) && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {governance.legalProfileApplied && (

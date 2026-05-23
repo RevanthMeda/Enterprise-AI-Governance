@@ -1,4 +1,4 @@
-const CACHE_NAME = "ai-control-tower-v1";
+const CACHE_NAME = "ai-control-grid-v1";
 const APP_SHELL = [
   "/",
   "/offline.html",

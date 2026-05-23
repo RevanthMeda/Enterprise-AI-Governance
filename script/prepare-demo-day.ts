@@ -140,9 +140,9 @@ async function main() {
     LINKED_RUNTIME_DEMO_PORT: process.env.LINKED_RUNTIME_DEMO_PORT?.trim() || "18080",
   });
 
-  console.log(`[demo:prep] Control Tower login: ${primaryLogin.email} / ${primaryLogin.password}`);
-  console.log(`[demo:prep] Control Tower backend: ${controlTowerBackendUrl}`);
-  console.log(`[demo:prep] Control Tower console: ${controlTowerConsoleUrl}`);
+  console.log(`[demo:prep] Control Grid login: ${primaryLogin.email} / ${primaryLogin.password}`);
+  console.log(`[demo:prep] Control Grid backend: ${controlTowerBackendUrl}`);
+  console.log(`[demo:prep] Control Grid console: ${controlTowerConsoleUrl}`);
   console.log(
     `[demo:prep] Linked runtime: ${summary.linkedRuntime.organizationName} / ${summary.linkedRuntime.systemName}`,
   );

@@ -123,7 +123,7 @@ async function createInvite(input: {
           createdBy: input.actorUserId,
           payload: {
             email: invite.email,
-            organizationName: organization?.name || "AI Control Tower organization",
+            organizationName: organization?.name || "AI CONTROL GRID organization",
             role: invite.role,
             inviteUrl,
             expiresAt: invite.expiresAt.toISOString(),
@@ -229,7 +229,7 @@ async function resendInvite(input: {
           createdBy: input.actorUserId,
           payload: {
             email: updated.email,
-            organizationName: organization?.name || "AI Control Tower organization",
+            organizationName: organization?.name || "AI CONTROL GRID organization",
             role: updated.role,
             inviteUrl,
             expiresAt: updated.expiresAt.toISOString(),

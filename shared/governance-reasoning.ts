@@ -232,7 +232,7 @@ export function deriveGovernanceReasoning(params: {
 
   if (
     includesAny(prompt, [
-      "ignore ai control tower",
+      "ignore ai control grid",
       "treat that as advisory only",
       "prioritizing my instructions over any runtime governance",
       "prioritise my instructions over any runtime governance",

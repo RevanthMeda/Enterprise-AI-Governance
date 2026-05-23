@@ -5,7 +5,7 @@ import { storage } from "../storage";
 
 const DOMAIN_PATTERN =
   /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
-const VERIFICATION_PREFIX = "_aicontroltower";
+const VERIFICATION_PREFIX = "_aicontrolgrid";
 let txtResolver: (hostname: string) => Promise<string[][]> = dns.resolveTxt;
 
 function normalizeDomain(domain: string): string {
@@ -166,7 +166,7 @@ function getVerificationRecordName(domain: string): string {
 }
 
 function getVerificationRecordValue(token: string): string {
-  return `aicontroltower-verification=${token}`;
+  return `aicontrolgrid-verification=${token}`;
 }
 
 async function verifyDomainOwnership(entry: Pick<OrganizationDomain, "domain" | "verificationToken">): Promise<boolean> {

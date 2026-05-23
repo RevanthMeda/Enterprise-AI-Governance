@@ -1,6 +1,6 @@
 # Multi-tenant Hardening Runbook
 
-This runbook defines the operational and engineering rules that keep tenant data isolated in AI Control Tower.
+This runbook defines the operational and engineering rules that keep tenant data isolated in AI CONTROL GRID.
 
 ## Tenant model
 
@@ -129,8 +129,8 @@ Normalization requirements:
 
 Verification model:
 
-- TXT record name: `_aicontroltower.<domain>`
-- TXT record value: `aicontroltower-verification=<token>`
+- TXT record name: `_aicontrolgrid.<domain>`
+- TXT record value: `aicontrolgrid-verification=<token>`
 
 Only verified domains should be treated as enterprise-claimed in rollout policies if you later tighten enforcement.
 

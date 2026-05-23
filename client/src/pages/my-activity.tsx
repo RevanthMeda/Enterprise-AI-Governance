@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { JiraTicketLink } from "@/components/jira-ticket-link";
 import { useAuth } from "@/hooks/use-auth";
 import { usePageCopy } from "@/lib/page-copy";
 import type { AiSystem, ApprovalWorkflow, SystemControl, AuditLog } from "@shared/schema";
@@ -255,6 +256,12 @@ export default function MyActivity() {
                     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${statusStyles[wf.status]}`}>
                       {wf.status.replace("_", " ")}
                     </span>
+                    <JiraTicketLink
+                      issueKey={wf.jiraIssueKey}
+                      issueUrl={wf.jiraIssueUrl}
+                      syncStatus={wf.jiraSyncStatus}
+                      compact
+                    />
                     <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                   </div>
                 </div>
@@ -449,7 +456,15 @@ export default function MyActivity() {
                         Pending {daysOld} days · {wf.reviewer || "Unassigned"}
                       </span>
                     </div>
-                    <Badge variant="outline" className="text-[10px] shrink-0">{wf.priority}</Badge>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <JiraTicketLink
+                        issueKey={wf.jiraIssueKey}
+                        issueUrl={wf.jiraIssueUrl}
+                        syncStatus={wf.jiraSyncStatus}
+                        compact
+                      />
+                      <Badge variant="outline" className="text-[10px]">{wf.priority}</Badge>
+                    </div>
                   </div>
                 );
               })}
@@ -580,6 +595,12 @@ export default function MyActivity() {
                   <span className={`shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${statusStyles[wf.status]}`}>
                     {wf.status.replace("_", " ")}
                   </span>
+                  <JiraTicketLink
+                    issueKey={wf.jiraIssueKey}
+                    issueUrl={wf.jiraIssueUrl}
+                    syncStatus={wf.jiraSyncStatus}
+                    compact
+                  />
                 </div>
               ))}
             </CardContent>

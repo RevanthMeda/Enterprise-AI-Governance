@@ -55,8 +55,8 @@ export type PageCopyCatalog = {
 
 const ENGLISH_PAGES: PageCopyCatalog = {
   landing: {
-    title: "Govern AI at Runtime. Protect Exit Valuations.",
-    description: "Intercept prompts, enforce policy, and cryptographically seal every AI decision before it reaches production.",
+    title: "AI CONTROL GRID",
+    description: "Runtime AI governance by Arcturos: intercept prompts, enforce policy, and cryptographically seal every AI decision before production.",
     badges: {
       productNav: "Product",
       solutionsNav: "Solutions",
@@ -66,18 +66,18 @@ const ENGLISH_PAGES: PageCopyCatalog = {
       docsNav: "Docs",
       signIn: "Sign In",
       bookDemo: "Book a Demo",
-      runtimeGovernance: "Runtime governance",
-      heroRibbon: "Runtime policy • incident operations • cryptographic evidence",
-      heroHeadline: "Govern AI at Runtime. Protect Exit Valuations.",
-      heroBody: "Intercept prompts, enforce policy, and cryptographically seal every AI decision before it reaches production.",
-      heroAudience: "For PE funds and regulated enterprises that cannot afford AI guesswork.",
+      runtimeGovernance: "by Arcturos",
+      heroRibbon: "Arcturos runtime grid • policy • incidents • evidence",
+      heroHeadline: "AI CONTROL GRID",
+      heroBody: "Runtime AI governance by Arcturos: intercept prompts, enforce policy, and cryptographically seal every AI decision before production.",
+      heroAudience: "Founder-built by Revanth Meda for PE funds and regulated enterprises that cannot afford AI guesswork.",
       heroSecondaryCta: "Inspect the enforcement engine",
       heroEvidenceCta: "See the evidence chain",
       runtimeSeal: "Runtime seal",
       runtimeSealBody: "Prompt, output, decision, and incident linkage sealed before release.",
       liveCommandRail: "Live command rail",
       footerDescription:
-        "Institutional-grade AI runtime governance for private equity, regulated operators, and high-consequence enterprise workflows.",
+        "AI CONTROL GRID by Arcturos brings institutional-grade runtime governance to private equity, regulated operators, and high-consequence enterprise workflows.",
       footerProduct: "Product",
       footerSecurity: "Security",
       footerLegal: "Legal",
@@ -85,12 +85,12 @@ const ENGLISH_PAGES: PageCopyCatalog = {
       enterpriseDemos: "Enterprise demos",
       securityReviews: "Security reviews",
       support: "Support",
-      footerStrip: "Runtime policy • incident operations • cryptographic evidence",
-      enterpriseDemoCta: "Book an Enterprise Demo",
+      footerStrip: "AI CONTROL GRID by Arcturos • runtime policy • incident operations • cryptographic evidence",
+      enterpriseDemoCta: "Book an Arcturos Demo",
     },
   },
   bookDemo: {
-    title: "Book a demo of AI Control Tower",
+    title: "Book a demo of AI CONTROL GRID by Arcturos",
     description:
       "See how serious teams run AI governance with workflow, evidence, and audit-ready visibility.",
     badges: {
@@ -109,7 +109,7 @@ const ENGLISH_PAGES: PageCopyCatalog = {
     },
   },
   startPilot: {
-    title: "Start an AI governance pilot",
+    title: "Start an AI CONTROL GRID pilot",
     description:
       "Launch a practical pilot with scoped rollout, clear ownership, and measurable governance outcomes.",
     badges: {
@@ -138,7 +138,7 @@ const ENGLISH_PAGES: PageCopyCatalog = {
   dashboard: {
     title: "Governance operations at a glance",
     description: "Monitor readiness, queue pressure, risk posture, and action paths from one operator surface.",
-    badges: { product: "AI Control Tower", queuePending: "Queue pending" },
+    badges: { product: "AI CONTROL GRID", queuePending: "Queue pending" },
   },
   registry: {
     title: "AI System Registry",
@@ -288,7 +288,7 @@ const ENGLISH_PAGES: PageCopyCatalog = {
   },
   knowledgeCenter: {
     title: "Knowledge Center",
-    description: "Centralized documentation, training tracks, and readiness guidance for Control Tower operators.",
+    description: "Centralized documentation, training tracks, and readiness guidance for Control Grid operators.",
   },
   integrations: {
     title: "Integrations",
@@ -351,7 +351,7 @@ const ENGLISH_PAGES: PageCopyCatalog = {
 
 const FR_PAGES: PageCopyCatalog = {
   ...ENGLISH_PAGES,
-  dashboard: { ...ENGLISH_PAGES.dashboard, title: "Opérations de gouvernance en un coup d'œil", description: "Surveillez la préparation, la pression sur la file, la posture de risque et les chemins d'action depuis une seule surface opérateur.", badges: { product: "AI Control Tower", queuePending: "File en attente" } },
+  dashboard: { ...ENGLISH_PAGES.dashboard, title: "Opérations de gouvernance en un coup d'œil", description: "Surveillez la préparation, la pression sur la file, la posture de risque et les chemins d'action depuis une seule surface opérateur.", badges: { product: "AI CONTROL GRID", queuePending: "File en attente" } },
   registry: { title: "Registre des systèmes IA", description: "Consignez les systèmes concernés, leurs responsables, leur finalité et leur mode de gouvernance." },
   compliance: { title: "Gestion de la conformité", description: "Suivi des contrôles fondé sur les preuves à travers l'AI Act de l'UE, le NIST AI RMF et l'ISO/IEC 42001." },
   approvals: { title: "Flux d'approbation", description: "Acheminez les décisions IA via des workflows détenus par les réviseurs selon l'impact financier, vie privée, sécurité et stratégie." },
@@ -360,13 +360,13 @@ const FR_PAGES: PageCopyCatalog = {
   runtimeMonitoring: { ...ENGLISH_PAGES.runtimeMonitoring, title: "Surveillance runtime", description: "Examinez les décisions runtime en direct et vérifiez ce que la plateforme autorise, avertit, escalade ou bloque avant l'utilisateur final.", badges: { hero: "Surface de contrôle runtime", adapterEnabled: "Adaptateur activé", adapterDisabled: "Adaptateur désactivé", blockedEvents: "Événements bloqués", noSystemOverride: "Aucun remplacement système", system: "Système" } },
   analytics: { ...ENGLISH_PAGES.analytics, title: "Centre analytique", description: "Suivez l'activité de gouvernance, la pression incident, le mouvement des workflows et la posture de reporting.", badges: { generatedLive: "Généré en direct" } },
   settings: { title: "Paramètres", description: "Gérez l'identité, les domaines, les invitations, l'activité, les opérations et les préférences d'espace de gouvernance." },
-  landing: { ...ENGLISH_PAGES.landing, title: "Gouvernez l'IA en runtime. Protégez la valeur à la sortie.", description: "Interceptez les prompts, appliquez la politique et scellez cryptographiquement chaque décision IA avant la production.", badges: { ...ENGLISH_PAGES.landing.badges, productNav: "Produit", solutionsNav: "Solutions", frameworksNav: "Référentiels", pricingNav: "Tarifs", docsNav: "Docs", signIn: "Se connecter", bookDemo: "Réserver une démo", runtimeGovernance: "Gouvernance runtime", heroRibbon: "Politique runtime • opérations incidents • preuves cryptographiques", heroHeadline: "Gouvernez l'IA en runtime. Protégez la valeur à la sortie.", heroBody: "Interceptez les prompts, appliquez la politique et scellez cryptographiquement chaque décision IA avant la production.", heroAudience: "Pour les fonds PE et les entreprises régulées qui ne peuvent pas se permettre l'approximation IA.", heroSecondaryCta: "Inspecter le moteur d'application", heroEvidenceCta: "Voir la chaîne de preuve", runtimeSeal: "Scellé runtime", liveCommandRail: "Rail de commande en direct", footerProduct: "Produit", footerSecurity: "Sécurité", footerLegal: "Juridique", footerContact: "Contact", enterpriseDemos: "Démos entreprise", securityReviews: "Revues sécurité", support: "Support", footerStrip: "Politique runtime • opérations incidents • preuves cryptographiques", enterpriseDemoCta: "Réserver une démo entreprise" } },
-  bookDemo: { ...ENGLISH_PAGES.bookDemo, title: "Réserver une démo d'AI Control Tower", description: "Découvrez comment les équipes exigeantes pilotent la gouvernance IA avec workflow, preuves et visibilité prête pour l'audit.", badges: { ...ENGLISH_PAGES.bookDemo.badges, ctaLabel: "Réserver une démo", fullName: "Nom complet", workEmail: "E-mail professionnel", company: "Entreprise", role: "Rôle", teamSize: "Taille de l'équipe", primaryChallenge: "Défi principal de gouvernance", submitting: "Envoi..." } },
+  landing: { ...ENGLISH_PAGES.landing, title: "AI CONTROL GRID", description: "La gouvernance IA runtime d'Arcturos intercepte les prompts, applique les politiques et scelle chaque décision avant la production.", badges: { ...ENGLISH_PAGES.landing.badges, productNav: "Produit", solutionsNav: "Solutions", frameworksNav: "Référentiels", pricingNav: "Tarifs", docsNav: "Docs", signIn: "Se connecter", bookDemo: "Réserver une démo", runtimeGovernance: "by Arcturos", heroRibbon: "Grid runtime Arcturos • politiques • incidents • preuves", heroHeadline: "AI CONTROL GRID", heroBody: "La gouvernance IA runtime d'Arcturos intercepte les prompts, applique les politiques et scelle chaque décision avant la production.", heroAudience: "Conçu par Revanth Meda pour les fonds PE et les entreprises régulées qui ne peuvent pas se permettre l'approximation IA.", heroSecondaryCta: "Inspecter le moteur d'application", heroEvidenceCta: "Voir la chaîne de preuve", runtimeSeal: "Scellé runtime", liveCommandRail: "Rail de commande en direct", footerProduct: "Produit", footerSecurity: "Sécurité", footerLegal: "Juridique", footerContact: "Contact", enterpriseDemos: "Démos entreprise", securityReviews: "Revues sécurité", support: "Support", footerStrip: "AI CONTROL GRID by Arcturos • politiques runtime • opérations incidents • preuves cryptographiques", enterpriseDemoCta: "Réserver une démo Arcturos" } },
+  bookDemo: { ...ENGLISH_PAGES.bookDemo, title: "Réserver une démo d'AI CONTROL GRID", description: "Découvrez comment les équipes exigeantes pilotent la gouvernance IA avec workflow, preuves et visibilité prête pour l'audit.", badges: { ...ENGLISH_PAGES.bookDemo.badges, ctaLabel: "Réserver une démo", fullName: "Nom complet", workEmail: "E-mail professionnel", company: "Entreprise", role: "Rôle", teamSize: "Taille de l'équipe", primaryChallenge: "Défi principal de gouvernance", submitting: "Envoi..." } },
   startPilot: { ...ENGLISH_PAGES.startPilot, title: "Lancer un pilote de gouvernance IA", description: "Lancez un pilote pratique avec périmètre clair, responsabilité définie et résultats mesurables.", badges: { ...ENGLISH_PAGES.startPilot.badges, ctaLabel: "Lancer le pilote", fullName: "Nom complet", workEmail: "E-mail professionnel", company: "Entreprise", role: "Rôle", teamSize: "Taille de l'équipe", primaryChallenge: "Défi principal de gouvernance", submitting: "Envoi..." } },
   notFound: { ...ENGLISH_PAGES.notFound, title: "Page introuvable", description: "La page demandée n'existe pas ou n'est plus disponible.", badges: { dashboard: "Aller au tableau de bord", home: "Retour à l'accueil" } },
   systemDetail: { ...ENGLISH_PAGES.systemDetail, title: "Détail du système IA", description: "Examinez la propriété, les contrôles, les workflows, les preuves et la configuration runtime du système.", badges: { ...ENGLISH_PAGES.systemDetail.badges, owner: "Responsable", exportEvidence: "Exporter les preuves", overview: "Vue d'ensemble", controls: "Contrôles", workflows: "Workflows", evidence: "Preuves", audit: "Audit", notFound: "Système introuvable", evidenceFiles: "Fichiers de preuve du système" } },
   integrations: { ...ENGLISH_PAGES.integrations, title: "Intégrations", description: "Gérez les connecteurs, le routage d'événements, la threat intelligence et les automatisations externes.", badges: { ...ENGLISH_PAGES.integrations.badges, connectorExpansion: "Extension des connecteurs activée", disabled: "Désactivé", configurationIncomplete: "Configuration incomplète", jiraReady: "Les approbations à haut risque ouvriront des tickets Jira", connectors: "Connecteurs", automationRule: "Règle d'automatisation", highRiskWorkflow: "Workflow haute priorité ou à haut risque", currentState: "État actuel", connectorCatalog: "Catalogue des connecteurs", threatIntel: "Threat intelligence", jiraConnection: "Connexion Jira", eventStream: "Flux d'événements de gouvernance", remediationHooks: "Hooks de remédiation automatisée", automationBuilder: "Constructeur d'automatisation" } },
-  knowledgeCenter: { title: "Centre de connaissances", description: "Documentation centralisée, parcours de formation et repères de préparation pour les opérateurs Control Tower." },
+  knowledgeCenter: { title: "Centre de connaissances", description: "Documentation centralisée, parcours de formation et repères de préparation pour les opérateurs Control Grid." },
   governanceMaturity: { title: "Maturité de gouvernance", description: "Examinez le score de maturité, les forces, les lacunes et la feuille de route du programme." },
   trustCenter: { ...ENGLISH_PAGES.trustCenter, title: "Posture sécurité, gouvernance et diligence acheteur", description: "Consultez la posture de confiance produit, les contrôles clés et les supports de diligence.", badges: { trustCenter: "Trust Center" } },
   security: { title: "Pratiques de sécurité", description: "Consultez les contrôles de sécurité, le durcissement et les garde-fous opérationnels." },
@@ -380,7 +380,7 @@ const FR_PAGES: PageCopyCatalog = {
 
 const DE_PAGES: PageCopyCatalog = {
   ...ENGLISH_PAGES,
-  dashboard: { ...ENGLISH_PAGES.dashboard, title: "Governance-Betrieb auf einen Blick", description: "Überwachen Sie Reifegrad, Warteschlangendruck, Risikoposition und Aktionspfade in einer Operator-Oberfläche.", badges: { product: "AI Control Tower", queuePending: "Warteschlange offen" } },
+  dashboard: { ...ENGLISH_PAGES.dashboard, title: "Governance-Betrieb auf einen Blick", description: "Überwachen Sie Reifegrad, Warteschlangendruck, Risikoposition und Aktionspfade in einer Operator-Oberfläche.", badges: { product: "AI CONTROL GRID", queuePending: "Warteschlange offen" } },
   registry: { title: "KI-Systemregister", description: "Erfassen Sie betroffene Systeme, Verantwortliche, Zweck und Governance-Status." },
   compliance: { title: "Compliance-Management", description: "Nachweisbasierte Kontrollverfolgung über EU AI Act, NIST AI RMF und ISO/IEC 42001." },
   approvals: { title: "Freigabe-Workflows", description: "Leiten Sie KI-Entscheidungen je nach Finanz-, Datenschutz-, Sicherheits- und Strategieauswirkung durch Reviewer-Workflows." },
@@ -389,13 +389,13 @@ const DE_PAGES: PageCopyCatalog = {
   runtimeMonitoring: { ...ENGLISH_PAGES.runtimeMonitoring, title: "Runtime-Überwachung", description: "Prüfen Sie Live-Entscheidungen und validieren Sie, was die Plattform zulässt, warnt, eskaliert oder blockiert, bevor Nutzerverkehr ankommt.", badges: { hero: "Runtime-Kontrollfläche", adapterEnabled: "Adapter aktiv", adapterDisabled: "Adapter inaktiv", blockedEvents: "Blockierte Ereignisse", noSystemOverride: "Kein System-Override", system: "System" } },
   analytics: { ...ENGLISH_PAGES.analytics, title: "Analysezentrum", description: "Verfolgen Sie Governance-Aktivität, Vorfalldruck, Workflow-Bewegung und Reporting-Status.", badges: { generatedLive: "Live erzeugt" } },
   settings: { title: "Einstellungen", description: "Verwalten Sie Identität, Domains, Einladungen, Aktivität, Betrieb und Governance-Arbeitsbereichspräferenzen." },
-  landing: { ...ENGLISH_PAGES.landing, title: "Governance für KI zur Laufzeit. Exit-Werte schützen.", description: "Fangen Sie Prompts ab, erzwingen Sie Richtlinien und versiegeln Sie jede KI-Entscheidung kryptographisch vor dem Produktiveinsatz.", badges: { ...ENGLISH_PAGES.landing.badges, productNav: "Produkt", solutionsNav: "Lösungen", frameworksNav: "Rahmenwerke", pricingNav: "Preise", docsNav: "Doku", signIn: "Anmelden", bookDemo: "Demo buchen", runtimeGovernance: "Runtime-Governance", heroRibbon: "Runtime-Richtlinie • Incident-Betrieb • kryptographische Nachweise", heroHeadline: "Governance für KI zur Laufzeit. Exit-Werte schützen.", heroBody: "Fangen Sie Prompts ab, erzwingen Sie Richtlinien und versiegeln Sie jede KI-Entscheidung kryptographisch vor dem Produktiveinsatz.", heroAudience: "Für PE-Fonds und regulierte Unternehmen, die sich KI-Raten nicht leisten können.", heroSecondaryCta: "Enforcement-Engine ansehen", heroEvidenceCta: "Nachweiskette ansehen", runtimeSeal: "Runtime-Siegel", liveCommandRail: "Live-Kommandoschiene", footerProduct: "Produkt", footerSecurity: "Sicherheit", footerLegal: "Recht", footerContact: "Kontakt", enterpriseDemos: "Enterprise-Demos", securityReviews: "Security Reviews", support: "Support", footerStrip: "Runtime-Richtlinie • Incident-Betrieb • kryptographische Nachweise", enterpriseDemoCta: "Enterprise-Demo buchen" } },
-  bookDemo: { ...ENGLISH_PAGES.bookDemo, title: "Demo von AI Control Tower buchen", description: "Sehen Sie, wie anspruchsvolle Teams KI-Governance mit Workflow, Nachweisen und auditfähiger Transparenz betreiben.", badges: { ...ENGLISH_PAGES.bookDemo.badges, ctaLabel: "Demo buchen", fullName: "Vollständiger Name", workEmail: "Geschäftliche E-Mail", company: "Unternehmen", role: "Rolle", teamSize: "Teamgröße", primaryChallenge: "Wichtigste Governance-Herausforderung", submitting: "Wird gesendet..." } },
+  landing: { ...ENGLISH_PAGES.landing, title: "AI CONTROL GRID", description: "Runtime-Governance für KI von Arcturos: Prompts abfangen, Richtlinien durchsetzen und Entscheidungen vor Produktion kryptographisch versiegeln.", badges: { ...ENGLISH_PAGES.landing.badges, productNav: "Produkt", solutionsNav: "Lösungen", frameworksNav: "Rahmenwerke", pricingNav: "Preise", docsNav: "Doku", signIn: "Anmelden", bookDemo: "Demo buchen", runtimeGovernance: "by Arcturos", heroRibbon: "Arcturos Runtime Grid • Richtlinien • Incidents • Nachweise", heroHeadline: "AI CONTROL GRID", heroBody: "Runtime-Governance für KI von Arcturos: Prompts abfangen, Richtlinien durchsetzen und Entscheidungen vor Produktion kryptographisch versiegeln.", heroAudience: "Von Revanth Meda für PE-Fonds und regulierte Unternehmen entwickelt, die sich KI-Raten nicht leisten können.", heroSecondaryCta: "Enforcement-Engine ansehen", heroEvidenceCta: "Nachweiskette ansehen", runtimeSeal: "Runtime-Siegel", liveCommandRail: "Live-Kommandoschiene", footerProduct: "Produkt", footerSecurity: "Sicherheit", footerLegal: "Recht", footerContact: "Kontakt", enterpriseDemos: "Enterprise-Demos", securityReviews: "Security Reviews", support: "Support", footerStrip: "AI CONTROL GRID by Arcturos • Runtime-Richtlinie • Incident-Betrieb • Nachweise", enterpriseDemoCta: "Arcturos-Demo buchen" } },
+  bookDemo: { ...ENGLISH_PAGES.bookDemo, title: "Demo von AI CONTROL GRID buchen", description: "Sehen Sie, wie anspruchsvolle Teams KI-Governance mit Workflow, Nachweisen und auditfähiger Transparenz betreiben.", badges: { ...ENGLISH_PAGES.bookDemo.badges, ctaLabel: "Demo buchen", fullName: "Vollständiger Name", workEmail: "Geschäftliche E-Mail", company: "Unternehmen", role: "Rolle", teamSize: "Teamgröße", primaryChallenge: "Wichtigste Governance-Herausforderung", submitting: "Wird gesendet..." } },
   startPilot: { ...ENGLISH_PAGES.startPilot, title: "KI-Governance-Pilot starten", description: "Starten Sie einen praktischen Piloten mit klarem Umfang, Verantwortung und messbaren Ergebnissen.", badges: { ...ENGLISH_PAGES.startPilot.badges, ctaLabel: "Pilot starten", fullName: "Vollständiger Name", workEmail: "Geschäftliche E-Mail", company: "Unternehmen", role: "Rolle", teamSize: "Teamgröße", primaryChallenge: "Wichtigste Governance-Herausforderung", submitting: "Wird gesendet..." } },
   notFound: { ...ENGLISH_PAGES.notFound, title: "Seite nicht gefunden", description: "Die angeforderte Seite existiert nicht oder ist nicht mehr verfügbar.", badges: { dashboard: "Zum Dashboard", home: "Zur Startseite" } },
   systemDetail: { ...ENGLISH_PAGES.systemDetail, title: "Details zum KI-System", description: "Prüfen Sie Eigentümerschaft, Kontrollen, Workflows, Nachweise und Runtime-Governance-Konfiguration des Systems.", badges: { ...ENGLISH_PAGES.systemDetail.badges, owner: "Verantwortlich", exportEvidence: "Nachweise exportieren", overview: "Überblick", controls: "Kontrollen", workflows: "Workflows", evidence: "Nachweise", audit: "Audit", notFound: "System nicht gefunden", evidenceFiles: "Systemnachweise" } },
   integrations: { ...ENGLISH_PAGES.integrations, title: "Integrationen", description: "Verwalten Sie Konnektoren, Event-Routing, Threat Intelligence und externe Automatisierung.", badges: { ...ENGLISH_PAGES.integrations.badges, connectorExpansion: "Konnektorerweiterung aktiviert", disabled: "Deaktiviert", configurationIncomplete: "Konfiguration unvollständig", jiraReady: "Hochriskante Freigaben öffnen Jira-Tickets", connectors: "Konnektoren", automationRule: "Automatisierungsregel", highRiskWorkflow: "Workflow mit hoher Priorität oder hohem Risiko", currentState: "Aktueller Zustand", connectorCatalog: "Konnektorkatalog", threatIntel: "Threat Intelligence", jiraConnection: "Jira-Verbindung", eventStream: "Governance-Eventstream", remediationHooks: "Automatisierte Remediation-Hooks", automationBuilder: "Automatisierungs-Builder" } },
-  knowledgeCenter: { title: "Wissenscenter", description: "Zentrale Dokumentation, Lernpfade und Reifeleitfäden für Control-Tower-Operatoren." },
+  knowledgeCenter: { title: "Wissenscenter", description: "Zentrale Dokumentation, Lernpfade und Reifeleitfäden für Control Grid-Operatoren." },
   governanceMaturity: { title: "Governance-Reifegrad", description: "Prüfen Sie Reifegradscore, Stärken, Lücken und Roadmap des Programms." },
   trustCenter: { ...ENGLISH_PAGES.trustCenter, title: "Sicherheits-, Governance- und Due-Diligence-Position", description: "Prüfen Sie Vertrauensstatus, Kontrollhighlights und Due-Diligence-Unterlagen.", badges: { trustCenter: "Trust Center" } },
   security: { title: "Sicherheitspraktiken", description: "Prüfen Sie Sicherheitskontrollen, Härtung und operative Schutzmaßnahmen." },
@@ -409,7 +409,7 @@ const DE_PAGES: PageCopyCatalog = {
 
 const ES_PAGES: PageCopyCatalog = {
   ...ENGLISH_PAGES,
-  dashboard: { ...ENGLISH_PAGES.dashboard, title: "Operaciones de gobernanza de un vistazo", description: "Supervisa preparación, presión de cola, postura de riesgo y rutas de acción desde una sola superficie operativa.", badges: { product: "AI Control Tower", queuePending: "Cola pendiente" } },
+  dashboard: { ...ENGLISH_PAGES.dashboard, title: "Operaciones de gobernanza de un vistazo", description: "Supervisa preparación, presión de cola, postura de riesgo y rutas de acción desde una sola superficie operativa.", badges: { product: "AI CONTROL GRID", queuePending: "Cola pendiente" } },
   registry: { title: "Registro de sistemas IA", description: "Registra los sistemas en alcance, sus responsables, lo que hacen y cómo se gobiernan." },
   compliance: { title: "Gestión de cumplimiento", description: "Seguimiento de controles basado en evidencia para EU AI Act, NIST AI RMF e ISO/IEC 42001." },
   approvals: { title: "Flujos de aprobación", description: "Enruta decisiones de IA por flujos de revisión según impacto financiero, privacidad, seguridad y estrategia." },
@@ -418,13 +418,13 @@ const ES_PAGES: PageCopyCatalog = {
   runtimeMonitoring: { ...ENGLISH_PAGES.runtimeMonitoring, title: "Monitorización en tiempo real", description: "Revisa decisiones de runtime en vivo y valida qué permitirá, advertirá, escalará o bloqueará la plataforma antes de llegar al usuario.", badges: { hero: "Superficie de control runtime", adapterEnabled: "Adaptador activo", adapterDisabled: "Adaptador inactivo", blockedEvents: "Eventos bloqueados", noSystemOverride: "Sin override de sistema", system: "Sistema" } },
   analytics: { ...ENGLISH_PAGES.analytics, title: "Centro analítico", description: "Sigue actividad de gobernanza, presión de incidentes, movimiento de flujos y postura de informes.", badges: { generatedLive: "Generado en vivo" } },
   settings: { title: "Configuración", description: "Gestiona identidad, dominios, invitaciones, actividad, operaciones y preferencias del espacio de gobernanza." },
-  landing: { ...ENGLISH_PAGES.landing, title: "Gobierna la IA en runtime. Protege el valor de salida.", description: "Intercepta prompts, aplica políticas y sella criptográficamente cada decisión de IA antes de producción.", badges: { ...ENGLISH_PAGES.landing.badges, productNav: "Producto", solutionsNav: "Soluciones", frameworksNav: "Marcos", pricingNav: "Precios", docsNav: "Documentos", signIn: "Iniciar sesión", bookDemo: "Reservar demo", runtimeGovernance: "Gobernanza runtime", heroRibbon: "Política runtime • operaciones de incidentes • evidencia criptográfica", heroHeadline: "Gobierna la IA en runtime. Protege el valor de salida.", heroBody: "Intercepta prompts, aplica políticas y sella criptográficamente cada decisión de IA antes de producción.", heroAudience: "Para fondos PE y empresas reguladas que no pueden permitirse improvisar con IA.", heroSecondaryCta: "Inspeccionar el motor de control", heroEvidenceCta: "Ver la cadena de evidencia", runtimeSeal: "Sello runtime", liveCommandRail: "Rail de mando en vivo", footerProduct: "Producto", footerSecurity: "Seguridad", footerLegal: "Legal", footerContact: "Contacto", enterpriseDemos: "Demos empresariales", securityReviews: "Revisiones de seguridad", support: "Soporte", footerStrip: "Política runtime • operaciones de incidentes • evidencia criptográfica", enterpriseDemoCta: "Reservar demo empresarial" } },
-  bookDemo: { ...ENGLISH_PAGES.bookDemo, title: "Reserva una demo de AI Control Tower", description: "Descubre cómo los equipos exigentes operan la gobernanza de IA con workflow, evidencia y visibilidad lista para auditoría.", badges: { ...ENGLISH_PAGES.bookDemo.badges, ctaLabel: "Reservar demo", fullName: "Nombre completo", workEmail: "Correo laboral", company: "Empresa", role: "Rol", teamSize: "Tamaño del equipo", primaryChallenge: "Principal reto de gobernanza", submitting: "Enviando..." } },
+  landing: { ...ENGLISH_PAGES.landing, title: "AI CONTROL GRID", description: "Gobernanza de IA en runtime de Arcturos: intercepta prompts, aplica políticas y sella cada decisión antes de producción.", badges: { ...ENGLISH_PAGES.landing.badges, productNav: "Producto", solutionsNav: "Soluciones", frameworksNav: "Marcos", pricingNav: "Precios", docsNav: "Documentos", signIn: "Iniciar sesión", bookDemo: "Reservar demo", runtimeGovernance: "by Arcturos", heroRibbon: "Grid runtime Arcturos • políticas • incidentes • evidencia", heroHeadline: "AI CONTROL GRID", heroBody: "Gobernanza de IA en runtime de Arcturos: intercepta prompts, aplica políticas y sella cada decisión antes de producción.", heroAudience: "Construido por Revanth Meda para fondos PE y empresas reguladas que no pueden permitirse improvisar con IA.", heroSecondaryCta: "Inspeccionar el motor de control", heroEvidenceCta: "Ver la cadena de evidencia", runtimeSeal: "Sello runtime", liveCommandRail: "Rail de mando en vivo", footerProduct: "Producto", footerSecurity: "Seguridad", footerLegal: "Legal", footerContact: "Contacto", enterpriseDemos: "Demos empresariales", securityReviews: "Revisiones de seguridad", support: "Soporte", footerStrip: "AI CONTROL GRID by Arcturos • política runtime • incidentes • evidencia criptográfica", enterpriseDemoCta: "Reservar demo de Arcturos" } },
+  bookDemo: { ...ENGLISH_PAGES.bookDemo, title: "Reserva una demo de AI CONTROL GRID", description: "Descubre cómo los equipos exigentes operan la gobernanza de IA con workflow, evidencia y visibilidad lista para auditoría.", badges: { ...ENGLISH_PAGES.bookDemo.badges, ctaLabel: "Reservar demo", fullName: "Nombre completo", workEmail: "Correo laboral", company: "Empresa", role: "Rol", teamSize: "Tamaño del equipo", primaryChallenge: "Principal reto de gobernanza", submitting: "Enviando..." } },
   startPilot: { ...ENGLISH_PAGES.startPilot, title: "Inicia un piloto de gobernanza de IA", description: "Lanza un piloto práctico con alcance acotado, responsabilidad clara y resultados medibles.", badges: { ...ENGLISH_PAGES.startPilot.badges, ctaLabel: "Iniciar piloto", fullName: "Nombre completo", workEmail: "Correo laboral", company: "Empresa", role: "Rol", teamSize: "Tamaño del equipo", primaryChallenge: "Principal reto de gobernanza", submitting: "Enviando..." } },
   notFound: { ...ENGLISH_PAGES.notFound, title: "Página no encontrada", description: "La página solicitada no existe o ya no está disponible.", badges: { dashboard: "Ir al panel", home: "Volver al inicio" } },
   systemDetail: { ...ENGLISH_PAGES.systemDetail, title: "Detalle del sistema de IA", description: "Revisa propiedad, controles, workflows, evidencia y configuración runtime del sistema registrado.", badges: { ...ENGLISH_PAGES.systemDetail.badges, owner: "Responsable", exportEvidence: "Exportar evidencia", overview: "Resumen", controls: "Controles", workflows: "Workflows", evidence: "Evidencia", audit: "Auditoría", notFound: "Sistema no encontrado", evidenceFiles: "Archivos de evidencia del sistema" } },
   integrations: { ...ENGLISH_PAGES.integrations, title: "Integraciones", description: "Gestiona conectores, enrutamiento de eventos, threat intelligence y automatización externa.", badges: { ...ENGLISH_PAGES.integrations.badges, connectorExpansion: "Expansión de conectores activa", disabled: "Desactivado", configurationIncomplete: "Configuración incompleta", jiraReady: "Las aprobaciones de alto riesgo abrirán tickets en Jira", connectors: "Conectores", automationRule: "Regla de automatización", highRiskWorkflow: "Workflow de alta prioridad o alto riesgo", currentState: "Estado actual", connectorCatalog: "Catálogo de conectores", threatIntel: "Threat intelligence", jiraConnection: "Conexión Jira", eventStream: "Flujo de eventos de gobernanza", remediationHooks: "Ganchos de remediación automatizada", automationBuilder: "Constructor de automatización" } },
-  knowledgeCenter: { title: "Centro de conocimiento", description: "Documentación centralizada, rutas de aprendizaje y guías de preparación para operadores de Control Tower." },
+  knowledgeCenter: { title: "Centro de conocimiento", description: "Documentación centralizada, rutas de aprendizaje y guías de preparación para operadores de Control Grid." },
   governanceMaturity: { title: "Madurez de gobernanza", description: "Revisa puntuación, fortalezas, brechas y hoja de ruta del programa." },
   trustCenter: { ...ENGLISH_PAGES.trustCenter, title: "Postura de seguridad, gobernanza y diligencia del comprador", description: "Revisa la postura de confianza del producto, controles destacados y materiales de diligencia.", badges: { trustCenter: "Trust Center" } },
   security: { title: "Prácticas de seguridad", description: "Revisa controles de seguridad, endurecimiento y salvaguardas operativas." },

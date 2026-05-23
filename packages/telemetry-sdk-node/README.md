@@ -1,6 +1,6 @@
-# @ai-control-tower/telemetry-sdk-node
+# @ai-control-grid/telemetry-sdk-node
 
-Typed Node SDK for posting telemetry events into the AI Control Tower SDK ingest endpoint.
+Typed Node SDK for posting telemetry events into the AI CONTROL GRID SDK ingest endpoint.
 
 ## Install
 
@@ -13,16 +13,16 @@ npm install file:packages/telemetry-sdk-node
 Registry usage after publishing:
 
 ```bash
-npm install @ai-control-tower/telemetry-sdk-node
+npm install @ai-control-grid/telemetry-sdk-node
 ```
 
 ## Example
 
 ```ts
-import { AiControlTowerTelemetryClient } from "@ai-control-tower/telemetry-sdk-node";
+import { AiControlGridTelemetryClient } from "@ai-control-grid/telemetry-sdk-node";
 
-const client = new AiControlTowerTelemetryClient({
-  baseUrl: "https://your-control-tower.example.com",
+const client = new AiControlGridTelemetryClient({
+  baseUrl: "https://your-control-grid.example.com",
   telemetryKey: process.env.AICT_TELEMETRY_KEY ?? "",
   defaults: {
     gateway: "gateway-prod",
@@ -45,10 +45,10 @@ await client.emitDriftAlert({
 ## Inline guard example
 
 ```ts
-import { AiControlTowerTelemetryClient } from "@ai-control-tower/telemetry-sdk-node";
+import { AiControlGridTelemetryClient } from "@ai-control-grid/telemetry-sdk-node";
 
-const client = new AiControlTowerTelemetryClient({
-  baseUrl: "https://your-control-tower.example.com",
+const client = new AiControlGridTelemetryClient({
+  baseUrl: "https://your-control-grid.example.com",
   telemetryKey: process.env.AICT_TELEMETRY_KEY ?? "",
   defaults: {
     gateway: "claims-support-linked-app",

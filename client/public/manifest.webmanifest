@@ -1,7 +1,7 @@
 {
-  "name": "AI Control Tower",
-  "short_name": "Control Tower",
-  "description": "Enterprise AI governance, runtime control, incident review, and compliance operations.",
+  "name": "AI CONTROL GRID by Arcturos",
+  "short_name": "Control Grid",
+  "description": "AI CONTROL GRID by Arcturos: enterprise AI governance, runtime control, incident review, and compliance operations.",
   "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",

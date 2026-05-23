@@ -2,7 +2,7 @@ import { backgroundJobService } from "./backgroundJobService";
 
 const MONITORING_WEBHOOK_URL = process.env.MONITORING_WEBHOOK_URL?.trim() || "";
 const MONITORING_WEBHOOK_TOKEN = process.env.MONITORING_WEBHOOK_TOKEN?.trim() || "";
-const MONITORING_SERVICE_NAME = process.env.MONITORING_SERVICE_NAME?.trim() || "ai-control-tower";
+const MONITORING_SERVICE_NAME = process.env.MONITORING_SERVICE_NAME?.trim() || "ai-control-grid";
 const MONITORING_ENVIRONMENT =
   process.env.MONITORING_ENVIRONMENT?.trim() || process.env.NODE_ENV || "development";
 

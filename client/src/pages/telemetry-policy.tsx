@@ -122,7 +122,7 @@ const POLICY_PRESETS = [
       restrictedPromptPatterns: [
         "social security number",
         "full transaction history",
-        "ignore ai control tower",
+        "ignore ai control grid",
         "internal waiver script",
       ],
       shadowModeEnabled: true,
@@ -162,6 +162,63 @@ const POLICY_PRESETS = [
     },
   },
 ] as const;
+
+const THRESHOLD_FIELD_LABELS: Array<{ key: keyof TelemetryPolicy; label: string }> = [
+  { key: "driftAlertThreshold", label: "Drift warning" },
+  { key: "driftCriticalThreshold", label: "Drift critical" },
+  { key: "biasFlagThreshold", label: "Bias flags" },
+  { key: "safetyFlagThreshold", label: "Safety flags" },
+  { key: "toxicityWarningThreshold", label: "Toxicity warning" },
+  { key: "toxicityCriticalThreshold", label: "Toxicity critical" },
+  { key: "piiFlagThreshold", label: "PII flags" },
+  { key: "overrideRateWarningThreshold", label: "Override warning" },
+  { key: "overrideRateCriticalThreshold", label: "Override critical" },
+  { key: "errorRateWarningThreshold", label: "Error warning" },
+  { key: "errorRateCriticalThreshold", label: "Error critical" },
+];
+
+const BLOCKING_FIELD_LABELS: Array<{ key: keyof TelemetryPolicy; label: string }> = [
+  { key: "autoEscalateCritical", label: "Auto-escalation" },
+  { key: "notifyOnWarning", label: "Warning notifications" },
+  { key: "enforceBlocking", label: "Runtime blocking" },
+  { key: "blockOnPii", label: "PII blocking" },
+  { key: "blockOnSafetyCritical", label: "Safety blocking" },
+  { key: "blockOnRestrictedPrompt", label: "Restricted prompt blocking" },
+];
+
+function getDraftPreview(saved: TelemetryPolicy | undefined, draft: TelemetryPolicy | null) {
+  if (!saved || !draft) {
+    return { changedCount: 0, netScore: 0 };
+  }
+
+  let changedCount = 0;
+  let netScore = 0;
+
+  for (const field of THRESHOLD_FIELD_LABELS) {
+    const previous = Number(saved[field.key]);
+    const next = Number(draft[field.key]);
+    if (previous === next) continue;
+    changedCount += 1;
+    netScore += next < previous ? 1 : -1;
+  }
+
+  for (const field of BLOCKING_FIELD_LABELS) {
+    const previous = Boolean(saved[field.key]);
+    const next = Boolean(draft[field.key]);
+    if (previous === next) continue;
+    changedCount += 1;
+    netScore += next ? 1 : -1;
+  }
+
+  const previousPatterns = saved.restrictedPromptPatterns.length;
+  const nextPatterns = draft.restrictedPromptPatterns.length;
+  if (previousPatterns !== nextPatterns) {
+    changedCount += 1;
+    netScore += nextPatterns > previousPatterns ? 1 : -1;
+  }
+
+  return { changedCount, netScore };
+}
 
 export default function TelemetryPolicyPage() {
   const pageCopy = usePageCopy();
@@ -471,6 +528,7 @@ export default function TelemetryPolicyPage() {
   }
 
   const pageTitle = selectedSystem ? `${selectedSystem.name} telemetry policy` : "Telemetry Policy";
+  const draftPreview = getDraftPreview(policyQuery.data, draft);
 
   return (
     <div className="page-shell">
@@ -743,8 +801,21 @@ export default function TelemetryPolicyPage() {
 
       <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-semibold">Thresholds and blocking rules</CardTitle>
+          <CardHeader className="gap-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle className="text-sm font-semibold">Thresholds and blocking rules</CardTitle>
+              {draftPreview.changedCount > 0 ? (
+                <div
+                  className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200"
+                  data-testid="telemetry-policy-diff-strip"
+                >
+                  <span>{draftPreview.changedCount} draft change{draftPreview.changedCount === 1 ? "" : "s"}</span>
+                  <Badge variant="outline" className="border-amber-300 bg-background/60 text-[10px] text-amber-800 dark:text-amber-200">
+                    {draftPreview.netScore > 0 ? "↓ Net tighter" : draftPreview.netScore < 0 ? "↑ Net looser" : "Net neutral"}
+                  </Badge>
+                </div>
+              ) : null}
+            </div>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
             <ThresholdField label="Drift warning threshold (%)" value={draft.driftAlertThreshold} onChange={(value) => setDraft((current) => current ? { ...current, driftAlertThreshold: value } : current)} />

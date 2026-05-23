@@ -279,7 +279,7 @@ export function generateTotpSecret(length = 32): string {
   return secret;
 }
 
-export function buildTotpOtpAuthUrl(secret: string, username: string, issuer = "AI Control Tower"): string {
+export function buildTotpOtpAuthUrl(secret: string, username: string, issuer = "AI CONTROL GRID"): string {
   const accountLabel = `${issuer}:${username}`;
   return `otpauth://totp/${encodeURIComponent(accountLabel)}?secret=${encodeURIComponent(
     secret,

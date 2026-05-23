@@ -2,11 +2,11 @@
 
 ## Purpose
 
-This mode turns AI Control Tower from a monitoring endpoint into an inline enforcement layer.
+This mode turns AI CONTROL GRID from a monitoring endpoint into an inline enforcement layer.
 
-Instead of asking the customer application to send a telemetry event after it already handled the model call, the application points model traffic at AI Control Tower first.
+Instead of asking the customer application to send a telemetry event after it already handled the model call, the application points model traffic at AI CONTROL GRID first.
 
-That means AI Control Tower can:
+That means AI CONTROL GRID can:
 
 - inspect the incoming prompt before the model call
 - decide whether the model call is allowed to execute
@@ -38,7 +38,7 @@ Current limitations:
 
 Two credentials can be involved in the same request.
 
-### 1. AI Control Tower telemetry key
+### 1. AI CONTROL GRID telemetry key
 
 Header:
 
@@ -46,7 +46,7 @@ Header:
 x-telemetry-key: actl_sdk_...
 ```
 
-This authenticates the request to AI Control Tower and binds it to:
+This authenticates the request to AI CONTROL GRID and binds it to:
 
 - an organization
 - an optional default system
@@ -60,13 +60,13 @@ Header:
 Authorization: Bearer sk-...
 ```
 
-AI Control Tower forwards this upstream to OpenAI.
+AI CONTROL GRID forwards this upstream to OpenAI.
 
 If you do not want to pass the provider key on each request, store it in the telemetry adapter upstream provider vault. Stored provider keys are encrypted at rest with `CONTROL_TOWER_VAULT_SECRET`.
 
 ## How the request flow works
 
-### Step 1. The customer app sends the request to AI Control Tower
+### Step 1. The customer app sends the request to AI CONTROL GRID
 
 The customer app points its OpenAI-compatible base URL to:
 
@@ -79,9 +79,9 @@ Then the app sends normal OpenAI-compatible requests to:
 - `/chat/completions`
 - `/responses`
 
-### Step 2. AI Control Tower runs preflight
+### Step 2. AI CONTROL GRID runs preflight
 
-AI Control Tower extracts the prompt from the request body and creates a telemetry event:
+AI CONTROL GRID extracts the prompt from the request body and creates a telemetry event:
 
 - `eventType = runtime.preflight`
 
@@ -90,15 +90,15 @@ If policy blocks the prompt:
 - the model call never executes
 - the proxy returns a blocked response immediately
 
-### Step 3. AI Control Tower forwards the request upstream
+### Step 3. AI CONTROL GRID forwards the request upstream
 
 If preflight allows the request:
 
-- AI Control Tower forwards it to OpenAI
+- AI CONTROL GRID forwards it to OpenAI
 
-### Step 4. AI Control Tower runs postflight
+### Step 4. AI CONTROL GRID runs postflight
 
-After OpenAI returns a response, AI Control Tower extracts the output text and creates:
+After OpenAI returns a response, AI CONTROL GRID extracts the output text and creates:
 
 - `eventType = runtime.evaluation`
 
@@ -325,7 +325,7 @@ curl -X POST https://YOUR_CONTROL_TOWER_HOST/api/gateway/openai/v1/responses \
 
 ### If allowed
 
-AI Control Tower returns the upstream OpenAI JSON response and adds headers:
+AI CONTROL GRID returns the upstream OpenAI JSON response and adds headers:
 
 - `x-aict-correlation-id`
 - `x-aict-preflight-decision`
@@ -334,7 +334,7 @@ AI Control Tower returns the upstream OpenAI JSON response and adds headers:
 
 ### If blocked
 
-AI Control Tower returns a blocked JSON response like:
+AI CONTROL GRID returns a blocked JSON response like:
 
 ```json
 {
@@ -359,15 +359,15 @@ AI Control Tower returns a blocked JSON response like:
 
 With ordinary telemetry mode:
 
-- the application tells AI Control Tower what happened
+- the application tells AI CONTROL GRID what happened
 
 With inline gateway mode:
 
-- AI Control Tower sees the actual prompt
-- AI Control Tower sees the actual provider response
-- AI Control Tower can stop the flow before damage occurs
+- AI CONTROL GRID sees the actual prompt
+- AI CONTROL GRID sees the actual provider response
+- AI CONTROL GRID can stop the flow before damage occurs
 
-That is the stronger control-tower model.
+That is the stronger control-grid model.
 
 ## What still needs to be built
 

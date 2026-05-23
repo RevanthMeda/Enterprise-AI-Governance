@@ -1,12 +1,12 @@
 # Entra ID SAML Setup Guide
 
-This guide configures AI Control Tower for Microsoft Entra ID SAML-based sign-in.
+This guide configures AI CONTROL GRID for Microsoft Entra ID SAML-based sign-in.
 
 ## Before you start
 
 You need:
 
-- an AI Control Tower organization with admin access
+- an AI CONTROL GRID organization with admin access
 - a verified organization domain
 - your production backend URL
 - your organization slug
@@ -14,7 +14,7 @@ You need:
 
 Use the backend service URL for SAML endpoints.
 
-## Values you need from AI Control Tower
+## Values you need from AI CONTROL GRID
 
 Routes:
 
@@ -42,7 +42,7 @@ In Microsoft Entra:
 Set:
 
 - Identifier (Entity ID):
-  - use the SP entity ID configured in AI Control Tower
+  - use the SP entity ID configured in AI CONTROL GRID
 - Reply URL (Assertion Consumer Service URL):
   - `https://<backend-domain>/api/auth/sso/callback`
 - Sign on URL:
@@ -59,7 +59,7 @@ Recommended claims:
 - `emailaddress`
 - `name`
 
-AI Control Tower needs a stable email identity. If Entra emits UPN instead of the user email, confirm it matches the org allowlisted domain and your identity policy.
+AI CONTROL GRID needs a stable email identity. If Entra emits UPN instead of the user email, confirm it matches the org allowlisted domain and your identity policy.
 
 ## Certificate and login URL
 
@@ -69,9 +69,9 @@ From Entra, capture:
 - Microsoft Entra Identifier
 - X.509 Certificate
 
-Enter these in the AI Control Tower `Identity` settings.
+Enter these in the AI CONTROL GRID `Identity` settings.
 
-## Configure AI Control Tower
+## Configure AI CONTROL GRID
 
 In Settings:
 
@@ -111,7 +111,7 @@ SSO works for some users but not others:
 Privileged users are over-provisioned:
 
 - do not use JIT for admin roles
-- assign elevated roles manually in AI Control Tower
+- assign elevated roles manually in AI CONTROL GRID
 
 ## Recommended operating model
 

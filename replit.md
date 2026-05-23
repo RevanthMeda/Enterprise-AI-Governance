@@ -1,7 +1,7 @@
-# AI Control Tower - Enterprise AI Governance & Compliance
+# AI CONTROL GRID by Arcturos - Enterprise AI Governance & Compliance
 
 ## Overview
-Enterprise AI governance platform for managing AI systems compliance with EU AI Act, NIST AI RMF, and ISO/IEC 42001 frameworks. Built as a full-stack TypeScript application with user authentication and role-based access control.
+Enterprise AI governance platform from Arcturos for managing AI systems compliance with EU AI Act, NIST AI RMF, and ISO/IEC 42001 frameworks. Built as a full-stack TypeScript application with user authentication and role-based access control.
 
 ## Architecture
 - **Frontend**: React + Vite + Tailwind CSS + shadcn/ui + TanStack Query

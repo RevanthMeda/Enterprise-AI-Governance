@@ -1,6 +1,6 @@
-# ai-control-tower-telemetry
+# ai-control-grid-telemetry
 
-Python SDK for AI Control Tower runtime telemetry ingestion and runtime guardrail evaluation.
+Python SDK for AI CONTROL GRID runtime telemetry ingestion and runtime guardrail evaluation.
 
 ## Install
 
@@ -11,7 +11,7 @@ pip install -e packages/telemetry-sdk-python
 ## Create a client
 
 ```python
-from ai_control_tower_telemetry import create_client
+from ai_control_grid_telemetry import create_client
 
 client = create_client(
     base_url="http://localhost:5000",
@@ -107,7 +107,7 @@ client.emit_override_spike(
 ## Error handling
 
 ```python
-from ai_control_tower_telemetry import TelemetrySdkError
+from ai_control_grid_telemetry import TelemetrySdkError
 
 try:
     client.evaluate_runtime({...})

@@ -182,13 +182,13 @@ async function main() {
   ];
 
   const baselineUsers = [
-    { username: "admin_test", fullName: "Admin Test User", email: "admin_test@aicontroltower.local", role: "admin" },
-    { username: "cro_test", fullName: "CRO Test User", email: "cro_test@aicontroltower.local", role: "cro" },
-    { username: "ciso_test", fullName: "CISO Test User", email: "ciso_test@aicontroltower.local", role: "ciso" },
-    { username: "compliance_lead_test", fullName: "Compliance Lead Test User", email: "compliance_lead_test@aicontroltower.local", role: "compliance_lead" },
-    { username: "reviewer_test", fullName: "Reviewer Test User", email: "reviewer_test@aicontroltower.local", role: "reviewer" },
-    { username: "system_owner_test", fullName: "System Owner Test User", email: "system_owner_test@aicontroltower.local", role: "system_owner" },
-    { username: "auditor_test", fullName: "Auditor Test User", email: "auditor_test@aicontroltower.local", role: "auditor" },
+    { username: "admin_test", fullName: "Admin Test User", email: "admin_test@aicontrolgrid.local", role: "admin" },
+    { username: "cro_test", fullName: "CRO Test User", email: "cro_test@aicontrolgrid.local", role: "cro" },
+    { username: "ciso_test", fullName: "CISO Test User", email: "ciso_test@aicontrolgrid.local", role: "ciso" },
+    { username: "compliance_lead_test", fullName: "Compliance Lead Test User", email: "compliance_lead_test@aicontrolgrid.local", role: "compliance_lead" },
+    { username: "reviewer_test", fullName: "Reviewer Test User", email: "reviewer_test@aicontrolgrid.local", role: "reviewer" },
+    { username: "system_owner_test", fullName: "System Owner Test User", email: "system_owner_test@aicontrolgrid.local", role: "system_owner" },
+    { username: "auditor_test", fullName: "Auditor Test User", email: "auditor_test@aicontrolgrid.local", role: "auditor" },
   ] as const;
 
   const portfolioSlug = "pilotwave-holdings-demo-portfolio";

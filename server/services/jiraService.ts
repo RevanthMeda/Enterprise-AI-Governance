@@ -20,6 +20,11 @@ type JiraSyncInput = {
   systemRiskLevel: string | null | undefined;
 };
 
+type JiraRemoteStatus = {
+  name: string | null;
+  category: string | null;
+};
+
 export class JiraService {
   async getIntegration(organizationId: string) {
     const [integration] = await db
@@ -88,7 +93,11 @@ export class JiraService {
   }
 
   async syncWorkflowIfNeeded(input: JiraSyncInput) {
-    const qualifies = input.workflow.priority === "high" || input.systemRiskLevel === "high" || input.systemRiskLevel === "unacceptable";
+    const qualifies =
+      input.workflow.priority === "high" ||
+      input.workflow.priority === "critical" ||
+      input.systemRiskLevel === "high" ||
+      input.systemRiskLevel === "unacceptable";
     if (!qualifies) {
       return { status: "skipped" as const };
     }
@@ -112,7 +121,7 @@ export class JiraService {
       const issuePayload = {
         fields: {
           project: { key: integration.projectKey },
-          summary: `[AI Control Tower] ${input.workflow.title}`,
+          summary: `[AI CONTROL GRID] ${input.workflow.title}`,
           description: {
             type: "doc",
             version: 1,
@@ -177,6 +186,95 @@ export class JiraService {
         .update(approvalWorkflows)
         .set({ jiraSyncStatus: "error", updatedAt: new Date() })
         .where(and(eq(approvalWorkflows.organizationId, input.organizationId), eq(approvalWorkflows.id, input.workflow.id)))
+        .returning();
+      return { status: "error" as const, message, workflow: updated };
+    }
+  }
+
+  async refreshWorkflowIssueStatus(organizationId: string, workflow: ApprovalWorkflow) {
+    if (!workflow.jiraIssueKey) {
+      return {
+        status: "not_linked" as const,
+        message: "Workflow does not have a linked Jira issue",
+        workflow,
+      };
+    }
+
+    const integration = await this.getIntegration(organizationId);
+    if (!integration || !integration.enabled || !integration.baseUrl || !integration.userEmail || !integration.apiToken) {
+      const [updated] = await db
+        .update(approvalWorkflows)
+        .set({ jiraSyncStatus: "not_configured", updatedAt: new Date() })
+        .where(and(eq(approvalWorkflows.organizationId, organizationId), eq(approvalWorkflows.id, workflow.id)))
+        .returning();
+      return {
+        status: "not_configured" as const,
+        message: "Jira integration is not fully configured",
+        workflow: updated,
+      };
+    }
+
+    try {
+      const baseUrl = trimTrailingSlash(integration.baseUrl);
+      const response = await fetchWithTimeout(
+        `${baseUrl}/rest/api/3/issue/${encodeURIComponent(workflow.jiraIssueKey)}?fields=status`,
+        {
+          timeoutMs: JIRA_REQUEST_TIMEOUT_MS,
+          timeoutMessage: "Jira issue status refresh timed out",
+          headers: {
+            Authorization: buildAuthHeader(integration.userEmail, integration.apiToken),
+            Accept: "application/json",
+          },
+        },
+      );
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => response.statusText);
+        const [updated] = await db
+          .update(approvalWorkflows)
+          .set({ jiraSyncStatus: "error", updatedAt: new Date() })
+          .where(and(eq(approvalWorkflows.organizationId, organizationId), eq(approvalWorkflows.id, workflow.id)))
+          .returning();
+        return {
+          status: "error" as const,
+          message: text || `Jira status refresh failed with status ${response.status}`,
+          workflow: updated,
+        };
+      }
+
+      const payload = await response.json().catch(() => ({}));
+      const remoteStatus: JiraRemoteStatus = {
+        name: typeof payload?.fields?.status?.name === "string" ? payload.fields.status.name : null,
+        category:
+          typeof payload?.fields?.status?.statusCategory?.name === "string"
+            ? payload.fields.status.statusCategory.name
+            : null,
+      };
+
+      const [updated] = await db
+        .update(approvalWorkflows)
+        .set({ jiraSyncStatus: "linked", updatedAt: new Date() })
+        .where(and(eq(approvalWorkflows.organizationId, organizationId), eq(approvalWorkflows.id, workflow.id)))
+        .returning();
+
+      await db
+        .update(jiraIntegrations)
+        .set({ lastSyncAt: new Date(), updatedAt: new Date() })
+        .where(eq(jiraIntegrations.organizationId, organizationId));
+
+      return {
+        status: "linked" as const,
+        issueKey: workflow.jiraIssueKey,
+        issueUrl: workflow.jiraIssueUrl,
+        remoteStatus,
+        workflow: updated,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Jira status refresh failed";
+      const [updated] = await db
+        .update(approvalWorkflows)
+        .set({ jiraSyncStatus: "error", updatedAt: new Date() })
+        .where(and(eq(approvalWorkflows.organizationId, organizationId), eq(approvalWorkflows.id, workflow.id)))
         .returning();
       return { status: "error" as const, message, workflow: updated };
     }

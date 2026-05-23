@@ -1,4 +1,4 @@
-# AI Control Tower Documentation Index
+# AI CONTROL GRID by Arcturos Documentation Index
 
 This documentation set is the handoff guide for the current application state.
 

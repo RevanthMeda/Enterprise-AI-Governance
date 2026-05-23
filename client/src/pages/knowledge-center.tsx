@@ -42,7 +42,7 @@ const documentationResources: ResourceCard[] = [
 
 const trainingTracks = [
   {
-    role: "Control Tower Administrator",
+    role: "Control Grid Administrator",
     modules: [
       { label: "Identity and tenant setup", href: "/settings?tab=identity" },
       { label: "Telemetry policy and adapter", href: "/telemetry-policy" },

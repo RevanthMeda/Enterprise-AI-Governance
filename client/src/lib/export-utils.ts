@@ -102,7 +102,7 @@ export async function exportSystemEvidencePdf(
   doc.setFont("helvetica", "normal");
   doc.setTextColor(100);
   doc.text(`Generated: ${now}`, 14, 30);
-  doc.text("AI Control Tower - Enterprise Governance Platform", 14, 36);
+  doc.text("AI CONTROL GRID - Enterprise Governance Platform", 14, 36);
 
   doc.setDrawColor(59, 130, 246);
   doc.setLineWidth(0.5);
@@ -249,7 +249,7 @@ export async function exportSystemEvidencePdf(
     doc.setPage(i);
     doc.setFontSize(8);
     doc.setTextColor(150);
-    doc.text(`AI Control Tower - Confidential | Page ${i} of ${pageCount}`, 14, 290);
+    doc.text(`AI CONTROL GRID - Confidential | Page ${i} of ${pageCount}`, 14, 290);
   }
 
   doc.save(`${system.name.replace(/\s+/g, "_")}_Evidence_Report.pdf`);
@@ -385,7 +385,7 @@ export async function exportAnalyticsOverviewPdf(
 
   doc.setFontSize(18);
   doc.setFont("helvetica", "bold");
-  doc.text(`AI Control Tower ${presetLabel}`, 14, 22);
+  doc.text(`AI CONTROL GRID ${presetLabel}`, 14, 22);
 
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
@@ -434,7 +434,7 @@ export async function exportAnalyticsReportPlanPdf(
 
   doc.setFontSize(18);
   doc.setFont("helvetica", "bold");
-  doc.text(`AI Control Tower ${plan.name}`, 14, 22);
+  doc.text(`AI CONTROL GRID ${plan.name}`, 14, 22);
 
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");

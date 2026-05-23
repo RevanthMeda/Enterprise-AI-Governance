@@ -410,10 +410,10 @@ export default function TelemetryAdapterPage() {
 
   const npmInstallExample = `npm install file:packages/telemetry-sdk-node`;
 
-  const sdkExample = `import { AiControlTowerTelemetryClient } from "@ai-control-tower/telemetry-sdk-node";
+  const sdkExample = `import { AiControlGridTelemetryClient } from "@ai-control-grid/telemetry-sdk-node";
 
-const client = new AiControlTowerTelemetryClient({
-  baseUrl: "https://your-control-tower.example.com",
+const client = new AiControlGridTelemetryClient({
+  baseUrl: "https://your-control-grid.example.com",
   telemetryKey: process.env.AICT_TELEMETRY_KEY ?? "${lastIssuedKey ?? "<rotate-to-generate>"}",
   defaults: {
     gateway: "gateway-prod",
@@ -446,7 +446,7 @@ const result = await client.guardRuntimeExecution({
 });
 
 if (result.blocked) {
-  throw new Error(\`Completion blocked at \${result.blockStage} by AI Control Tower policy\`);
+  throw new Error(\`Completion blocked at \${result.blockStage} by AI CONTROL GRID policy\`);
 }`;
 
   const responseExample = `{

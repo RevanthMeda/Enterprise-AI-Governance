@@ -7,7 +7,7 @@ Use this after Netlify and Render are updated with the latest build.
 Run:
 
 ```bash
-SMOKE_FRONTEND_URL=https://ai-control-tower.netlify.app \
+SMOKE_FRONTEND_URL=https://ai-control-grid.netlify.app \
 SMOKE_BACKEND_URL=https://enterprise-ai-governance.onrender.com \
 SMOKE_ADMIN_USERNAME=admin_test \
 SMOKE_ADMIN_PASSWORD=TestUser123! \

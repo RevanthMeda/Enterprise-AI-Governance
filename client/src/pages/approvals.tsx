@@ -11,6 +11,7 @@ import {
   XCircle,
   ArrowUpCircle,
   ShieldAlert,
+  RefreshCw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { JiraTicketLink } from "@/components/jira-ticket-link";
 import type { ApprovalWorkflow, AiSystem } from "@shared/schema";
 import {
   LAW_PACKS,
@@ -98,6 +100,15 @@ const formSchema = z.object({
 });
 
 type FormValues = z.infer<typeof formSchema>;
+
+type JiraSyncResult = {
+  status: "linked" | "error" | "not_configured" | "not_linked";
+  message?: string;
+  remoteStatus?: {
+    name: string | null;
+    category: string | null;
+  };
+};
 
 const statusConfig: Record<string, { icon: typeof Clock; color: string; bgColor: string }> = {
   pending: {
@@ -218,6 +229,26 @@ export default function Approvals() {
     },
     onError: (err: Error) => {
       toast({ title: "Failed to update workflow", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const syncJiraMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/approval-workflows/${id}/jira-sync`, {});
+      return res.json() as Promise<JiraSyncResult>;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/approval-workflows"] });
+      toast({
+        title: result.status === "linked" ? "Jira status synced" : result.status === "error" ? "Jira sync failed" : "Jira sync checked",
+        description: result.remoteStatus?.name
+          ? `Current Jira status: ${result.remoteStatus.name}`
+          : result.message,
+        variant: result.status === "error" ? "destructive" : undefined,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to sync Jira status", description: err.message, variant: "destructive" });
     },
   });
 
@@ -727,6 +758,12 @@ export default function Approvals() {
                       <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium">
                         {formatCapabilityProfileLabel(workflow.capabilityProfile)}
                       </span>
+                      <JiraTicketLink
+                        issueKey={workflow.jiraIssueKey}
+                        issueUrl={workflow.jiraIssueUrl}
+                        syncStatus={workflow.jiraSyncStatus}
+                        compact
+                      />
                     </div>
                   </div>
                   {workflow.description ? <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{workflow.description}</p> : null}
@@ -760,6 +797,15 @@ export default function Approvals() {
             const StatusIcon = config.icon;
             const tierColor = tierColors[workflow.decisionTier || "tier_1"] || tierColors.tier_1;
             const isTierThree = workflow.decisionTier === "tier_3";
+            const shouldShowJiraPanel = Boolean(
+              workflow.jiraIssueKey ||
+                workflow.jiraSyncStatus === "error" ||
+                workflow.jiraSyncStatus === "pending" ||
+                workflow.priority === "high" ||
+                workflow.priority === "critical" ||
+                linkedSystem?.riskLevel === "high" ||
+                linkedSystem?.riskLevel === "unacceptable",
+            );
             return (
               <div className="rounded-lg border p-4 xl:max-h-[calc(100vh-19rem)] xl:overflow-y-auto">
                 <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-start sm:justify-between">
@@ -793,6 +839,11 @@ export default function Approvals() {
                     <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium">
                       {formatStrictnessLabel(workflow.strictness)}
                     </span>
+                    <JiraTicketLink
+                      issueKey={workflow.jiraIssueKey}
+                      issueUrl={workflow.jiraIssueUrl}
+                      syncStatus={workflow.jiraSyncStatus}
+                    />
                   </div>
                 </div>
 
@@ -882,6 +933,36 @@ export default function Approvals() {
                   </div>
 
                   <div className="space-y-4">
+                    {shouldShowJiraPanel ? (
+                      <ApprovalSection title="External ticket">
+                        <div className="space-y-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <JiraTicketLink
+                              issueKey={workflow.jiraIssueKey}
+                              issueUrl={workflow.jiraIssueUrl}
+                              syncStatus={workflow.jiraSyncStatus}
+                              showEmpty
+                            />
+                            {workflow.jiraIssueKey ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => syncJiraMutation.mutate(workflow.id)}
+                                disabled={syncJiraMutation.isPending}
+                                data-testid={`button-jira-sync-${workflow.id}`}
+                              >
+                                <RefreshCw className={`mr-1 h-3.5 w-3.5 ${syncJiraMutation.isPending ? "animate-spin" : ""}`} />
+                                Refresh status
+                              </Button>
+                            ) : null}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            High-priority and high-risk workflows are mirrored into Jira when the connector is configured.
+                          </p>
+                        </div>
+                      </ApprovalSection>
+                    ) : null}
+
                     <ApprovalSection title="Workflow actions">
                       {(workflow.status === "pending" || workflow.status === "in_review" || workflow.status === "escalated") ? (
                         <div className="flex flex-col gap-2">

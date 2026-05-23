@@ -65,8 +65,8 @@ export type WorkspaceCopy = {
 };
 
 const ENGLISH_BASE: WorkspaceCopy = {
-  appName: "AI Control Tower",
-  appTagline: "Enterprise Governance",
+  appName: "AI CONTROL GRID",
+  appTagline: "by Arcturos",
   sections: {
     platform: "Platform",
     configuration: "Configuration",
@@ -108,7 +108,7 @@ const ENGLISH_BASE: WorkspaceCopy = {
   },
   knowledge: {
     title: "Knowledge Center",
-    intro: "Centralized product documentation, role-based learning paths, and certification-style readiness guidance for Control Tower teams.",
+    intro: "Centralized product documentation, role-based learning paths, and certification-style readiness guidance for Control Grid teams.",
     searchPlaceholder: "Search docs, tracks, or certification guidance",
     docsTitle: "Documentation paths",
     trainingTitle: "Role-based training",
@@ -134,8 +134,8 @@ const COPY_BY_LOCALE: Record<WorkspaceLocale, WorkspaceCopy> = {
     },
   },
   "fr-FR": {
-    appName: "AI Control Tower",
-    appTagline: "Gouvernance d'entreprise",
+    appName: "AI CONTROL GRID",
+    appTagline: "by Arcturos",
     sections: {
       platform: "Plateforme",
       configuration: "Configuration",
@@ -177,7 +177,7 @@ const COPY_BY_LOCALE: Record<WorkspaceLocale, WorkspaceCopy> = {
     },
     knowledge: {
       title: "Centre de connaissances",
-      intro: "Documentation produit centralisée, parcours de formation par rôle et repères de préparation pour les équipes Control Tower.",
+      intro: "Documentation produit centralisée, parcours de formation par rôle et repères de préparation pour les équipes Control Grid.",
       searchPlaceholder: "Rechercher documentation, parcours ou guides",
       docsTitle: "Parcours documentaires",
       trainingTitle: "Formation par rôle",
@@ -193,8 +193,8 @@ const COPY_BY_LOCALE: Record<WorkspaceLocale, WorkspaceCopy> = {
     },
   },
   "de-DE": {
-    appName: "AI Control Tower",
-    appTagline: "Unternehmens-Governance",
+    appName: "AI CONTROL GRID",
+    appTagline: "by Arcturos",
     sections: {
       platform: "Plattform",
       configuration: "Konfiguration",
@@ -236,7 +236,7 @@ const COPY_BY_LOCALE: Record<WorkspaceLocale, WorkspaceCopy> = {
     },
     knowledge: {
       title: "Wissenscenter",
-      intro: "Zentrale Produktdokumentation, rollenspezifische Lernpfade und Reifehinweise für Control-Tower-Teams.",
+      intro: "Zentrale Produktdokumentation, rollenspezifische Lernpfade und Reifehinweise für Control Grid-Teams.",
       searchPlaceholder: "Dokumente, Lernpfade oder Leitfäden durchsuchen",
       docsTitle: "Dokumentationspfade",
       trainingTitle: "Rollenspezifisches Training",
@@ -252,8 +252,8 @@ const COPY_BY_LOCALE: Record<WorkspaceLocale, WorkspaceCopy> = {
     },
   },
   "es-ES": {
-    appName: "AI Control Tower",
-    appTagline: "Gobernanza empresarial",
+    appName: "AI CONTROL GRID",
+    appTagline: "by Arcturos",
     sections: {
       platform: "Plataforma",
       configuration: "Configuración",
@@ -295,7 +295,7 @@ const COPY_BY_LOCALE: Record<WorkspaceLocale, WorkspaceCopy> = {
     },
     knowledge: {
       title: "Centro de conocimiento",
-      intro: "Documentación centralizada, rutas de aprendizaje por rol y guías de preparación para equipos de Control Tower.",
+      intro: "Documentación centralizada, rutas de aprendizaje por rol y guías de preparación para equipos de Control Grid.",
       searchPlaceholder: "Buscar documentación, rutas o guías",
       docsTitle: "Rutas de documentación",
       trainingTitle: "Formación por rol",

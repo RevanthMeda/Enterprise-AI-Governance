@@ -46,7 +46,7 @@ What it should show:
 * outstanding actions
 
 Why it matters commercially:
-This is the page a buyer will remember in a demo. It makes the platform feel like a real control tower rather than a collection of modules.
+This is the page a buyer will remember in a demo. It makes the platform feel like a real control grid rather than a collection of modules.
 
 ## 3. Export / Reporting
 

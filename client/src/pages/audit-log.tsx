@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, FileText, Server, ShieldCheck, ClipboardCheck, Download, Filter, X, Search, AlertTriangle, Radio } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -81,6 +82,7 @@ export default function AuditLogPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [selectedLogIds, setSelectedLogIds] = useState<string[]>([]);
 
   const hasActiveFilters = actionFilter !== "all" || entityFilter !== "all" || actorSearch !== "" || dateFrom !== "" || dateTo !== "";
 
@@ -104,12 +106,27 @@ export default function AuditLogPage() {
     },
   });
 
+  useEffect(() => {
+    setSelectedLogIds((current) => current.filter((id) => logs.some((log) => log.id === id)));
+  }, [logs]);
+
   const clearFilters = () => {
     setActionFilter("all");
     setEntityFilter("all");
     setActorSearch("");
     setDateFrom("");
     setDateTo("");
+  };
+
+  const selectedLogs = logs.filter((log) => selectedLogIds.includes(log.id));
+  const allVisibleSelected = logs.length > 0 && logs.every((log) => selectedLogIds.includes(log.id));
+  const toggleSelectAll = (checked: boolean) => {
+    setSelectedLogIds(checked ? logs.map((log) => log.id) : []);
+  };
+  const toggleSelectedLog = (id: string, checked: boolean) => {
+    setSelectedLogIds((current) =>
+      checked ? Array.from(new Set([...current, id])) : current.filter((entry) => entry !== id),
+    );
   };
 
   if (isLoading) {
@@ -148,6 +165,16 @@ export default function AuditLogPage() {
           <Button variant="outline" size="sm" onClick={() => exportAuditTrailCsv(logs)} data-testid="button-export-audit">
             <Download className="h-3.5 w-3.5 mr-1.5" />
             Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => exportAuditTrailCsv(selectedLogs)}
+            disabled={selectedLogs.length === 0}
+            data-testid="button-export-selected-audit"
+          >
+            <Download className="h-3.5 w-3.5 mr-1.5" />
+            Export selected ({selectedLogs.length})
           </Button>
         </div>
       </div>
@@ -225,6 +252,16 @@ export default function AuditLogPage() {
             Activity Timeline
             <span className="text-[10px] font-normal text-muted-foreground ml-1">({logs.length} entries)</span>
           </CardTitle>
+          {logs.length > 0 ? (
+            <label className="mt-2 flex w-fit items-center gap-2 text-xs text-muted-foreground">
+              <Checkbox
+                checked={allVisibleSelected}
+                onCheckedChange={(checked) => toggleSelectAll(Boolean(checked))}
+                data-testid="checkbox-audit-select-all"
+              />
+              Select all visible
+            </label>
+          ) : null}
         </CardHeader>
         <CardContent>
           {logs.length === 0 ? (
@@ -244,17 +281,24 @@ export default function AuditLogPage() {
             </div>
           ) : (
             <div className="relative">
-              <div className="absolute left-4 top-0 bottom-0 w-px bg-border" />
+              <div className="absolute left-10 top-0 bottom-0 w-px bg-border" />
               <div className="space-y-1">
                 {logs.map((log) => {
                   const Icon = entityIcons[log.entityType] || Activity;
                   return (
                     <div
                       key={log.id}
-                      className="relative flex items-start gap-3 pl-10 py-2.5"
+                      className="relative flex items-start gap-3 py-2.5 pl-16"
                       data-testid={`audit-entry-${log.id}`}
                     >
-                      <div className="absolute left-2 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-background border">
+                      <div className="absolute left-0 top-3 z-10">
+                        <Checkbox
+                          checked={selectedLogIds.includes(log.id)}
+                          onCheckedChange={(checked) => toggleSelectedLog(log.id, Boolean(checked))}
+                          data-testid={`checkbox-audit-${log.id}`}
+                        />
+                      </div>
+                      <div className="absolute left-8 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-background border">
                         <Icon className="h-2.5 w-2.5 text-muted-foreground" />
                       </div>
                       <div className="flex-1 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">

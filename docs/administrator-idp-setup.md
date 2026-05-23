@@ -1,6 +1,6 @@
 # Administrator IdP Setup Guide
 
-This guide is for organization administrators configuring enterprise identity in AI Control Tower.
+This guide is for organization administrators configuring enterprise identity in AI CONTROL GRID.
 
 Provider-specific guides:
 
@@ -103,11 +103,11 @@ Each managed domain includes a generated TXT verification record.
 
 Record name:
 
-- `_aicontroltower.<domain>`
+- `_aicontrolgrid.<domain>`
 
 Record value:
 
-- `aicontroltower-verification=<token>`
+- `aicontrolgrid-verification=<token>`
 
 Steps:
 

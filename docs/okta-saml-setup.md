@@ -1,12 +1,12 @@
 # Okta SAML Setup Guide
 
-This guide configures AI Control Tower as a SAML service provider for Okta-backed organizations.
+This guide configures AI CONTROL GRID as a SAML service provider for Okta-backed organizations.
 
 ## Before you start
 
 You need:
 
-- an AI Control Tower organization with admin access
+- an AI CONTROL GRID organization with admin access
 - a verified organization domain in Settings
 - your production backend URL
 - your organization slug
@@ -14,7 +14,7 @@ You need:
 
 Use your production backend for SSO endpoints, not the Netlify frontend domain.
 
-## Values you need from AI Control Tower
+## Values you need from AI CONTROL GRID
 
 Backend routes:
 
@@ -35,7 +35,7 @@ In Okta:
 1. Go to `Applications`
 2. Create a new app integration
 3. Choose `SAML 2.0`
-4. Set an app name such as `AI Control Tower`
+4. Set an app name such as `AI CONTROL GRID`
 
 ## Okta SAML settings
 
@@ -44,7 +44,7 @@ Use these values:
 - Single sign-on URL:
   - `https://<backend-domain>/api/auth/sso/callback`
 - Audience URI (SP Entity ID):
-  - use the value shown in AI Control Tower Settings
+  - use the value shown in AI CONTROL GRID Settings
   - if you manage it manually, keep it stable and org-aware
 - Name ID format:
   - `EmailAddress`
@@ -56,7 +56,7 @@ Recommended attribute statements:
 - `email` -> `user.email`
 - `fullName` -> `user.firstName + " " + user.lastName`
 
-If your Okta tenant requires first/last name separately, keep `email` mandatory. AI Control Tower can operate with email only, but full name improves audit readability.
+If your Okta tenant requires first/last name separately, keep `email` mandatory. AI CONTROL GRID can operate with email only, but full name improves audit readability.
 
 ## Assign users and groups
 
@@ -64,9 +64,9 @@ Assign:
 
 - internal users or groups who belong to the verified org domain
 
-Do not assign privileged access through Okta group mapping yet unless you implement external-group sync. Use AI Control Tower role management for admin, CRO, CISO, and other elevated roles.
+Do not assign privileged access through Okta group mapping yet unless you implement external-group sync. Use AI CONTROL GRID role management for admin, CRO, CISO, and other elevated roles.
 
-## Configure AI Control Tower
+## Configure AI CONTROL GRID
 
 In the `Identity` tab of Settings:
 
@@ -106,7 +106,7 @@ Expected outcomes:
 
 `Email domain is not allowed for this organization`:
 
-- verify the domain is claimed and DNS-verified in AI Control Tower
+- verify the domain is claimed and DNS-verified in AI CONTROL GRID
 
 User signs in but lands in the wrong org:
 
@@ -117,4 +117,4 @@ User signs in but lands in the wrong org:
 
 - internal staff: Okta + verified allowlisted domain + optional JIT
 - external reviewers: invite-only
-- privileged roles: assign manually in AI Control Tower after onboarding
+- privileged roles: assign manually in AI CONTROL GRID after onboarding

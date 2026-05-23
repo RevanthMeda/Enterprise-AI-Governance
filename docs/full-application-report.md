@@ -1,8 +1,8 @@
-# AI Control Tower Full Application Report
+# AI CONTROL GRID by Arcturos Full Application Report
 
 ## 1. Executive summary
 
-AI Control Tower is a multi-tenant enterprise AI governance platform that combines:
+AI CONTROL GRID is a multi-tenant enterprise AI governance platform that combines:
 
 - an internal governance console
 - a runtime telemetry and incident layer
@@ -28,7 +28,7 @@ The application helps organizations:
 
 The most accurate short description is:
 
-AI Control Tower is an enterprise governance and runtime-control platform for AI systems.
+AI CONTROL GRID is an enterprise governance and runtime-control platform for AI systems.
 
 It supports two operating modes at the same time:
 
@@ -45,13 +45,13 @@ Teams use the web application to:
 
 ### 2.2 Runtime control mode
 
-Customer applications connect to AI Control Tower through:
+Customer applications connect to AI CONTROL GRID through:
 
 - telemetry SDK ingestion
 - direct telemetry evaluation endpoints
 - provider-compatible inline gateway routes
 
-In that mode, AI Control Tower can:
+In that mode, AI CONTROL GRID can:
 
 - inspect prompts before model execution
 - inspect model output before release
@@ -733,7 +733,7 @@ This matters because the product is designed to be integrated into external AI a
 The linked runtime demo is particularly useful for understanding the intended product story:
 
 - the frontline user stays in a task-specific workspace
-- AI Control Tower governs prompts and outputs behind the scenes
+- AI CONTROL GRID governs prompts and outputs behind the scenes
 - runtime evidence appears in the governance console in parallel
 
 That is a strong clue about the actual product vision.
@@ -798,7 +798,7 @@ That breadth is powerful, but it also means feature work can easily cross multip
 
 When making changes in this repo, the safest mental model is:
 
-AI Control Tower is a multi-tenant enterprise AI governance control plane with both administrative UI workflows and runtime AI enforcement responsibilities.
+AI CONTROL GRID is a multi-tenant enterprise AI governance control plane with both administrative UI workflows and runtime AI enforcement responsibilities.
 
 That means most non-trivial changes should be evaluated against:
 
