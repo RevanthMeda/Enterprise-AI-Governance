@@ -14,6 +14,7 @@ import { GlobalCommandCenter } from "@/components/global-command-center";
 import { RouteHelpPanel } from "@/components/route-help-panel";
 import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { getAppAccess, getDisplayRole } from "@/lib/permissions";
 import { resolvePageCopy } from "@/lib/page-copy";
 import { resolveWorkspaceCopy } from "@/lib/workspace-copy";
@@ -56,6 +57,7 @@ const TermsPage = lazy(() => import("@/pages/terms"));
 const SecurityPage = lazy(() => import("@/pages/security-page"));
 const TrustCenterPage = lazy(() => import("@/pages/trust-center"));
 const ApiDocsPage = lazy(() => import("@/pages/api-docs"));
+const UnauthorizedPage = lazy(() => import("@/pages/unauthorized"));
 
 const PUBLIC_PATHS = new Set([
   "/",
@@ -83,26 +85,9 @@ function isPublicPath(path: string): boolean {
   return PUBLIC_PATHS.has(path);
 }
 
-const STANDALONE_PUBLIC_PATHS = new Set([
-  "/welcome",
-  "/auth",
-  "/auth/login",
-  "/auth/reset-password",
-  "/login",
-  "/reset-password",
-  "/auth/invite",
-  "/invite/accept",
-  "/book-demo",
-  "/start-pilot",
-  "/thank-you",
-  "/book-demo/thank-you",
-  "/start-pilot/thank-you",
-  "/privacy",
-  "/terms",
-  "/security",
-  "/trust-center",
-  "/api-docs",
-]);
+// Rendered without the app shell even for authenticated users (auth flows, marketing, legal).
+// Derived from PUBLIC_PATHS — "/" is excluded because authenticated users see Dashboard there.
+const STANDALONE_PUBLIC_PATHS = new Set([...PUBLIC_PATHS].filter((p) => p !== "/"));
 
 function RouteLoadingFallback() {
   return (
@@ -129,53 +114,57 @@ function AuthenticatedRouter({
   access: ReturnType<typeof getAppAccess>;
 }) {
   return (
-    <Suspense fallback={<RouteLoadingFallback />}>
-      <Switch>
-        <Route path="/" component={Dashboard} />
-        <Route path="/welcome" component={LandingPage} />
-        <Route path="/dashboard" component={Dashboard} />
-        <Route path="/analytics" component={access.canAccessAnalytics ? AnalyticsCenterPage : Dashboard} />
-        <Route path="/governance-maturity" component={access.canAccessAnalytics ? GovernanceMaturityPage : Dashboard} />
-        <Route path="/knowledge-center" component={KnowledgeCenterPage} />
-        <Route path="/activity" component={MyActivity} />
-        <Route path="/account-security" component={AccountSecurityPage} />
-        <Route path="/my-activity" component={ActivityAliasRedirect} />
-        <Route path="/registry" component={access.canAccessRegistry ? Registry : Dashboard} />
-        <Route path="/registry/connect" component={access.canAccessRegistry ? ConnectAiApplicationPage : Dashboard} />
-        <Route path="/systems/:id" component={access.canAccessRegistry ? SystemDetail : Dashboard} />
-        <Route path="/risk" component={access.canAccessRisk ? RiskAssessment : Dashboard} />
-        <Route path="/risk-assessment" component={RiskAliasRedirect} />
-        <Route path="/compliance" component={access.canAccessCompliance ? Compliance : Dashboard} />
-        <Route path="/calendar" component={access.canAccessCalendar ? ComplianceCalendar : Dashboard} />
-        <Route path="/approvals" component={access.canAccessApprovals ? Approvals : Dashboard} />
-        <Route path="/audit" component={access.canAccessAuditLog ? AuditLogPage : Dashboard} />
-        <Route path="/decision-trace" component={access.canAccessDecisionTrace ? DecisionTracePage : Dashboard} />
-        <Route path="/runtime-monitoring" component={access.canAccessRuntimeMonitoring ? RuntimeMonitoringPage : Dashboard} />
-        <Route path="/exit-readiness" component={access.canAccessExitReadiness ? ExitReadinessPage : Dashboard} />
-        <Route path="/portfolio-control" component={access.canAccessPortfolioControl ? PortfolioControlPage : Dashboard} />
-        <Route path="/telemetry-policy" component={access.canAccessTelemetryPolicy ? TelemetryPolicyPage : Dashboard} />
-        <Route path="/telemetry-adapter" component={access.canAccessTelemetryAdapter ? TelemetryAdapterPage : Dashboard} />
-        <Route path="/retention-control" component={access.canAccessRetentionControl ? RetentionControlPage : Dashboard} />
-        <Route path="/incidents" component={access.canAccessIncidents ? IncidentsPage : Dashboard} />
-        <Route path="/bulk-controls" component={access.canAccessBulkControls ? BulkControls : Dashboard} />
-        <Route path="/settings" component={access.canAccessSettings ? SettingsPage : Dashboard} />
-        <Route path="/integrations" component={access.canAccessIntegrations ? IntegrationsPage : Dashboard} />
-        <Route path="/billing" component={access.canAccessBilling ? BillingPage : Dashboard} />
-        <Route path="/thank-you" component={ThankYouPage} />
-        <Route path="/book-demo/thank-you" component={ThankYouPage} />
-        <Route path="/start-pilot/thank-you" component={ThankYouPage} />
-        <Route path="/trust-center" component={TrustCenterPage} />
-        <Route path="/auth" component={Dashboard} />
-        <Route path="/auth/login" component={Dashboard} />
-        <Route path="/auth/reset-password" component={ResetPasswordPage} />
-        <Route path="/login" component={Dashboard} />
-        <Route path="/reset-password" component={ResetPasswordPage} />
-        <Route path="/auth/invite" component={Dashboard} />
-        <Route path="/invite/accept" component={Dashboard} />
-        <Route path="/api-docs" component={ApiDocsPage} />
-        <Route component={NotFound} />
-      </Switch>
-    </Suspense>
+    <ErrorBoundary>
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <Switch>
+          <Route path="/" component={Dashboard} />
+          <Route path="/welcome" component={LandingPage} />
+          <Route path="/dashboard" component={Dashboard} />
+          <Route path="/analytics" component={access.canAccessAnalytics ? AnalyticsCenterPage : UnauthorizedPage} />
+          <Route path="/governance-maturity" component={access.canAccessAnalytics ? GovernanceMaturityPage : UnauthorizedPage} />
+          <Route path="/knowledge-center" component={KnowledgeCenterPage} />
+          <Route path="/activity" component={MyActivity} />
+          <Route path="/account-security" component={AccountSecurityPage} />
+          <Route path="/my-activity" component={ActivityAliasRedirect} />
+          <Route path="/registry" component={access.canAccessRegistry ? Registry : UnauthorizedPage} />
+          <Route path="/registry/connect" component={access.canAccessRegistry ? ConnectAiApplicationPage : UnauthorizedPage} />
+          <Route path="/systems/:id" component={access.canAccessRegistry ? SystemDetail : UnauthorizedPage} />
+          <Route path="/risk" component={access.canAccessRisk ? RiskAssessment : UnauthorizedPage} />
+          <Route path="/risk-assessment" component={RiskAliasRedirect} />
+          <Route path="/compliance" component={access.canAccessCompliance ? Compliance : UnauthorizedPage} />
+          <Route path="/calendar" component={access.canAccessCalendar ? ComplianceCalendar : UnauthorizedPage} />
+          <Route path="/approvals" component={access.canAccessApprovals ? Approvals : UnauthorizedPage} />
+          <Route path="/audit" component={access.canAccessAuditLog ? AuditLogPage : UnauthorizedPage} />
+          <Route path="/decision-trace" component={access.canAccessDecisionTrace ? DecisionTracePage : UnauthorizedPage} />
+          <Route path="/runtime-monitoring" component={access.canAccessRuntimeMonitoring ? RuntimeMonitoringPage : UnauthorizedPage} />
+          <Route path="/exit-readiness" component={access.canAccessExitReadiness ? ExitReadinessPage : UnauthorizedPage} />
+          <Route path="/portfolio-control" component={access.canAccessPortfolioControl ? PortfolioControlPage : UnauthorizedPage} />
+          <Route path="/telemetry-policy" component={access.canAccessTelemetryPolicy ? TelemetryPolicyPage : UnauthorizedPage} />
+          <Route path="/telemetry-adapter" component={access.canAccessTelemetryAdapter ? TelemetryAdapterPage : UnauthorizedPage} />
+          <Route path="/retention-control" component={access.canAccessRetentionControl ? RetentionControlPage : UnauthorizedPage} />
+          <Route path="/incidents" component={access.canAccessIncidents ? IncidentsPage : UnauthorizedPage} />
+          <Route path="/bulk-controls" component={access.canAccessBulkControls ? BulkControls : UnauthorizedPage} />
+          <Route path="/settings" component={access.canAccessSettings ? SettingsPage : UnauthorizedPage} />
+          <Route path="/integrations" component={access.canAccessIntegrations ? IntegrationsPage : UnauthorizedPage} />
+          <Route path="/billing" component={access.canAccessBilling ? BillingPage : UnauthorizedPage} />
+          <Route path="/thank-you" component={ThankYouPage} />
+          <Route path="/book-demo/thank-you" component={ThankYouPage} />
+          <Route path="/start-pilot/thank-you" component={ThankYouPage} />
+          <Route path="/trust-center" component={TrustCenterPage} />
+          {/* Auth alias routes: redirect authenticated users to dashboard */}
+          <Route path="/auth" component={Dashboard} />
+          <Route path="/auth/login" component={Dashboard} />
+          <Route path="/auth/reset-password" component={ResetPasswordPage} />
+          <Route path="/login" component={Dashboard} />
+          <Route path="/reset-password" component={ResetPasswordPage} />
+          {/* Invite routes: render accept page so authenticated users can join a new org */}
+          <Route path="/auth/invite" component={InviteAcceptPage} />
+          <Route path="/invite/accept" component={InviteAcceptPage} />
+          <Route path="/api-docs" component={ApiDocsPage} />
+          <Route component={NotFound} />
+        </Switch>
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 
@@ -241,32 +230,34 @@ function ThankYouAliasRedirect() {
 
 function PublicRouter() {
   return (
-    <Suspense fallback={<RouteLoadingFallback />}>
-      <Switch>
-        <Route path="/" component={LandingPage} />
-        <Route path="/welcome" component={LandingPage} />
-        <Route path="/auth" component={AuthPage} />
-        <Route path="/auth/login" component={AuthPage} />
-        <Route path="/auth/reset-password" component={ResetPasswordPage} />
-        <Route path="/login" component={LoginAliasRedirect} />
-        <Route path="/reset-password" component={ResetPasswordPage} />
-        <Route path="/risk-assessment" component={RiskAliasRedirect} />
-        <Route path="/my-activity" component={ActivityAliasRedirect} />
-        <Route path="/auth/invite" component={InviteAcceptPage} />
-        <Route path="/invite/accept" component={InviteAcceptPage} />
-        <Route path="/book-demo" component={BookDemoPage} />
-        <Route path="/start-pilot" component={StartPilotPage} />
-        <Route path="/thank-you" component={ThankYouPage} />
-        <Route path="/book-demo/thank-you" component={ThankYouPage} />
-        <Route path="/start-pilot/thank-you" component={ThankYouPage} />
-        <Route path="/privacy" component={PrivacyPage} />
-        <Route path="/terms" component={TermsPage} />
-        <Route path="/security" component={SecurityPage} />
-        <Route path="/trust-center" component={TrustCenterPage} />
-        <Route path="/api-docs" component={ApiDocsPage} />
-        <Route component={PublicFallback} />
-      </Switch>
-    </Suspense>
+    <ErrorBoundary>
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <Switch>
+          <Route path="/" component={LandingPage} />
+          <Route path="/welcome" component={LandingPage} />
+          <Route path="/auth" component={AuthPage} />
+          <Route path="/auth/login" component={AuthPage} />
+          <Route path="/auth/reset-password" component={ResetPasswordPage} />
+          <Route path="/login" component={LoginAliasRedirect} />
+          <Route path="/reset-password" component={ResetPasswordPage} />
+          <Route path="/risk-assessment" component={RiskAliasRedirect} />
+          <Route path="/my-activity" component={ActivityAliasRedirect} />
+          <Route path="/auth/invite" component={InviteAcceptPage} />
+          <Route path="/invite/accept" component={InviteAcceptPage} />
+          <Route path="/book-demo" component={BookDemoPage} />
+          <Route path="/start-pilot" component={StartPilotPage} />
+          <Route path="/thank-you" component={ThankYouPage} />
+          <Route path="/book-demo/thank-you" component={ThankYouPage} />
+          <Route path="/start-pilot/thank-you" component={ThankYouPage} />
+          <Route path="/privacy" component={PrivacyPage} />
+          <Route path="/terms" component={TermsPage} />
+          <Route path="/security" component={SecurityPage} />
+          <Route path="/trust-center" component={TrustCenterPage} />
+          <Route path="/api-docs" component={ApiDocsPage} />
+          <Route component={PublicFallback} />
+        </Switch>
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 
@@ -418,16 +409,18 @@ function AuthenticatedApp() {
 
 function App() {
   return (
-    <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <AuthProvider>
-            <AuthenticatedApp />
-          </AuthProvider>
-          <Toaster />
-        </TooltipProvider>
-      </QueryClientProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <AuthProvider>
+              <AuthenticatedApp />
+            </AuthProvider>
+            <Toaster />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

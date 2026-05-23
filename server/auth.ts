@@ -104,8 +104,40 @@ type LoginWindowState = {
   windowStart: number;
 };
 
-const loginAttemptsByIpAndAccount = new Map<string, LoginWindowState>();
-const loginAttemptsByAccount = new Map<string, LoginWindowState>();
+// TTL-aware counter map that prunes expired entries to prevent unbounded growth.
+// NOTE: This is in-process only. On multi-instance deployments (e.g. Vercel serverless)
+// each instance has its own counter — use Upstash Redis for cross-instance enforcement.
+class BoundedTtlMap {
+  private readonly map = new Map<string, LoginWindowState>();
+
+  constructor(private readonly windowMs: number) {
+    setInterval(() => this.prune(), 5 * 60 * 1000).unref();
+  }
+
+  getOrReset(key: string, now: number): LoginWindowState {
+    const entry = this.map.get(key);
+    if (!entry || now - entry.windowStart > this.windowMs) {
+      const fresh: LoginWindowState = { count: 0, windowStart: now };
+      this.map.set(key, fresh);
+      return fresh;
+    }
+    return entry;
+  }
+
+  delete(key: string): void {
+    this.map.delete(key);
+  }
+
+  private prune(): void {
+    const cutoff = Date.now() - this.windowMs;
+    for (const [key, entry] of this.map) {
+      if (entry.windowStart < cutoff) this.map.delete(key);
+    }
+  }
+}
+
+const loginAttemptsByIpAndAccount = new BoundedTtlMap(LOGIN_RATE_LIMIT_WINDOW_MS);
+const loginAttemptsByAccount = new BoundedTtlMap(LOGIN_RATE_LIMIT_WINDOW_MS);
 
 function normalizeUsername(username: string): string {
   return username.trim().toLowerCase();
@@ -122,21 +154,11 @@ function getClientIp(req: Request): string {
   return req.ip || "unknown";
 }
 
-function getState(map: Map<string, LoginWindowState>, key: string, now: number): LoginWindowState {
-  const current = map.get(key);
-  if (!current || now - current.windowStart > LOGIN_RATE_LIMIT_WINDOW_MS) {
-    const fresh = { count: 0, windowStart: now };
-    map.set(key, fresh);
-    return fresh;
-  }
-  return current;
-}
-
 function isLoginRateLimited(ip: string, username: string): boolean {
   const now = Date.now();
   const ipAccountKey = `${ip}:${username}`;
-  const byIpAndAccount = getState(loginAttemptsByIpAndAccount, ipAccountKey, now);
-  const byAccount = getState(loginAttemptsByAccount, username, now);
+  const byIpAndAccount = loginAttemptsByIpAndAccount.getOrReset(ipAccountKey, now);
+  const byAccount = loginAttemptsByAccount.getOrReset(username, now);
   return (
     byIpAndAccount.count >= LOGIN_RATE_LIMIT_ATTEMPTS ||
     byAccount.count >= LOGIN_RATE_LIMIT_ATTEMPTS
@@ -146,8 +168,8 @@ function isLoginRateLimited(ip: string, username: string): boolean {
 function trackFailedLogin(ip: string, username: string) {
   const now = Date.now();
   const ipAccountKey = `${ip}:${username}`;
-  const byIpAndAccount = getState(loginAttemptsByIpAndAccount, ipAccountKey, now);
-  const byAccount = getState(loginAttemptsByAccount, username, now);
+  const byIpAndAccount = loginAttemptsByIpAndAccount.getOrReset(ipAccountKey, now);
+  const byAccount = loginAttemptsByAccount.getOrReset(username, now);
   byIpAndAccount.count += 1;
   byAccount.count += 1;
 }
@@ -215,7 +237,7 @@ function setNoStoreHeaders(res: Response) {
 }
 
 export async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, 10);
+  return bcrypt.hash(password, 12);
 }
 
 export async function comparePasswords(password: string, hash: string): Promise<boolean> {
@@ -413,6 +435,11 @@ export async function buildAuthUserPayload(
 }
 
 export function setupAuth(app: Express) {
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!sessionSecret) {
+    throw new Error("SESSION_SECRET environment variable is required");
+  }
+
   const sessionStore = new PgStore({
     conObject: getPgPoolConfig(process.env.DATABASE_URL),
     createTableIfMissing: true,
@@ -423,7 +450,7 @@ export function setupAuth(app: Express) {
   app.use(
     session({
       store: sessionStore,
-      secret: process.env.SESSION_SECRET!,
+      secret: sessionSecret,
       resave: false,
       saveUninitialized: false,
       rolling: true,

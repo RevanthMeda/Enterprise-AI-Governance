@@ -92,6 +92,24 @@ const settingsNav: NavItem[] = [
   { key: "apiDocs", title: "API Docs", url: "/api-docs", icon: FileText, accessKey: "canAccessSettings" },
 ];
 
+function getPathname(location: string): string {
+  return location.split(/[?#]/)[0] || "/";
+}
+
+function isNavItemActive(location: string, item: NavItem): boolean {
+  const pathname = getPathname(location);
+
+  if (item.url === "/") {
+    return pathname === "/" || pathname === "/dashboard";
+  }
+
+  if (item.url === "/registry") {
+    return pathname === "/registry" || pathname === "/registry/connect" || pathname.startsWith("/systems/");
+  }
+
+  return pathname === item.url;
+}
+
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, switchOrganization, switchOrganizationMutation } = useAuth();
@@ -168,7 +186,7 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.key}>
                   <SidebarMenuButton
                     asChild
-                    data-active={location === item.url}
+                    data-active={isNavItemActive(location, item)}
                     className="data-[active=true]:bg-sidebar-accent"
                   >
                     <Link href={item.url} data-testid={`link-${item.key}`}>
@@ -190,7 +208,7 @@ export function AppSidebar() {
                   <SidebarMenuItem key={item.key}>
                     <SidebarMenuButton
                       asChild
-                      data-active={location === item.url}
+                      data-active={isNavItemActive(location, item)}
                       className="data-[active=true]:bg-sidebar-accent"
                     >
                       <Link href={item.url} data-testid={`link-${item.key}`}>
@@ -221,13 +239,6 @@ export function AppSidebar() {
           <Badge variant="outline" className="text-[10px]" data-testid="badge-version">v2.0.0</Badge>
           <span className="text-[10px] text-muted-foreground">{copy.labels.aiActReady}</span>
         </div>
-        <a
-          href="/welcome"
-          className="mt-2 inline-flex text-[11px] text-muted-foreground transition-colors hover:text-foreground hover:underline"
-          data-testid="link-public-site"
-        >
-          View public site
-        </a>
       </SidebarFooter>
     </Sidebar>
   );

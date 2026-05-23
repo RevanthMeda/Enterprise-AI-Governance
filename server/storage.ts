@@ -582,6 +582,7 @@ export class DatabaseStorage implements IStorage {
         provisioningSource: data.provisioningSource,
         externalGroup: data.externalGroup,
         lastSyncedAt: data.lastSyncedAt,
+        updatedAt: new Date(),
       })
       .where(eq(memberships.id, membershipId))
       .returning();

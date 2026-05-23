@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "site": "ai-control-grid",
+    "site": "ai-control-tower-d9854",
     "public": "dist/public",
     "ignore": [
       "firebase.json",

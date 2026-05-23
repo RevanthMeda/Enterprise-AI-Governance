@@ -18,7 +18,7 @@ import {
 
 declare module "http" {
   interface IncomingMessage {
-    rawBody: unknown;
+    rawBody: Buffer;
   }
 }
 

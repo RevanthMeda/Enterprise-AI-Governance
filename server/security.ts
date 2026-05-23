@@ -1,4 +1,4 @@
-import { randomBytes } from "crypto";
+import { randomBytes, timingSafeEqual } from "crypto";
 import type { Express, Request, Response, NextFunction } from "express";
 
 const CSRF_SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -22,11 +22,13 @@ export function applySecurityHeaders(app: Express) {
           "base-uri 'self'",
           "frame-ancestors 'none'",
           "object-src 'none'",
-          "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+          // No 'unsafe-inline': Vite outputs only external script files in production builds.
+          "script-src 'self' https://cdn.jsdelivr.net",
           "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
           "font-src 'self' https://fonts.gstatic.com data:",
           "img-src 'self' data: blob: https:",
-          "connect-src 'self' https:",
+          // All API calls are same-origin; no JS-initiated cross-origin connections needed.
+          "connect-src 'self'",
         ].join("; "),
       );
       res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
@@ -38,6 +40,7 @@ export function applySecurityHeaders(app: Express) {
           "base-uri 'self'",
           "frame-ancestors 'none'",
           "object-src 'none'",
+          // 'unsafe-eval' required for Vite HMR in development only.
           "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net",
           "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
           "font-src 'self' https://fonts.gstatic.com data:",
@@ -101,7 +104,13 @@ export function createCsrfMiddleware(options?: {
 
     const csrfToken = req.session?.csrfToken;
     const requestToken = req.get("x-csrf-token");
-    if (!csrfToken || !requestToken || requestToken !== csrfToken) {
+    let csrfValid = false;
+    if (csrfToken && requestToken) {
+      const a = Buffer.from(csrfToken);
+      const b = Buffer.from(requestToken);
+      csrfValid = a.length === b.length && timingSafeEqual(a, b);
+    }
+    if (!csrfValid) {
       return res.status(403).json({ message: "Invalid CSRF token" });
     }
 
