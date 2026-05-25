@@ -41,13 +41,13 @@ const controls = [
 export default function TrustCenterPage() {
   const pageCopy = usePageCopy();
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#f3f7ff_0%,#ffffff_52%,#eef4f8_100%)] text-slate-950">
+    <div className="min-h-screen bg-background text-foreground">
       <PublicSiteHeader />
       <div className="mx-auto max-w-6xl px-6 py-16 sm:px-8 lg:px-10">
         <div className="max-w-3xl space-y-4">
           <Badge variant="outline" className="rounded-full px-3 py-1 text-xs uppercase tracking-[0.2em]">{pageCopy.trustCenter.badges?.trustCenter}</Badge>
           <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">{pageCopy.trustCenter.title}</h1>
-          <p className="text-base leading-7 text-slate-600">
+          <p className="text-base leading-7 text-muted-foreground">
             {pageCopy.trustCenter.description}
           </p>
           <div className="flex flex-wrap gap-3">
@@ -58,33 +58,33 @@ export default function TrustCenterPage() {
 
         <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {pillars.map((pillar) => (
-            <Card key={pillar.title} className="border-slate-200/80 bg-white/80 backdrop-blur">
+            <Card key={pillar.title} className="border-border/80 bg-card/80 backdrop-blur">
               <CardHeader>
-                <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-white">
+                <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-foreground text-background">
                   <pillar.icon className="h-4 w-4" />
                 </div>
                 <CardTitle className="text-base">{pillar.title}</CardTitle>
               </CardHeader>
-              <CardContent className="text-sm text-slate-600">{pillar.body}</CardContent>
+              <CardContent className="text-sm text-muted-foreground">{pillar.body}</CardContent>
             </Card>
           ))}
         </div>
 
         <div className="mt-12 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <Card className="border-slate-200/80 bg-white/85 backdrop-blur">
+          <Card className="border-border/80 bg-card/85 backdrop-blur">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg"><Lock className="h-5 w-5" /> Control highlights</CardTitle>
             </CardHeader>
             <CardContent>
-              <ul className="grid gap-3 text-sm text-slate-700">
+              <ul className="grid gap-3 text-sm text-foreground">
                 {controls.map((item) => (
-                  <li key={item} className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">{item}</li>
+                  <li key={item} className="rounded-md border border-border bg-muted/50 px-4 py-3">{item}</li>
                 ))}
               </ul>
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200/80 bg-slate-950 text-white">
+          <Card className="border-border/80 bg-sidebar text-sidebar-foreground">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg"><LifeBuoy className="h-5 w-5" /> Due diligence checklist</CardTitle>
             </CardHeader>

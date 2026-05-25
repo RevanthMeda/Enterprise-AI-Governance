@@ -58,6 +58,7 @@ const SecurityPage = lazy(() => import("@/pages/security-page"));
 const TrustCenterPage = lazy(() => import("@/pages/trust-center"));
 const ApiDocsPage = lazy(() => import("@/pages/api-docs"));
 const UnauthorizedPage = lazy(() => import("@/pages/unauthorized"));
+const ArcturosPage = lazy(() => import("@/pages/arcturos"));
 
 const PUBLIC_PATHS = new Set([
   "/",
@@ -79,6 +80,7 @@ const PUBLIC_PATHS = new Set([
   "/security",
   "/trust-center",
   "/api-docs",
+  "/arcturos",
 ]);
 
 function isPublicPath(path: string): boolean {
@@ -161,6 +163,7 @@ function AuthenticatedRouter({
           <Route path="/auth/invite" component={InviteAcceptPage} />
           <Route path="/invite/accept" component={InviteAcceptPage} />
           <Route path="/api-docs" component={ApiDocsPage} />
+          <Route path="/arcturos" component={ArcturosPage} />
           <Route component={NotFound} />
         </Switch>
       </Suspense>
@@ -254,6 +257,7 @@ function PublicRouter() {
           <Route path="/security" component={SecurityPage} />
           <Route path="/trust-center" component={TrustCenterPage} />
           <Route path="/api-docs" component={ApiDocsPage} />
+          <Route path="/arcturos" component={ArcturosPage} />
           <Route component={PublicFallback} />
         </Switch>
       </Suspense>

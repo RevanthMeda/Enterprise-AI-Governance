@@ -190,7 +190,7 @@ export default function AuthPage() {
     : "Sign In";
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,#eff6ff_0%,#ffffff_44%,#f8fafc_100%)] text-foreground" data-testid="page-auth">
+    <div className="min-h-screen bg-background text-foreground" data-testid="page-auth">
       <PublicSiteHeader />
       <div className="mx-auto grid min-h-[calc(100vh-81px)] w-full max-w-7xl gap-10 px-4 py-8 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-12">
         <section className="hidden flex-col justify-between rounded-[28px] border border-border/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(30,41,59,0.96))] p-8 text-slate-50 shadow-2xl shadow-slate-900/10 lg:flex">

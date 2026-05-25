@@ -50,7 +50,7 @@ export default function ResetPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,#eff6ff_0%,#ffffff_44%,#f8fafc_100%)] text-foreground">
+    <div className="min-h-screen bg-background text-foreground">
       <PublicSiteHeader />
       <div className="mx-auto flex min-h-[calc(100vh-81px)] max-w-7xl items-center justify-center px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
         <Card className="w-full max-w-lg border-border/70 bg-background/95 shadow-2xl shadow-slate-900/5" data-testid="page-reset-password">

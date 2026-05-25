@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
+import * as THREE from "three";
 import {
   Color,
   Euler,
@@ -47,7 +48,8 @@ const glassClass =
 
 const PRODUCT_NAME = "AI CONTROL GRID";
 const COMPANY_BYLINE = "by Arcturos";
-const FOUNDER_LINKEDIN_URL = "https://ie.linkedin.com/in/revanth-meda-1ab294226";
+const FOUNDER_LINKEDIN_URL = "https://www.linkedin.com/in/revanth-meda-1ab294226/";
+const COFOUNDER_LINKEDIN_URL = "https://www.linkedin.com/in/hitesh-thakkarr-1aa2736/";
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
@@ -62,6 +64,7 @@ const NAV_ITEMS = [
   { label: "Pricing", href: "#pricing" },
   { label: "Trust Center", href: "/trust-center" },
   { label: "Docs", href: "/api-docs" },
+  { label: "Company", href: "/arcturos" },
 ];
 
 const ENGINE_STEPS = [
@@ -2696,7 +2699,9 @@ function Footer({ copy }: { copy: LandingCopy }) {
         { label: badges.enterpriseDemos ?? "Enterprise demos", href: "/book-demo" },
         { label: badges.securityReviews ?? "Security reviews", href: "/trust-center" },
         { label: "Private equity", href: "/start-pilot" },
-        { label: "Revanth Meda on LinkedIn", href: FOUNDER_LINKEDIN_URL },
+        { label: "About Arcturos", href: "/arcturos" },
+        { label: "Revanth Meda — LinkedIn", href: FOUNDER_LINKEDIN_URL },
+        { label: "Hitesh Thakkarr — LinkedIn", href: COFOUNDER_LINKEDIN_URL },
         { label: badges.support ?? "Support", href: "/auth/login" },
       ],
     },
@@ -2718,10 +2723,10 @@ function Footer({ copy }: { copy: LandingCopy }) {
             {badges.footerDescription ?? "Institutional-grade AI runtime governance for private equity, regulated operators, and high-consequence enterprise workflows."}
           </p>
           <SmartLink
-            href={FOUNDER_LINKEDIN_URL}
+            href="/arcturos"
             className="mt-4 inline-flex text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 transition-colors hover:text-[#00FFD1]"
           >
-            Founder-built by Revanth Meda
+            Built by Revanth Meda &amp; Hitesh Thakkar
           </SmartLink>
         </div>
 
@@ -2868,6 +2873,7 @@ function PremiumHeroVisual({
             rootMargin="-5% 0px -5% 0px"
           >
             <HeroScene progress={progress} velocity={velocity} pointer={pointer} />
+            <MorphingSphere />
           </SceneCanvas>
           <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.11),transparent_36%,rgba(0,0,0,0.26))]" />
 
@@ -2956,7 +2962,7 @@ function PremiumHero({
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.05, ease: "easeOut" }}
-            className="text-5xl font-semibold leading-none text-[#1d1d1f] sm:text-6xl lg:text-7xl"
+            className="text-5xl font-semibold leading-none tracking-[-0.03em] text-[#1d1d1f] sm:text-6xl lg:text-7xl"
           >
             {badges.heroHeadline ?? copy.title}
           </motion.h1>
@@ -3365,6 +3371,95 @@ function PremiumFooter({ copy }: { copy: LandingCopy }) {
   );
 }
 
+function CustomCursor() {
+  const dotRef = useRef<HTMLDivElement>(null);
+  const ringRef = useRef<HTMLDivElement>(null);
+  const pos = useRef({ x: -200, y: -200 });
+  const cur = useRef({ x: -200, y: -200 });
+  const [hovered, setHovered] = useState(false);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => { pos.current = { x: e.clientX, y: e.clientY }; };
+    const onOver = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      setHovered(!!(t.closest('a,button,[data-magnetic]')));
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseover', onOver);
+    let raf: number;
+    const loop = () => {
+      cur.current.x += (pos.current.x - cur.current.x) * 0.09;
+      cur.current.y += (pos.current.y - cur.current.y) * 0.09;
+      if (dotRef.current) dotRef.current.style.transform = `translate(${pos.current.x - 3}px,${pos.current.y - 3}px)`;
+      if (ringRef.current) ringRef.current.style.transform = `translate(${cur.current.x - 18}px,${cur.current.y - 18}px) scale(${hovered ? 2.2 : 1})`;
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseover', onOver); cancelAnimationFrame(raf); };
+  }, [hovered]);
+
+  return (
+    <>
+      <div ref={dotRef} className="pointer-events-none fixed left-0 top-0 z-[9999] h-[6px] w-[6px] rounded-full bg-[#00FFD1]" style={{ willChange: 'transform' }} />
+      <div ref={ringRef} className="pointer-events-none fixed left-0 top-0 z-[9998] h-9 w-9 rounded-full border border-[#00FFD1]/60 mix-blend-difference transition-transform duration-200" style={{ willChange: 'transform' }} />
+    </>
+  );
+}
+
+function GrainOverlay() {
+  return (
+    <div
+      className="pointer-events-none fixed inset-0 z-[9997] opacity-[0.038]"
+      style={{
+        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)'/%3E%3C/svg%3E")`,
+        backgroundRepeat: 'repeat',
+        backgroundSize: '300px 300px',
+      }}
+    />
+  );
+}
+
+function MorphingSphere() {
+  const meshRef = useRef<THREE.Mesh>(null!);
+  const wireRef = useRef<THREE.Mesh>(null!);
+  const geoRef = useRef(new THREE.IcosahedronGeometry(1.8, 18));
+  const origPos = useMemo(() => {
+    const arr = geoRef.current.attributes.position.array as Float32Array;
+    return new Float32Array(arr);
+  }, []);
+
+  useFrame(({ clock }) => {
+    const t = clock.getElapsedTime() * 0.6;
+    const arr = geoRef.current.attributes.position.array as Float32Array;
+    for (let i = 0; i < arr.length; i += 3) {
+      const x0 = origPos[i], y0 = origPos[i+1], z0 = origPos[i+2];
+      const r = Math.sqrt(x0*x0 + y0*y0 + z0*z0);
+      const n = 0.16 * Math.sin(2.8*x0 + 2*t) * Math.cos(2.8*y0 + t) * Math.sin(2*z0 + 1.4*t);
+      arr[i]   = x0 + (x0/r)*n;
+      arr[i+1] = y0 + (y0/r)*n;
+      arr[i+2] = z0 + (z0/r)*n;
+    }
+    geoRef.current.attributes.position.needsUpdate = true;
+    geoRef.current.computeVertexNormals();
+    if (meshRef.current) { meshRef.current.rotation.y += 0.003; meshRef.current.rotation.x += 0.001; }
+    if (wireRef.current) { wireRef.current.rotation.y += 0.003; wireRef.current.rotation.x += 0.001; }
+  });
+
+  return (
+    <>
+      <ambientLight intensity={0.3} />
+      <directionalLight position={[3, 5, 2]} intensity={1.8} color="#00FFD1" />
+      <pointLight position={[-3, -2, -3]} intensity={0.6} color="#ffffff" />
+      <mesh ref={meshRef} geometry={geoRef.current}>
+        <meshPhysicalMaterial color="#00FFD1" transparent opacity={0.08} roughness={0.1} metalness={0.95} />
+      </mesh>
+      <mesh ref={wireRef} geometry={geoRef.current}>
+        <meshBasicMaterial color="#00FFD1" wireframe transparent opacity={0.18} />
+      </mesh>
+    </>
+  );
+}
+
 export default function LandingPage() {
   const pageCopy = usePageCopy();
   const landingCopy = pageCopy.landing;
@@ -3383,7 +3478,9 @@ export default function LandingPage() {
   });
 
   return (
-    <div className="min-h-screen bg-[#f5f5f7] text-[#1d1d1f] antialiased">
+    <div className="min-h-screen cursor-none bg-[#050505] text-white antialiased">
+      <CustomCursor />
+      <GrainOverlay />
       <PremiumNavbar copy={landingCopy} />
 
       <main>

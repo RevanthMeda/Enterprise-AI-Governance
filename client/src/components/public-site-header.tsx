@@ -22,6 +22,7 @@ export function PublicSiteHeader() {
       { label: landingBadges.pricingNav ?? "Pricing", href: "/welcome#pricing" },
       { label: landingBadges.trustCenterNav ?? pageCopy.trustCenter.badges?.trustCenter ?? pageCopy.trustCenter.title, href: "/trust-center" },
       { label: landingBadges.docsNav ?? pageCopy.apiDocs.title, href: "/api-docs" },
+      { label: "Company", href: "/arcturos" },
     ],
     [landingBadges, pageCopy.apiDocs.title, pageCopy.trustCenter.badges, pageCopy.trustCenter.title],
   );
