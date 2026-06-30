@@ -33,6 +33,7 @@ type PasswordResetMailInput = {
 };
 
 const DEFAULT_PASSWORD_RESET_TTL_MINUTES = 30;
+const DELIVERY_SMTP_TIMEOUT_MS = 5_000;
 const DELIVERY_WEBHOOK_TIMEOUT_MS = 5_000;
 
 function getPasswordResetSecret(): string {
@@ -214,6 +215,9 @@ export async function deliverPasswordReset(input: PasswordResetMailInput): Promi
         port: smtp.port,
         secure: smtp.secure,
         auth: smtp.auth,
+        connectionTimeout: DELIVERY_SMTP_TIMEOUT_MS,
+        greetingTimeout: DELIVERY_SMTP_TIMEOUT_MS,
+        socketTimeout: DELIVERY_SMTP_TIMEOUT_MS,
       });
 
       await transporter.sendMail({
