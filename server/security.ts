@@ -5,6 +5,8 @@ const CSRF_SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const DEFAULT_CSRF_EXEMPT_PATHS = new Set([
   "/api/auth/login",
   "/api/auth/register",
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password",
   "/api/auth/sso/callback",
 ]);
 

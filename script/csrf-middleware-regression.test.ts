@@ -63,6 +63,31 @@ test("csrf middleware exempts wildcard-prefixed gateway paths", async () => {
   assert.equal(typeof req.session?.csrfToken, "string");
 });
 
+test("csrf middleware exempts public password recovery endpoints", async () => {
+  const middleware = createCsrfMiddleware({ enforced: true });
+
+  for (const path of ["/api/auth/forgot-password", "/api/auth/reset-password"]) {
+    const req: FakeRequest = {
+      path,
+      method: "POST",
+      session: {},
+      get() {
+        return undefined;
+      },
+    };
+    const res = makeResponse();
+    let nextCalled = false;
+
+    await middleware(req as any, res as any, () => {
+      nextCalled = true;
+    });
+
+    assert.equal(nextCalled, true);
+    assert.equal(res.statusCode, 200);
+    assert.equal(typeof req.session?.csrfToken, "string");
+  }
+});
+
 test("csrf middleware still protects non-exempt mutating api paths", async () => {
   const middleware = createCsrfMiddleware({
     enforced: true,
