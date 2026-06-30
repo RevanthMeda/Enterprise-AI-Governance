@@ -1566,13 +1566,14 @@ function ProofArchitectureSection() {
   return (
     <SectionShell id="how-it-works" className="bg-[#050505] px-[clamp(1.25rem,4vw,2rem)] py-[clamp(4rem,8vw,4.75rem)] lg:px-[clamp(2rem,6vw,6rem)]">
       <div className="mx-auto max-w-[1500px] space-y-10">
+        <SeparatorLine className="mb-10" />
         <div className="grid gap-10 lg:grid-cols-[0.98fr_1.02fr]">
           <div className="space-y-8">
             <div className="max-w-3xl">
               <SectionLabel tone="cyan">Three operating pillars</SectionLabel>
-              <h2 className="text-[clamp(2.25rem,5vw,3rem)] font-bold tracking-tight text-white">
+              <LineReveal className="text-[clamp(2.25rem,5vw,3rem)] font-bold tracking-[-0.03em] text-white">
                 One control system. Three enterprise outcomes.
-              </h2>
+              </LineReveal>
               <p className="mt-5 max-w-2xl text-[clamp(1rem,1.6vw,1.125rem)] leading-8 text-slate-400">
                 The platform is organized intentionally: runtime policy contains the
                 model, incident operations contain the breach, and cryptographic
@@ -1732,11 +1733,12 @@ function BuildVerifySection() {
   return (
     <SectionShell className="bg-[#050505] px-[clamp(1.25rem,4vw,2rem)] py-[clamp(4rem,8vw,4.75rem)] lg:px-[clamp(2rem,6vw,6rem)]">
       <div className="mx-auto max-w-[1500px]">
+        <SeparatorLine className="mb-10" />
         <div className="mb-10 max-w-3xl">
           <SectionLabel tone="cyan">Build and verify</SectionLabel>
-          <h2 className="text-[clamp(2.25rem,5vw,3rem)] font-bold tracking-tight text-white">
+          <LineReveal className="text-[clamp(2.25rem,5vw,3rem)] font-bold tracking-[-0.03em] text-white">
             Docs, trust posture, and role-specific paths in one ecosystem.
-          </h2>
+          </LineReveal>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
@@ -1908,9 +1910,12 @@ function HeroSection({ velocity, isMobile, copy }: { velocity: number; isMobile:
               </span>
             </div>
 
-            <h1 className="max-w-4xl text-[clamp(3rem,7vw,6.2rem)] font-extrabold leading-[0.92] tracking-tight text-white">
+            <LineReveal
+              delay={0.1}
+              className="max-w-4xl text-[clamp(3rem,7vw,6.2rem)] font-extrabold leading-[0.92] tracking-[-0.03em] text-white"
+            >
               {copy.title}
-            </h1>
+            </LineReveal>
             <p className="mt-5 max-w-2xl text-[clamp(1rem,1.8vw,1.125rem)] font-light leading-8 text-slate-400">
               {copy.description}
             </p>
@@ -3460,7 +3465,177 @@ function MorphingSphere() {
   );
 }
 
+/* ─────────────────────────────────────────────
+   PageLoader — full-screen dark curtain that lifts
+   to reveal content on first load (matveyan.com style)
+───────────────────────────────────────────── */
+function PageLoader({ onDone }: { onDone: () => void }) {
+  const [phase, setPhase] = useState<'show' | 'lift' | 'done'>('show');
+
+  useEffect(() => {
+    const t1 = setTimeout(() => setPhase('lift'), 900);
+    const t2 = setTimeout(() => { setPhase('done'); onDone(); }, 1900);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (phase === 'done') return null;
+
+  return (
+    <motion.div
+      animate={phase === 'lift' ? { y: '-100%' } : { y: 0 }}
+      transition={phase === 'lift' ? { duration: 0.95, ease: [0.76, 0, 0.24, 1] } : { duration: 0 }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 10000,
+        backgroundColor: '#050505',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexDirection: 'column', gap: '1.5rem',
+      }}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        style={{ fontSize: 'clamp(2rem,8vw,4.5rem)', fontWeight: 900, letterSpacing: '-0.03em', color: '#ffffff' }}
+      >
+        AI CONTROL GRID
+      </motion.div>
+      <motion.div
+        initial={{ scaleX: 0 }}
+        animate={{ scaleX: 1 }}
+        transition={{ duration: 0.6, delay: 0.25, ease: [0.22, 1, 0.36, 1] }}
+        style={{ width: '6rem', height: 1, backgroundColor: '#00FFD1', transformOrigin: 'center' }}
+      />
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4, delay: 0.4 }}
+        style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: '0.24em', color: 'rgba(0,255,209,0.6)', textTransform: 'uppercase' }}
+      >
+        by Arcturos
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   ScrollProgress — thin teal line at top of viewport
+───────────────────────────────────────────── */
+function ScrollProgress() {
+  const { scrollYProgress } = useScroll();
+  const scaleX = useSpring(scrollYProgress, { stiffness: 100, damping: 30, restDelta: 0.001 });
+  return (
+    <motion.div
+      style={{
+        position: 'fixed', top: 0, left: 0, right: 0, height: 2,
+        backgroundColor: '#00FFD1', transformOrigin: '0%', scaleX,
+        zIndex: 9995,
+      }}
+    />
+  );
+}
+
+/* ─────────────────────────────────────────────
+   LiveHUD — cursor X/Y + scroll% + elapsed time
+   The signature matveyan.com real-time telemetry overlay
+───────────────────────────────────────────── */
+function LiveHUD() {
+  const cursorRef = useRef({ x: 0, y: 0 });
+  const [cursor, setCursor] = useState({ x: 0, y: 0 });
+  const [scrollPct, setScrollPct] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const startTime = useRef(Date.now());
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      cursorRef.current = { x: e.clientX, y: e.clientY };
+      setCursor({ x: e.clientX, y: e.clientY });
+    };
+    const onScroll = () => {
+      const max = document.body.scrollHeight - window.innerHeight;
+      setScrollPct(max > 0 ? Math.round((window.scrollY / max) * 100) : 0);
+    };
+    const ticker = setInterval(() => {
+      setElapsed((Date.now() - startTime.current) / 1000);
+    }, 100);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('scroll', onScroll);
+      clearInterval(ticker);
+    };
+  }, []);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ delay: 2.2, duration: 0.6 }}
+      style={{
+        position: 'fixed', bottom: '1.5rem', left: '1.5rem',
+        zIndex: 9990, pointerEvents: 'none',
+        fontFamily: 'monospace', fontSize: 10,
+        letterSpacing: '0.12em', lineHeight: 1.9,
+        color: 'rgba(0,255,209,0.38)',
+      }}
+    >
+      <div>X {cursor.x.toString().padStart(4, ' ')} / Y {cursor.y.toString().padStart(4, ' ')}</div>
+      <div>SCROLL {scrollPct.toString().padStart(3, ' ')}%</div>
+      <div>T {elapsed.toFixed(1)}s</div>
+    </motion.div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   LineReveal — overflow:hidden clip-reveal
+   Text slides up from below the mask boundary
+   (matveyan.com signature text entrance)
+───────────────────────────────────────────── */
+function LineReveal({
+  children,
+  delay = 0,
+  className = "",
+}: {
+  children: ReactNode;
+  delay?: number;
+  className?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, margin: "-40px" });
+  return (
+    <div ref={ref} style={{ overflow: "hidden" }} className={className}>
+      <motion.div
+        initial={{ y: "110%" }}
+        animate={inView ? { y: "0%" } : {}}
+        transition={{ duration: 0.85, delay, ease: [0.76, 0, 0.24, 1] }}
+      >
+        {children}
+      </motion.div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   SeparatorLine — animated horizontal rule on scroll
+───────────────────────────────────────────── */
+function SeparatorLine({ className = "" }: { className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, margin: "-60px" });
+  return (
+    <motion.div
+      ref={ref}
+      initial={{ scaleX: 0 }}
+      animate={inView ? { scaleX: 1 } : {}}
+      transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
+      style={{ transformOrigin: "left" }}
+      className={`h-px bg-[#00FFD1]/10 ${className}`}
+    />
+  );
+}
+
 export default function LandingPage() {
+  const [_loaderDone, setLoaderDone] = useState(false);
   const pageCopy = usePageCopy();
   const landingCopy = pageCopy.landing;
   const { scrollY } = useScroll();
@@ -3479,6 +3654,9 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen cursor-none bg-[#050505] text-white antialiased">
+      <PageLoader onDone={() => setLoaderDone(true)} />
+      <ScrollProgress />
+      <LiveHUD />
       <CustomCursor />
       <GrainOverlay />
       <PremiumNavbar copy={landingCopy} />

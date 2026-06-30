@@ -7,13 +7,14 @@
  * libs already in the dependency tree.
  */
 
-import { Suspense, useRef, useMemo, useState } from "react";
+import { Suspense, useRef, useMemo, useState, useEffect } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Points, PointMaterial, Float } from "@react-three/drei";
 import {
   motion,
   useInView,
   useScroll,
+  useSpring,
   useTransform,
 } from "framer-motion";
 import {
@@ -215,6 +216,54 @@ function SectionLabel({ children }: { children: string }) {
 }
 
 /* ─────────────────────────────────────────────
+   LineReveal — overflow:hidden clip reveal
+   Text slides up from below the mask boundary
+───────────────────────────────────────────── */
+function LineReveal({
+  children,
+  delay = 0,
+  className = "",
+  as: Tag = "div",
+}: {
+  children: React.ReactNode;
+  delay?: number;
+  className?: string;
+  as?: React.ElementType;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, margin: "-40px" });
+  return (
+    <div ref={ref} style={{ overflow: "hidden" }} className={className}>
+      <motion.div
+        initial={{ y: "110%" }}
+        animate={inView ? { y: "0%" } : {}}
+        transition={{ duration: 0.85, delay, ease: [0.76, 0, 0.24, 1] }}
+      >
+        <Tag>{children}</Tag>
+      </motion.div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   SeparatorLine — animated horizontal rule
+───────────────────────────────────────────── */
+function SeparatorLine() {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, margin: "-60px" });
+  return (
+    <motion.div
+      ref={ref}
+      initial={{ scaleX: 0 }}
+      animate={inView ? { scaleX: 1 } : {}}
+      transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
+      style={{ transformOrigin: "left" }}
+      className="mb-14 h-px bg-[#00FFD1]/12"
+    />
+  );
+}
+
+/* ─────────────────────────────────────────────
    Founder avatar (styled initials)
    Pass photoSrc to use a real photo instead.
 ───────────────────────────────────────────── */
@@ -332,7 +381,93 @@ const STATS = [
 /* ─────────────────────────────────────────────
    Page
 ───────────────────────────────────────────── */
+/* ─────────────────────────────────────────────
+   PageLoader — full-screen dark curtain (matveyan style)
+───────────────────────────────────────────── */
+function PageLoader({ onDone }: { onDone: () => void }) {
+  const [phase, setPhase] = useState<'show' | 'lift' | 'done'>('show');
+  useEffect(() => {
+    const t1 = setTimeout(() => setPhase('lift'), 900);
+    const t2 = setTimeout(() => { setPhase('done'); onDone(); }, 1900);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (phase === 'done') return null;
+  return (
+    <motion.div
+      animate={phase === 'lift' ? { y: '-100%' } : { y: 0 }}
+      transition={phase === 'lift' ? { duration: 0.95, ease: [0.76, 0, 0.24, 1] } : { duration: 0 }}
+      style={{ position: 'fixed', inset: 0, zIndex: 10000, backgroundColor: '#020202', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1.5rem' }}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        style={{ fontSize: 'clamp(2rem,8vw,4.5rem)', fontWeight: 900, letterSpacing: '-0.03em', color: '#ffffff' }}
+      >
+        ARCTUROS
+      </motion.div>
+      <motion.div
+        initial={{ scaleX: 0 }} animate={{ scaleX: 1 }}
+        transition={{ duration: 0.55, delay: 0.25, ease: [0.22, 1, 0.36, 1] }}
+        style={{ width: '6rem', height: 1, backgroundColor: TEAL, transformOrigin: 'center' }}
+      />
+      <motion.div
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+        transition={{ duration: 0.4, delay: 0.4 }}
+        style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: '0.24em', color: 'rgba(0,255,209,0.6)', textTransform: 'uppercase' }}
+      >
+        AI CONTROL GRID
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   ScrollProgress — thin teal progress line at top
+───────────────────────────────────────────── */
+function ScrollProgress() {
+  const { scrollYProgress } = useScroll();
+  const scaleX = useSpring(scrollYProgress, { stiffness: 100, damping: 30, restDelta: 0.001 });
+  return (
+    <motion.div
+      style={{ position: 'fixed', top: 0, left: 0, right: 0, height: 2, backgroundColor: TEAL, transformOrigin: '0%', scaleX, zIndex: 9995 }}
+    />
+  );
+}
+
+/* ─────────────────────────────────────────────
+   LiveHUD — cursor X/Y + scroll% + elapsed time
+───────────────────────────────────────────── */
+function LiveHUD() {
+  const [cursor, setCursor] = useState({ x: 0, y: 0 });
+  const [scrollPct, setScrollPct] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const startTime = useRef(Date.now());
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => setCursor({ x: e.clientX, y: e.clientY });
+    const onScroll = () => {
+      const max = document.body.scrollHeight - window.innerHeight;
+      setScrollPct(max > 0 ? Math.round((window.scrollY / max) * 100) : 0);
+    };
+    const ticker = setInterval(() => setElapsed((Date.now() - startTime.current) / 1000), 100);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('scroll', onScroll); clearInterval(ticker); };
+  }, []);
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.2, duration: 0.6 }}
+      style={{ position: 'fixed', bottom: '1.5rem', left: '1.5rem', zIndex: 9990, pointerEvents: 'none', fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.12em', lineHeight: 1.9, color: 'rgba(0,255,209,0.38)' }}
+    >
+      <div>X {cursor.x.toString().padStart(4, ' ')} / Y {cursor.y.toString().padStart(4, ' ')}</div>
+      <div>SCROLL {scrollPct.toString().padStart(3, ' ')}%</div>
+      <div>T {elapsed.toFixed(1)}s</div>
+    </motion.div>
+  );
+}
+
 export default function ArcturosPage() {
+  const [_loaderDone, setLoaderDone] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
   const heroOpacity = useTransform(scrollYProgress, [0, 0.7], [1, 0]);
@@ -340,6 +475,9 @@ export default function ArcturosPage() {
 
   return (
     <div className="min-h-screen bg-[#020202] text-white antialiased">
+      <PageLoader onDone={() => setLoaderDone(true)} />
+      <ScrollProgress />
+      <LiveHUD />
 
       {/* ── Minimal dark nav ─────────────────── */}
       <header className="fixed left-0 top-0 z-50 w-full border-b border-white/[0.06] bg-[#020202]/80 backdrop-blur-xl">
@@ -470,12 +608,13 @@ export default function ArcturosPage() {
       {/* ── CONVICTIONS (why we exist) ────────── */}
       <section className="bg-[#05050a] px-6 py-[clamp(5rem,10vw,8rem)] lg:px-[clamp(2rem,6vw,6rem)]">
         <div className="mx-auto max-w-6xl">
+          <SeparatorLine />
           <FadeUp>
             <SectionLabel>Why we exist</SectionLabel>
-            <h2 className="max-w-2xl text-[clamp(2rem,4vw,2.75rem)] font-extrabold tracking-tight text-white leading-tight">
-              Three convictions that drive everything we build.
-            </h2>
           </FadeUp>
+          <LineReveal className="max-w-2xl text-[clamp(2rem,4vw,2.75rem)] font-extrabold tracking-tight text-white leading-tight">
+            Three convictions that drive everything we build.
+          </LineReveal>
 
           <div className="mt-14 grid gap-6 md:grid-cols-3">
             {CONVICTIONS.map((c, i) => (
@@ -499,11 +638,14 @@ export default function ArcturosPage() {
         <div className="pointer-events-none absolute left-1/2 top-0 h-px w-[50rem] -translate-x-1/2 bg-gradient-to-r from-transparent via-[#00FFD1]/30 to-transparent" />
 
         <div className="mx-auto max-w-6xl">
+          <SeparatorLine />
           <FadeUp>
             <SectionLabel>The founders</SectionLabel>
-            <h2 className="max-w-2xl text-[clamp(2rem,4vw,2.75rem)] font-extrabold tracking-tight text-white">
-              One technical. One commercial. Both obsessed with the problem.
-            </h2>
+          </FadeUp>
+          <LineReveal className="max-w-2xl text-[clamp(2rem,4vw,2.75rem)] font-extrabold tracking-tight text-white">
+            One technical. One commercial. Both obsessed with the problem.
+          </LineReveal>
+          <FadeUp delay={0.15}>
             <p className="mt-4 max-w-xl text-base leading-7 text-white/45">
               Revanth brings 5+ years of enterprise SCADA, PLC, and AI engineering.
               Hitesh brings 25+ years of enterprise sales and GTM leadership across cybersecurity and infrastructure.
@@ -577,12 +719,13 @@ export default function ArcturosPage() {
       {/* ── PRODUCT STORY (timeline) ─────────── */}
       <section className="bg-[#05050a] px-6 py-[clamp(5rem,10vw,8rem)] lg:px-[clamp(2rem,6vw,6rem)]">
         <div className="mx-auto max-w-4xl">
+          <SeparatorLine />
           <FadeUp>
             <SectionLabel>How we got here</SectionLabel>
-            <h2 className="max-w-2xl text-[clamp(2rem,4vw,2.75rem)] font-extrabold tracking-tight text-white">
-              The story behind AI CONTROL GRID.
-            </h2>
           </FadeUp>
+          <LineReveal className="max-w-2xl text-[clamp(2rem,4vw,2.75rem)] font-extrabold tracking-tight text-white">
+            The story behind AI CONTROL GRID.
+          </LineReveal>
 
           <div className="mt-14 relative">
             {/* Vertical timeline line */}
