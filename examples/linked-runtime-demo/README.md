@@ -10,6 +10,24 @@ It simulates a real frontline banking copilot:
 - every model answer is evaluated again before release
 - the workspace shows the decision inline and keeps a visible runtime trail
 
+## One-command pitch demo (recommended)
+
+For a reliable presentation with no database, API key, or external service dependency:
+
+```bash
+npm run demo:pitch
+```
+
+Open the embedded Control Grid console:
+
+```text
+http://127.0.0.1:18080/control-grid
+```
+
+The pitch mode uses synthetic data and deterministic local policy decisions. It includes the Control Grid command center, registry, runtime monitoring, incidents, decision traces, and the Northstar frontline workspace. New workspace turns appear automatically in the console.
+
+Use the linked runtime mode below only when a separate Control Grid backend and isolated demo database are configured.
+
 ## Demo flow
 
 1. prepare the demo dataset and linked runtime config

@@ -2,6 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
+.font-acturus-display {
+  font-family: "Zen Dots", "Space Grotesk", var(--font-sans), sans-serif;
+}
+
+[data-public-theme="grid"] {
+  --public-focus: #5eebff;
+}
+
+[data-public-theme="acturus"] {
+  --public-focus: #ffc96b;
+}
+
+[data-public-theme] ::selection {
+  background: color-mix(in srgb, var(--public-focus) 35%, transparent);
+}
+
+[data-public-theme] :focus-visible {
+  outline-color: var(--public-focus);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-public-theme] *,
+  [data-public-theme] *::before,
+  [data-public-theme] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+html[data-motion-mode="reduced"] [data-public-theme] *,
+html[data-motion-mode="reduced"] [data-public-theme] *::before,
+html[data-motion-mode="reduced"] [data-public-theme] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+}
+
 /* LIGHT MODE */
 :root {
   --button-outline: rgba(0,0,0, .10);

@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
-  title: AI CONTROL GRID by Arcturos Enterprise Identity API
+  title: AI CONTROL GRID by ACTURUS Enterprise Identity API
   version: 1.0.0
   description: >
     Enterprise identity, tenant resolution, domain management, invite, and admin settings
-    endpoints for AI CONTROL GRID by Arcturos.
+    endpoints for AI CONTROL GRID by ACTURUS.
   license:
     name: Proprietary
 servers:

@@ -1,4 +1,4 @@
-# AI CONTROL GRID by Arcturos Full Application Report
+# AI CONTROL GRID by ACTURUS Full Application Report
 
 ## 1. Executive summary
 

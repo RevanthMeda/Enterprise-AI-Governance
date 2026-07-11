@@ -1,10 +1,10 @@
-const CACHE_NAME = "ai-control-grid-v1";
+const CACHE_NAME = "ai-control-grid-v3";
 const APP_SHELL = [
   "/",
   "/offline.html",
   "/manifest.webmanifest",
   "/favicon.svg",
-  "/favicon.png",
+  "/favicon-acturus.svg",
 ];
 
 self.addEventListener("install", (event) => {
@@ -33,7 +33,7 @@ self.addEventListener("fetch", (event) => {
   const isStaticAsset =
     requestUrl.pathname.startsWith("/assets/") ||
     requestUrl.pathname === "/favicon.svg" ||
-    requestUrl.pathname === "/favicon.png" ||
+    requestUrl.pathname === "/favicon-acturus.svg" ||
     requestUrl.pathname === "/manifest.webmanifest";
 
   if (isApiRequest) {

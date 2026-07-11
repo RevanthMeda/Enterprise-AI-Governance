@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: AI CONTROL GRID by Arcturos Platform API
+  title: AI CONTROL GRID by ACTURUS Platform API
   version: 1.0.0
   description: >
-    Broader platform OpenAPI reference for AI CONTROL GRID by Arcturos covering authentication,
+    Broader platform OpenAPI reference for AI CONTROL GRID by ACTURUS covering authentication,
     enterprise identity, tenant admin, registry, controls, workflows, audit, notifications,
     evidence, exports, risk, dashboard, and marketing capture endpoints.
   license:

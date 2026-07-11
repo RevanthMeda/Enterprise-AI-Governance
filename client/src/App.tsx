@@ -15,6 +15,7 @@ import { RouteHelpPanel } from "@/components/route-help-panel";
 import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { ActurusMark } from "@/components/acturus-public-shell";
 import { getAppAccess, getDisplayRole } from "@/lib/permissions";
 import { resolvePageCopy } from "@/lib/page-copy";
 import { resolveWorkspaceCopy } from "@/lib/workspace-copy";
@@ -58,7 +59,7 @@ const SecurityPage = lazy(() => import("@/pages/security-page"));
 const TrustCenterPage = lazy(() => import("@/pages/trust-center"));
 const ApiDocsPage = lazy(() => import("@/pages/api-docs"));
 const UnauthorizedPage = lazy(() => import("@/pages/unauthorized"));
-const ArcturosPage = lazy(() => import("@/pages/arcturos"));
+const ActurusPage = lazy(() => import("@/pages/acturus"));
 
 const PUBLIC_PATHS = new Set([
   "/",
@@ -80,6 +81,7 @@ const PUBLIC_PATHS = new Set([
   "/security",
   "/trust-center",
   "/api-docs",
+  "/acturus",
   "/arcturos",
 ]);
 
@@ -93,8 +95,9 @@ const STANDALONE_PUBLIC_PATHS = new Set([...PUBLIC_PATHS].filter((p) => p !== "/
 
 function RouteLoadingFallback() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-6">
+    <div className="flex min-h-screen items-center justify-center bg-background px-6" role="status" aria-live="polite" aria-busy="true">
       <div className="w-full max-w-md space-y-4 rounded-2xl border bg-card p-6 shadow-sm">
+        <span className="sr-only">Loading application</span>
         <Skeleton className="mx-auto h-10 w-10 rounded-2xl" />
         <div className="space-y-2">
           <Skeleton className="mx-auto h-5 w-40" />
@@ -163,7 +166,8 @@ function AuthenticatedRouter({
           <Route path="/auth/invite" component={InviteAcceptPage} />
           <Route path="/invite/accept" component={InviteAcceptPage} />
           <Route path="/api-docs" component={ApiDocsPage} />
-          <Route path="/arcturos" component={ArcturosPage} />
+          <Route path="/acturus" component={ActurusPage} />
+          <Route path="/arcturos" component={ActurusLegacyRedirect} />
           <Route component={NotFound} />
         </Switch>
       </Suspense>
@@ -231,10 +235,44 @@ function ThankYouAliasRedirect() {
   return null;
 }
 
+function PublicRouteLoadingFallback() {
+  const [location] = useLocation();
+  const companyTheme = location === "/acturus" || location === "/arcturos";
+
+  return (
+    <div
+      className={`flex min-h-screen items-center justify-center px-6 text-white ${companyTheme ? "bg-[#100916]" : "bg-[#050914]"}`}
+      data-public-theme={companyTheme ? "acturus" : "grid"}
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex flex-col items-center text-center">
+        <span className={`flex h-14 w-14 items-center justify-center rounded-2xl border ${companyTheme ? "border-[#ffc96b]/30 bg-[#ff8a70]/10 text-[#ffd7a0]" : "border-[#5eebff]/30 bg-[#3aa7ff]/10 text-[#8dddff]"}`}>
+          <ActurusMark className="h-8 w-8" />
+        </span>
+        <span className="font-acturus-display mt-5 text-sm tracking-[0.12em]">ACTURUS</span>
+        <span className="mt-2 text-[9px] uppercase tracking-[0.2em] text-white/60">{companyTheme ? "Loading the company story" : "Loading AI CONTROL GRID"}</span>
+      </div>
+    </div>
+  );
+}
+
+function ActurusLegacyRedirect() {
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    const queryString = typeof window === "undefined" ? "" : window.location.search;
+    setLocation(`/acturus${queryString}`);
+  }, [setLocation]);
+
+  return null;
+}
+
 function PublicRouter() {
   return (
     <ErrorBoundary>
-      <Suspense fallback={<RouteLoadingFallback />}>
+      <Suspense fallback={<PublicRouteLoadingFallback />}>
         <Switch>
           <Route path="/" component={LandingPage} />
           <Route path="/welcome" component={LandingPage} />
@@ -257,7 +295,8 @@ function PublicRouter() {
           <Route path="/security" component={SecurityPage} />
           <Route path="/trust-center" component={TrustCenterPage} />
           <Route path="/api-docs" component={ApiDocsPage} />
-          <Route path="/arcturos" component={ArcturosPage} />
+          <Route path="/acturus" component={ActurusPage} />
+          <Route path="/arcturos" component={ActurusLegacyRedirect} />
           <Route component={PublicFallback} />
         </Switch>
       </Suspense>
@@ -271,6 +310,12 @@ function AuthenticatedApp() {
   const isPublic = isPublicPath(location);
   const access = getAppAccess(user);
   const displayRole = getDisplayRole(user);
+
+  useEffect(() => {
+    if (!isPublic || typeof window === "undefined") return;
+    if (window.location.hash) return;
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [isPublic, location]);
 
   useEffect(() => {
     const copy = resolveWorkspaceCopy(user?.currentOrganizationOnboarding?.workspaceLocale);
@@ -316,10 +361,96 @@ function AuthenticatedApp() {
       ["/security", pageCopy.security.title],
       ["/trust-center", pageCopy.trustCenter.badges?.trustCenter ?? pageCopy.trustCenter.title],
       ["/api-docs", pageCopy.apiDocs.title],
+      ["/acturus", "ACTURUS"],
     ];
 
     const match = routeTitles.find(([path]) => location === path || location.startsWith(`${path}/`));
     document.title = `${match?.[1] ?? copy.appName} - ${copy.appName}`;
+
+    const homeMetadata = {
+      title: "AI CONTROL GRID — Developed by ACTURUS | Enterprise Runtime Governance",
+      description: "AI CONTROL GRID, developed by ACTURUS, brings enterprise AI inventory, policy enforcement, incident operations, and connected evidence into one operating layer.",
+      url: "https://aicontrolgrid.com/",
+    };
+    const companyMetadata = {
+      title: "ACTURUS — The company behind AI CONTROL GRID",
+      description: "Meet ACTURUS co-founders Revanth Meda and Hitesh Thakkarr and learn why they are building AI CONTROL GRID for accountable enterprise AI operations.",
+      url: "https://aicontrolgrid.com/acturus",
+    };
+    const publicMetadata: Record<string, { title: string; description: string; url: string }> = {
+      "/": homeMetadata,
+      "/welcome": homeMetadata,
+      "/acturus": companyMetadata,
+      "/arcturos": companyMetadata,
+      "/book-demo": {
+        title: "Book an AI CONTROL GRID Demo | ACTURUS",
+        description: "Book a private walkthrough of AI CONTROL GRID and map runtime governance, evidence, and incident operations to your AI portfolio.",
+        url: "https://aicontrolgrid.com/book-demo",
+      },
+      "/start-pilot": {
+        title: "Start an AI Governance Pilot | ACTURUS",
+        description: "Plan a focused AI CONTROL GRID pilot around your systems, governance priorities, and evidence requirements.",
+        url: "https://aicontrolgrid.com/start-pilot",
+      },
+      "/trust-center": {
+        title: "AI CONTROL GRID Trust Center | ACTURUS",
+        description: "Review the security, tenant isolation, operational readiness, and tamper-evident audit posture behind AI CONTROL GRID.",
+        url: "https://aicontrolgrid.com/trust-center",
+      },
+      "/security": {
+        title: "Security | AI CONTROL GRID",
+        description: "Review the security practices supporting AI CONTROL GRID and accountable enterprise AI operations.",
+        url: "https://aicontrolgrid.com/security",
+      },
+      "/privacy": {
+        title: "Privacy | ACTURUS",
+        description: "Read the privacy information for ACTURUS and AI CONTROL GRID.",
+        url: "https://aicontrolgrid.com/privacy",
+      },
+      "/terms": {
+        title: "Terms | ACTURUS",
+        description: "Read the terms governing use of ACTURUS and AI CONTROL GRID services.",
+        url: "https://aicontrolgrid.com/terms",
+      },
+      "/api-docs": {
+        title: "AI CONTROL GRID API Documentation",
+        description: "Explore the public API documentation for AI CONTROL GRID platform and enterprise identity integrations.",
+        url: "https://aicontrolgrid.com/api-docs",
+      },
+      "/auth": { title: "Sign in | AI CONTROL GRID", description: "Sign in to your AI CONTROL GRID workspace.", url: "https://aicontrolgrid.com/auth" },
+      "/auth/login": { title: "Sign in | AI CONTROL GRID", description: "Sign in to your AI CONTROL GRID workspace.", url: "https://aicontrolgrid.com/auth/login" },
+      "/login": { title: "Sign in | AI CONTROL GRID", description: "Sign in to your AI CONTROL GRID workspace.", url: "https://aicontrolgrid.com/auth/login" },
+      "/auth/reset-password": { title: "Reset password | AI CONTROL GRID", description: "Reset access to your AI CONTROL GRID workspace.", url: "https://aicontrolgrid.com/auth/reset-password" },
+      "/reset-password": { title: "Reset password | AI CONTROL GRID", description: "Reset access to your AI CONTROL GRID workspace.", url: "https://aicontrolgrid.com/reset-password" },
+      "/auth/invite": { title: "Accept invitation | AI CONTROL GRID", description: "Accept an invitation to an AI CONTROL GRID workspace.", url: "https://aicontrolgrid.com/auth/invite" },
+      "/invite/accept": { title: "Accept invitation | AI CONTROL GRID", description: "Accept an invitation to an AI CONTROL GRID workspace.", url: "https://aicontrolgrid.com/invite/accept" },
+      "/thank-you": { title: "Thank you | ACTURUS", description: "Your request has been received by ACTURUS.", url: "https://aicontrolgrid.com/thank-you" },
+      "/book-demo/thank-you": { title: "Thank you | ACTURUS", description: "Your AI CONTROL GRID demo request has been received.", url: "https://aicontrolgrid.com/book-demo/thank-you" },
+      "/start-pilot/thank-you": { title: "Thank you | ACTURUS", description: "Your AI CONTROL GRID pilot request has been received.", url: "https://aicontrolgrid.com/start-pilot/thank-you" },
+    };
+
+    const isPublicDocument = !user ? isPublic : STANDALONE_PUBLIC_PATHS.has(location);
+    const isCompanyPage = location === "/acturus" || location === "/arcturos";
+    const lightPublicPage = ["/book-demo", "/start-pilot", "/thank-you", "/book-demo/thank-you", "/start-pilot/thank-you", "/trust-center", "/security", "/privacy", "/terms", "/api-docs", "/auth", "/auth/login", "/login", "/auth/reset-password", "/reset-password", "/auth/invite", "/invite/accept"].includes(location);
+    const metadata = publicMetadata[location];
+
+    if (isPublicDocument && metadata) {
+      document.title = metadata.title;
+      document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute("href", metadata.url);
+      document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute("content", metadata.description);
+      document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.setAttribute("content", metadata.title);
+      document.querySelector<HTMLMetaElement>('meta[property="og:description"]')?.setAttribute("content", metadata.description);
+      document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute("content", metadata.url);
+      document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]')?.setAttribute("content", metadata.title);
+      document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]')?.setAttribute("content", metadata.description);
+    }
+
+    document.body.style.background = isPublicDocument ? (isCompanyPage ? "#100916" : lightPublicPage ? "#edf4ff" : "#050914") : "";
+    document.body.style.color = isPublicDocument ? (lightPublicPage ? "#07101f" : "#f4f8ff") : "";
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", isCompanyPage ? "#160f18" : "#050914");
+    document.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="shortcut icon"]').forEach((icon) => {
+      icon.setAttribute("href", isCompanyPage ? "/favicon-acturus.svg?v=1" : "/favicon.svg?v=5");
+    });
   }, [location, user]);
 
   useEffect(() => {

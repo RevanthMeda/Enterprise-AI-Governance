@@ -1,8 +1,8 @@
-# AI CONTROL GRID by Arcturos Product Overview
+# AI CONTROL GRID by ACTURUS Product Overview
 
 ## 1. What this application is
 
-AI CONTROL GRID is an enterprise AI governance platform by Arcturos.
+AI CONTROL GRID is an enterprise AI governance platform by Acturus.
 
 The product is founder-built by [Revanth Meda](https://ie.linkedin.com/in/revanth-meda-1ab294226) and shaped around the operating model he has discussed publicly on LinkedIn: replace spreadsheet-led AI governance with a live system for registration, risk assessment, control mapping, role-based approvals, and audit-ready evidence.
 

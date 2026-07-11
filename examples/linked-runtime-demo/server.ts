@@ -9,6 +9,11 @@ import {
   type GuardPostflightInput,
 } from "@ai-control-grid/telemetry-sdk-node";
 import { buildGovernedTemplateResponse } from "./policy-templates";
+import {
+  normalizePitchConsoleView,
+  renderPitchConsolePage,
+  renderPitchConsolePanel,
+} from "./pitch-console";
 
 declare module "express-session" {
   interface SessionData {
@@ -143,11 +148,16 @@ const shellProvidedEnvKeys = new Set(
     .map(([key]) => key),
 );
 const loadedEnvKeys = new Set<string>();
+const offlinePitchRequested =
+  process.argv.includes("--offline") ||
+  /^(1|true|yes|on)$/i.test(process.env.AICT_DEMO_OFFLINE_MODE?.trim() || "");
 
-loadEnvFile(path.join(repoRootDir, ".env"));
-loadEnvFile(path.join(examplesDir, ".env"));
-loadEnvFile(path.join(repoRootDir, ".env.local"), { overrideExisting: true });
-loadEnvFile(path.join(examplesDir, ".env.local"), { overrideExisting: true });
+if (!offlinePitchRequested) {
+  loadEnvFile(path.join(repoRootDir, ".env"));
+  loadEnvFile(path.join(examplesDir, ".env"));
+  loadEnvFile(path.join(repoRootDir, ".env.local"), { overrideExisting: true });
+  loadEnvFile(path.join(examplesDir, ".env.local"), { overrideExisting: true });
+}
 
 const port = Number(process.env.LINKED_RUNTIME_DEMO_PORT || 18080);
 const bindHost = process.env.LINKED_RUNTIME_DEMO_BIND_HOST || "127.0.0.1";
@@ -155,16 +165,28 @@ const browserHost =
   process.env.LINKED_RUNTIME_DEMO_BROWSER_HOST ||
   (bindHost === "0.0.0.0" ? "localhost" : bindHost);
 
-const controlTowerBaseUrl = firstDefined("AICT_BASE_URL", "CT_API") || "";
+const offlinePitchMode =
+  offlinePitchRequested ||
+  /^(1|true|yes|on)$/i.test(firstDefined("AICT_DEMO_OFFLINE_MODE"));
+const localWorkspaceBaseUrl = `http://${browserHost}:${port}`;
+const controlTowerBaseUrl = offlinePitchMode
+  ? `${localWorkspaceBaseUrl}/control-grid`
+  : firstDefined("AICT_BASE_URL", "CT_API") || "";
 const controlTowerConsoleUrl =
-  firstDefined("AICT_CONSOLE_URL", "AICT_APP_URL", "PUBLIC_APP_URL") ||
+  (offlinePitchMode
+    ? `${localWorkspaceBaseUrl}/control-grid`
+    : firstDefined("AICT_CONSOLE_URL", "AICT_APP_URL", "PUBLIC_APP_URL")) ||
   controlTowerBaseUrl;
-const telemetryKey = firstDefined("AICT_TELEMETRY_KEY", "CT_TELEMETRY_KEY") || "";
-const configuredSystemId = firstDefined("AICT_SYSTEM_ID", "CT_SYSTEM_ID") || null;
+const telemetryKey = offlinePitchMode
+  ? "offline-pitch-demo-key"
+  : firstDefined("AICT_TELEMETRY_KEY", "CT_TELEMETRY_KEY") || "";
+const configuredSystemId = offlinePitchMode
+  ? "northstar-collections-hardship-assistant"
+  : firstDefined("AICT_SYSTEM_ID", "CT_SYSTEM_ID") || null;
 const configuredGateway = firstDefined("AICT_GATEWAY") || "customer-support-gateway";
 const configuredProvider = firstDefined("AICT_PROVIDER") || "openai";
 const configuredModel = firstDefined("AICT_MODEL_NAME") || "gpt-4.1-mini";
-const openAiApiKey = firstDefined("OPENAI_API_KEY") || null;
+const openAiApiKey = offlinePitchMode ? null : firstDefined("OPENAI_API_KEY") || null;
 const demoWorkspacePassword =
   firstDefined("AICT_DEMO_WORKSPACE_PASSWORD", "DEMO_WORKSPACE_PASSWORD") ||
   "Northstar!Assist24";
@@ -181,11 +203,11 @@ const overallTurnTimeoutMs = Number(process.env.AICT_DEMO_TURN_TIMEOUT_MS || 20_
 const upstreamModelTimeoutMs = Number(process.env.AICT_DEMO_MODEL_TIMEOUT_MS || 12_000);
 const demoBuildStamp = "northstar-agent-workspace-2026-03-21";
 
-if (!controlTowerBaseUrl.trim()) {
+if (!offlinePitchMode && !controlTowerBaseUrl.trim()) {
   throw new Error("AICT_BASE_URL or CT_API must be set");
 }
 
-if (!telemetryKey.trim()) {
+if (!offlinePitchMode && !telemetryKey.trim()) {
   throw new Error("AICT_TELEMETRY_KEY or CT_TELEMETRY_KEY must be set");
 }
 
@@ -494,6 +516,7 @@ app.use((_req, res, next) => {
     Expires: "0",
     "Surrogate-Control": "no-store",
     "X-Demo-Build": demoBuildStamp,
+    "X-Demo-Mode": offlinePitchMode ? "offline-pitch" : "linked-runtime",
   });
   next();
 });
@@ -541,6 +564,28 @@ app.get("/favicon.ico", (_req, res) => {
   res.status(204).end();
 });
 
+app.get("/control-grid/fragment", (req, res) => {
+  if (!offlinePitchMode) {
+    return res.status(404).send("Pitch console is available only in offline demo mode.");
+  }
+  const view = normalizePitchConsoleView(req.query.view);
+  return res.type("html").send(renderPitchConsolePanel(view, recentRuns));
+});
+
+app.get(["/control-grid", "/control-grid/:view"], (req, res) => {
+  if (!offlinePitchMode) {
+    return res.status(404).send("Pitch console is available only in offline demo mode.");
+  }
+  const view = normalizePitchConsoleView(req.params.view);
+  return res.type("html").send(
+    renderPitchConsolePage({
+      view,
+      runs: recentRuns,
+      workspaceUrl: localWorkspaceBaseUrl,
+    }),
+  );
+});
+
 app.get("/api/bootstrap", (req, res) => {
   const demoUser = getDemoUserFromRequest(req);
   if (!demoUser) {
@@ -552,6 +597,7 @@ app.get("/api/bootstrap", (req, res) => {
     controlTowerBaseUrl,
     controlTowerConsoleUrl,
     usingLiveModel: Boolean(openAiApiKey),
+    offlinePitchMode,
     configuredGateway,
     configuredModel,
     configuredProvider,
@@ -643,35 +689,39 @@ app.post("/api/runs/:id/release", async (req, res) => {
   }
 
   let releaseReviewEventId: string | null = null;
-  try {
-    const releaseEvent = await client.ingest({
-      ...(configuredSystemId ? { systemId: configuredSystemId } : {}),
-      summary: "Escalated runtime draft released after human reviewer acknowledgment.",
-      eventType: "runtime.release_review",
-      severity: "warning",
-      correlationId: run.correlationId,
-      runtimeContext: {
-        ...modes[demoCasesById.get(run.caseId)?.modeId ?? "claims"].runtimeContext,
-        caseReference: run.caseReference,
-        customerName: run.customerName,
-        reviewer: demoUser.fullName,
-      },
-      metadata: {
-        source: "northstar-agent-workspace",
-        workspaceRunId: run.id,
-        originalTelemetryEventId: run.telemetryEventId,
-        reviewerRelease: true,
-        reviewAcknowledgedBy: demoUser.fullName,
-        reviewAcknowledgmentNote: reviewNote,
-        originalDecision: run.decision,
-        reasonCodes: run.reasonCodes,
-        legalProfileApplied: run.legalProfileApplied,
-        lawPackIdsApplied: run.lawPackIdsApplied,
-      },
-    });
-    releaseReviewEventId = releaseEvent.id;
-  } catch {
-    releaseReviewEventId = null;
+  if (offlinePitchMode) {
+    releaseReviewEventId = `evt-demo-release-${randomUUID()}`;
+  } else {
+    try {
+      const releaseEvent = await client.ingest({
+        ...(configuredSystemId ? { systemId: configuredSystemId } : {}),
+        summary: "Escalated runtime draft released after human reviewer acknowledgment.",
+        eventType: "runtime.release_review",
+        severity: "warning",
+        correlationId: run.correlationId,
+        runtimeContext: {
+          ...modes[demoCasesById.get(run.caseId)?.modeId ?? "claims"].runtimeContext,
+          caseReference: run.caseReference,
+          customerName: run.customerName,
+          reviewer: demoUser.fullName,
+        },
+        metadata: {
+          source: "northstar-agent-workspace",
+          workspaceRunId: run.id,
+          originalTelemetryEventId: run.telemetryEventId,
+          reviewerRelease: true,
+          reviewAcknowledgedBy: demoUser.fullName,
+          reviewAcknowledgmentNote: reviewNote,
+          originalDecision: run.decision,
+          reasonCodes: run.reasonCodes,
+          legalProfileApplied: run.legalProfileApplied,
+          lawPackIdsApplied: run.lawPackIdsApplied,
+        },
+      });
+      releaseReviewEventId = releaseEvent.id;
+    } catch {
+      releaseReviewEventId = null;
+    }
   }
 
   run.reviewReleased = true;
@@ -758,6 +808,10 @@ async function executeGovernedTurn(
   activeCase: DemoCase,
   demoUser: DemoUser,
 ): Promise<DemoRun> {
+  if (offlinePitchMode) {
+    return executeOfflineGovernedTurn(prompt, activeCase, demoUser);
+  }
+
   const mode = modes[activeCase.modeId] ?? inferConversationMode(prompt);
   const promptSignals = detectPromptSignals(prompt, mode);
   const correlationId = randomUUID();
@@ -931,10 +985,154 @@ async function executeGovernedTurn(
   return run;
 }
 
-const server = app.listen(port, bindHost, () => {
-  console.log(
-    `northstar agent workspace listening on http://${browserHost}:${port} (bound to ${bindHost}:${port})`,
+function executeOfflineGovernedTurn(
+  prompt: string,
+  activeCase: DemoCase,
+  demoUser: DemoUser,
+): DemoRun {
+  const mode = modes[activeCase.modeId] ?? inferConversationMode(prompt);
+  const promptSignals = detectPromptSignals(prompt, mode);
+  const correlationId = randomUUID();
+  const preflightBlocked =
+    promptSignals.restrictedMatches.length > 0 ||
+    promptSignals.piiFlags.length > 0;
+
+  let response: string | null = null;
+  let outputSignals = promptSignals;
+  let blocked = preflightBlocked;
+  let decisionStage: "input" | "output" = preflightBlocked ? "input" : "output";
+  let modelCallExecuted = false;
+
+  if (!preflightBlocked) {
+    const governedTemplate = buildGovernedTemplateResponse({
+      prompt,
+      activeCase: {
+        reference: activeCase.reference,
+        customerName: activeCase.customerName,
+        product: activeCase.product,
+        nextMilestone: activeCase.nextMilestone,
+      },
+      demoUser: {
+        fullName: demoUser.fullName,
+        title: demoUser.title,
+      },
+    });
+    response = governedTemplate?.response ?? simulateModelOutput(prompt, mode, activeCase, demoUser);
+    modelCallExecuted = true;
+    outputSignals = detectOutputSignals(response, prompt, mode, promptSignals);
+    blocked =
+      outputSignals.severity === "critical" &&
+      (outputSignals.piiFlags.length > 0 ||
+        outputSignals.safetySignals.includes("secret-exposure"));
+    decisionStage = "output";
+  }
+
+  const decision = blocked
+    ? "block"
+    : outputSignals.severity === "warning"
+      ? "warn"
+      : "allow";
+  const thresholdBreaches = Array.from(
+    new Set([
+      ...(outputSignals.piiFlags.length > 0 ? ["pii.detected"] : []),
+      ...(outputSignals.restrictedMatches.length > 0 ? ["restricted_prompt.detected"] : []),
+      ...(outputSignals.safetySignals.length > 0 ? ["safety.signal_detected"] : []),
+      ...(outputSignals.biasFlags.length > 0 ? ["bias.review_required"] : []),
+      ...((outputSignals.driftScore ?? 0) >= 8 ? ["drift.critical"] : []),
+    ]),
   );
+  const reasonCodes = Array.from(
+    new Set([
+      ...(outputSignals.piiFlags.length > 0 ? ["PII_EXPOSURE_RISK"] : []),
+      ...(outputSignals.restrictedMatches.length > 0 ? ["RESTRICTED_PROMPT"] : []),
+      ...(outputSignals.safetySignals.length > 0 ? ["SAFETY_SIGNAL"] : []),
+      ...(outputSignals.biasFlags.length > 0 ? ["SUBJECTIVE_SCREENING_RISK"] : []),
+      ...(decision === "allow" ? ["POLICY_CHECK_PASSED"] : []),
+    ]),
+  );
+  const incidentNumber =
+    1101 + recentRuns.filter((entry) => Boolean(entry.escalatedIncidentId)).length;
+  const escalatedIncidentId = blocked ? `INC-DEMO-${incidentNumber}` : null;
+  const decisionSummary = blocked
+    ? preflightBlocked
+      ? "Runtime policy stopped the request before model execution because restricted content or sensitive personal data was requested."
+      : "Runtime policy stopped the candidate answer before it could be released to the agent."
+    : decision === "warn"
+      ? "The response was released with elevated oversight signals recorded for review."
+      : "Preflight and postflight policy checks passed. The response was released and an evidence receipt was captured.";
+
+  const run: DemoRun = {
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    telemetryEventId: `evt-demo-${randomUUID()}`,
+    caseId: activeCase.id,
+    caseReference: activeCase.reference,
+    customerName: activeCase.customerName,
+    agentName: demoUser.fullName,
+    prompt,
+    response,
+    modeId: mode.id,
+    modeLabel: mode.label,
+    decision,
+    decisionStage,
+    blocked,
+    releasedToEndUser: !blocked,
+    modelCallExecuted,
+    thresholdBreaches,
+    restrictedPromptMatches: outputSignals.restrictedMatches,
+    reasonCodes,
+    escalatedIncidentId,
+    correlationId,
+    runtimeSummary: preflightBlocked
+      ? "Prompt evaluated locally before model execution."
+      : "Prompt and deterministic candidate response evaluated before release.",
+    decisionSummary,
+    legalProfileApplied: "northstar-financial-services-demo",
+    lawPackIdsApplied: ["eu-ai-act", "nist-ai-rmf", "iso-42001"],
+    rulesEngineDecision: decision,
+    rulesEngineSummary: decisionSummary,
+    criticVerdict: null,
+    criticConfidence: null,
+    criticRecommendedDecision: null,
+    criticRationale: null,
+    criticChangedDecision: false,
+    sourceVerificationRequired: false,
+    citationBackedRequired: false,
+    factReviewRequired: false,
+    missingFactKeys: [],
+    actionConfirmationRequired: false,
+    missingConfirmedActions: [],
+    shadowPolicyLabel: "strict-preview",
+    shadowPolicyDecision: decision,
+    shadowPolicyDiffersFromLive: false,
+    reviewRequired: false,
+    reviewReleased: !blocked,
+    reviewAcknowledgedAt: null,
+    reviewAcknowledgedBy: null,
+    reviewAcknowledgmentNote: null,
+    releaseReviewEventId: null,
+    usedSimulation: modelCallExecuted,
+    upstreamError: null,
+  };
+
+  recentRuns.unshift(run);
+  if (recentRuns.length > 20) {
+    recentRuns.length = 20;
+  }
+
+  return run;
+}
+
+const server = app.listen(port, bindHost, () => {
+  if (offlinePitchMode) {
+    console.log(`[demo:pitch] Control Grid: ${localWorkspaceBaseUrl}/control-grid`);
+    console.log(`[demo:pitch] Frontline workspace: ${localWorkspaceBaseUrl}`);
+    console.log("[demo:pitch] Synthetic offline mode; no database or external API is used");
+  } else {
+    console.log(
+      `northstar agent workspace listening on ${localWorkspaceBaseUrl} (bound to ${bindHost}:${port})`,
+    );
+  }
 });
 
 server.on("close", () => {
@@ -998,6 +1196,9 @@ function detectPromptSignals(prompt: string, mode: ConversationMode): SignalPack
     "diagnostic mode",
     "initialization parameters",
     "internal routing algorithms",
+    "internal waiver script",
+    "waiver script",
+    "hidden policy",
   ];
   const restrictedMatches = restrictedPatterns.filter((pattern) => normalized.includes(pattern));
   const collapsedRestrictedPatterns: Array<[string, string]> = [
@@ -1517,6 +1718,17 @@ function serializeForInlineJson(value: unknown) {
 }
 
 function buildControlTowerUrl(routePath: string) {
+  if (offlinePitchMode) {
+    const offlineRoutes: Record<string, string> = {
+      "/dashboard": "/control-grid",
+      "/registry": "/control-grid/registry",
+      "/runtime-monitoring": "/control-grid/runtime",
+      "/incidents": "/control-grid/incidents",
+      "/decision-trace": "/control-grid/decisions",
+    };
+    return `${localWorkspaceBaseUrl}${offlineRoutes[routePath] ?? "/control-grid"}`;
+  }
+
   try {
     return new URL(routePath, controlTowerConsoleUrl).toString();
   } catch {
@@ -1572,7 +1784,7 @@ function getDecisionPresentation(
     pills.push("Model execution skipped");
   }
   if (activeRun.usedSimulation) {
-    pills.push("Fallback response mode");
+    pills.push(offlinePitchMode ? "Deterministic local response" : "Fallback response mode");
   }
 
   if (activeRun.blocked) {
@@ -2643,7 +2855,7 @@ function renderLoginPage(authError: string | null) {
         </div>
         <div class="metric-grid">
           <div class="metric-card"><span>Linked organization</span><strong>Northstar Consumer Bank Demo</strong></div>
-          <div class="metric-card"><span>Workspace mode</span><strong>${openAiApiKey ? "Live OpenAI responses" : "Simulation fallback with governed flow"}</strong></div>
+          <div class="metric-card"><span>Workspace mode</span><strong>${offlinePitchMode ? "Deterministic offline pitch mode" : openAiApiKey ? "Live OpenAI responses" : "Simulation fallback with governed flow"}</strong></div>
           <div class="metric-card"><span>Gateway</span><strong class="mono">${escapeHtml(configuredGateway)}</strong></div>
           <div class="metric-card"><span>System binding</span><strong class="mono">${escapeHtml(configuredSystemId || "adapter default")}</strong></div>
         </div>
@@ -2659,7 +2871,7 @@ function renderLoginPage(authError: string | null) {
           </p>
         </div>
         <div class="section-card presenter-card" style="padding: 18px;">
-          <p class="section-label">Tomorrow's flow</p>
+          <p class="section-label">Pitch flow</p>
           <ol class="presenter-steps">
             <li class="presenter-step">
               <span class="step-index">1</span>
@@ -2718,10 +2930,12 @@ function renderLoginPage(authError: string | null) {
         </div>
 
         <div class="section-card" style="padding: 18px;">
-          <p class="section-label">Control Grid demo login</p>
+          <p class="section-label">Control Grid ${offlinePitchMode ? "pitch console" : "demo login"}</p>
           <div class="credential-grid">
-            <div class="credential-row"><span>Email</span><code>${escapeHtml(controlTowerDemoEmail)}</code></div>
-            <div class="credential-row"><span>Password</span><code>${escapeHtml(controlTowerDemoPassword)}</code></div>
+            ${offlinePitchMode
+              ? `<div class="credential-row"><span>Access</span><span>No admin login required in offline pitch mode</span></div>`
+              : `<div class="credential-row"><span>Email</span><code>${escapeHtml(controlTowerDemoEmail)}</code></div>
+                 <div class="credential-row"><span>Password</span><code>${escapeHtml(controlTowerDemoPassword)}</code></div>`}
             <div class="credential-row"><span>Console URL</span><code>${escapeHtml(controlTowerConsoleUrl)}</code></div>
           </div>
           <div class="hero-actions" style="margin-top: 14px;">
@@ -2767,7 +2981,7 @@ function renderWorkspacePage(options: Required<Pick<RenderPageOptions, "sessionU
             <div class="meta-card"><span>Signed in as</span><strong>${escapeHtml(options.sessionUser.fullName)}<br /><span class="muted">${escapeHtml(options.sessionUser.title)}</span></strong></div>
             <div class="meta-card"><span>Gateway</span><strong class="mono">${escapeHtml(configuredGateway)}</strong></div>
             <div class="meta-card"><span>System binding</span><strong class="mono">${escapeHtml(configuredSystemId || "adapter default")}</strong></div>
-            <div class="meta-card"><span>Model mode</span><strong>${openAiApiKey ? "Live OpenAI" : "Simulation fallback"}</strong></div>
+            <div class="meta-card"><span>Model mode</span><strong>${offlinePitchMode ? "Deterministic demo" : openAiApiKey ? "Live OpenAI" : "Simulation fallback"}</strong></div>
             <div class="meta-card"><span>Recent counts</span><strong><span id="status-incidents">${incidentCount}</span> incidents · <span id="status-blocked">${blockedCount}</span> blocked · ${warnedCount} warned</strong></div>
           </div>
         </div>
@@ -3107,7 +3321,7 @@ function buildDemoScript() {
       pills.push('Model execution skipped');
     }
     if (run.usedSimulation) {
-      pills.push('Fallback response mode');
+      pills.push('${offlinePitchMode ? "Deterministic local response" : "Fallback response mode"}');
     }
     return pills;
   }

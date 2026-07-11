@@ -1,6 +1,6 @@
-# AI CONTROL GRID by Arcturos
+# AI CONTROL GRID — Developed by ACTURUS
 
-AI CONTROL GRID is a multi-tenant enterprise AI governance and operations platform from Arcturos. It helps teams register AI systems, classify risk, manage controls and evidence, route approvals, track audit activity, operate enterprise identity, and monitor incidents and telemetry in one control grid.
+AI CONTROL GRID is a multi-tenant enterprise AI governance and operations platform from Acturus. It helps teams register AI systems, classify risk, manage controls and evidence, route approvals, track audit activity, operate enterprise identity, and monitor incidents and telemetry in one control grid.
 
 Founder-built by [Revanth Meda](https://ie.linkedin.com/in/revanth-meda-1ab294226), the product turns the operating model Revanth has shared publicly on LinkedIn into live workflows: register systems, assess risk, map controls, route approvals, and preserve audit-ready evidence.
 
@@ -18,6 +18,14 @@ Founder-built by [Revanth Meda](https://ie.linkedin.com/in/revanth-meda-1ab29422
 - Public trust center, API docs, and commercialization surfaces
 
 ## Quick start
+
+### Pitch demo (no database required)
+
+```bash
+npm run demo:pitch
+```
+
+Open `http://127.0.0.1:18080/control-grid`. The scenario is fully synthetic and runs locally with deterministic responses, so it is safe to rehearse without external APIs. See [Pitch demo runbook](docs/pitch-demo-runbook.md).
 
 ### Local development
 

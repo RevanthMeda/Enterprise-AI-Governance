@@ -1,4 +1,4 @@
-# AI CONTROL GRID by Arcturos Documentation Index
+# AI CONTROL GRID by ACTURUS Documentation Index
 
 This documentation set is the handoff guide for the current application state.
 

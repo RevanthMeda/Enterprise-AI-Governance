@@ -13,7 +13,7 @@ const pillars = [
     icon: Building2,
   },
   {
-    title: "Immutable governance evidence",
+    title: "Tamper-evident governance records",
     body: "Audit records now carry SHA-256 hash chaining so buyers can verify tamper-evident operational history.",
     icon: Fingerprint,
   },
@@ -93,7 +93,7 @@ export default function TrustCenterPage() {
               <ul className="list-disc space-y-2 pl-5">
                 <li>Tenant isolation model and org-scoped controls</li>
                 <li>Identity federation, domain verification, and invite management</li>
-                <li>Decision traceability and immutable audit chain verification</li>
+                <li>Decision traceability and SHA-256 audit-chain verification</li>
                 <li>Incident response handling and operational monitoring posture</li>
                 <li>Subscription, deployment, and pilot-to-production controls</li>
               </ul>

@@ -1,4 +1,4 @@
-# AI CONTROL GRID by Arcturos Role-Based Usage Guide
+# AI CONTROL GRID by ACTURUS Role-Based Usage Guide
 
 This guide explains how each core role should use the application.
 

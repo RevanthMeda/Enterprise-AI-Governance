@@ -66,7 +66,7 @@ export type WorkspaceCopy = {
 
 const ENGLISH_BASE: WorkspaceCopy = {
   appName: "AI CONTROL GRID",
-  appTagline: "by Arcturos",
+  appTagline: "Developed by ACTURUS",
   sections: {
     platform: "Platform",
     configuration: "Configuration",
@@ -135,7 +135,7 @@ const COPY_BY_LOCALE: Record<WorkspaceLocale, WorkspaceCopy> = {
   },
   "fr-FR": {
     appName: "AI CONTROL GRID",
-    appTagline: "by Arcturos",
+    appTagline: "Developed by ACTURUS",
     sections: {
       platform: "Plateforme",
       configuration: "Configuration",
@@ -194,7 +194,7 @@ const COPY_BY_LOCALE: Record<WorkspaceLocale, WorkspaceCopy> = {
   },
   "de-DE": {
     appName: "AI CONTROL GRID",
-    appTagline: "by Arcturos",
+    appTagline: "Developed by ACTURUS",
     sections: {
       platform: "Plattform",
       configuration: "Konfiguration",
@@ -253,7 +253,7 @@ const COPY_BY_LOCALE: Record<WorkspaceLocale, WorkspaceCopy> = {
   },
   "es-ES": {
     appName: "AI CONTROL GRID",
-    appTagline: "by Arcturos",
+    appTagline: "Developed by ACTURUS",
     sections: {
       platform: "Plataforma",
       configuration: "Configuración",
