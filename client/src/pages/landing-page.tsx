@@ -303,8 +303,8 @@ export default function LandingPage() {
                 </Reveal>
 
                 <Reveal delay={0.08}>
-                  <h1 className="font-acturus-display mt-7 text-[clamp(2.5rem,7vw,6.3rem)] leading-[0.97] tracking-[-0.05em] text-[#f7faff]">
-                    AI CONTROL
+                  <h1 className="font-acturus-display mt-7 text-[clamp(2rem,10vw,2.5rem)] leading-[0.97] tracking-[-0.05em] text-[#f7faff] sm:text-[clamp(2.5rem,7vw,4.25rem)] lg:text-[clamp(3rem,5vw,4.25rem)]">
+                    <span className="block whitespace-nowrap">AI CONTROL</span>
                     <span className="block bg-gradient-to-r from-[#9deaff] via-[#6fb8ff] to-[#9b8cff] bg-clip-text text-transparent">GRID</span>
                   </h1>
                 </Reveal>
