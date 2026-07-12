@@ -12,12 +12,12 @@ export const ACTURUS_COLORS = {
   gridBlue: "#3aa7ff",
   gridCyan: "#5eebff",
   gridViolet: "#7b6dff",
-  acturusInk: "#160f18",
-  acturusAubergine: "#24151f",
-  acturusCream: "#fff7f0",
-  acturusCoral: "#ff8a70",
-  acturusOrchid: "#c59bff",
-  acturusAmber: "#ffc96b",
+  acturusInk: "#090909",
+  acturusAubergine: "#111111",
+  acturusCream: "#f6f3ee",
+  acturusCoral: "#f58227",
+  acturusOrchid: "#f8a45e",
+  acturusAmber: "#f58227",
 } as const;
 
 const SHELL_THEME = {
@@ -39,21 +39,21 @@ const SHELL_THEME = {
     kickerLineDark: "bg-[#2f73d7]",
   },
   acturus: {
-    header: "border-[#ffc96b]/[0.15] bg-[rgba(22,15,24,0.9)]",
-    mark: "border-[#ffc96b]/[0.35] bg-[#ff8a70]/10 text-[#ffd7a0] shadow-[inset_0_0_18px_rgba(255,138,112,0.12),0_0_24px_rgba(197,155,255,0.08)] group-hover:bg-[#ff8a70]/20",
+    header: "border-white/10 bg-[rgba(9,9,9,0.88)]",
+    mark: "border-[#f58227]/45 bg-[#f58227]/10 text-[#f8a45e] shadow-[inset_0_0_18px_rgba(245,130,39,0.12),0_0_24px_rgba(245,130,39,0.08)] group-hover:bg-[#f58227]/20",
     subtitle: "Company · AI Control Grid",
-    subtitleColor: "text-[#d8c4cf]",
-    nav: "text-[#d8c4cf] hover:text-[#ffd29a]",
-    cta: "border-[#ffd7a0]/[0.45] bg-[linear-gradient(135deg,#ffc96b_0%,#ff8a70_52%,#c59bff_100%)] text-[#24151f] shadow-[0_12px_38px_rgba(255,138,112,0.22)] hover:shadow-[0_16px_48px_rgba(197,155,255,0.28)]",
-    mobile: "border-[#ffc96b]/[0.15] bg-[#160f18]",
-    accent: "text-[#ffd29a]",
-    footer: "border-[#ffc96b]/[0.15] bg-[#160f18]",
-    footerGlow: "bg-[radial-gradient(circle_at_15%_10%,rgba(255,201,107,0.1),transparent_28%),radial-gradient(circle_at_84%_72%,rgba(197,155,255,0.11),transparent_30%)]",
+    subtitleColor: "text-white/45",
+    nav: "text-white/60 hover:text-white",
+    cta: "border-[#f58227] bg-[#f58227] text-black shadow-[0_12px_38px_rgba(245,130,39,0.2)] hover:bg-[#f8a45e] hover:shadow-[0_16px_48px_rgba(245,130,39,0.28)]",
+    mobile: "border-white/10 bg-[#090909]",
+    accent: "text-[#f58227]",
+    footer: "border-white/10 bg-[#090909]",
+    footerGlow: "opacity-70 [background-image:linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,transparent_8%,rgba(245,130,39,0.18)_50%,transparent_92%)] [background-size:44px_44px,44px_44px,100%_1px] [background-position:0_0,0_0,0_28px] [background-repeat:repeat,repeat,no-repeat] [mask-image:linear-gradient(to_bottom,black,transparent_88%)]",
     footerCopy: "ACTURUS develops AI CONTROL GRID for enterprise teams moving AI from policy into accountable operations.",
-    kicker: "text-[#ffd3a0]",
-    kickerLine: "bg-[#ff9c7f]",
-    kickerDark: "text-[#8f465c]",
-    kickerLineDark: "bg-[#c85f6c]",
+    kicker: "text-[#f8a45e]",
+    kickerLine: "bg-[#f58227]",
+    kickerDark: "text-black/70",
+    kickerLineDark: "bg-black",
   },
 } as const;
 
@@ -86,11 +86,19 @@ export function ActurusMark({ className = "h-9 w-9" }: { className?: string }) {
   );
 }
 
-const NAV_LINKS = [
+const GRID_NAV_LINKS = [
   { label: "Platform", href: "/welcome#platform" },
   { label: "Control loop", href: "/welcome#control-loop" },
   { label: "Evidence", href: "/welcome#evidence" },
   { label: "Company", href: ACTURUS_BRAND.companyRoute },
+  { label: "Trust", href: "/trust-center" },
+];
+
+const ACTURUS_NAV_LINKS = [
+  { label: "Story", href: "#story" },
+  { label: "Product", href: "#product" },
+  { label: "Founders", href: "#founders" },
+  { label: "Principles", href: "#principles" },
   { label: "Trust", href: "/trust-center" },
 ];
 
@@ -103,6 +111,8 @@ export function ActurusPublicHeader({
 } = {}) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const visual = SHELL_THEME[theme];
+  const navLinks = theme === "acturus" ? ACTURUS_NAV_LINKS : GRID_NAV_LINKS;
+  const homeHref = theme === "acturus" ? "/acturus" : "/welcome";
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -115,7 +125,7 @@ export function ActurusPublicHeader({
 
   return (
     <header
-      className={`${position === "fixed" ? "fixed inset-x-0" : "sticky"} ${visual.header} top-0 z-50 border-b text-white backdrop-blur-xl`}
+      className={`${position === "fixed" ? "fixed inset-x-0" : "sticky"} ${visual.header} top-0 z-50 border-b text-white ${theme === "grid" ? "backdrop-blur-xl" : ""}`}
       data-public-theme={theme}
       data-testid="public-site-header"
     >
@@ -126,7 +136,7 @@ export function ActurusPublicHeader({
         Skip to main content
       </a>
       <div className="mx-auto flex h-[72px] max-w-[1200px] items-center justify-between px-5 sm:px-6">
-        <Link href="/welcome" className="group flex items-center gap-3" aria-label="ACTURUS home">
+        <Link href={homeHref} className="group flex items-center gap-3" aria-label={theme === "acturus" ? "ACTURUS company home" : "ACTURUS home"}>
           <span className={`flex h-10 w-10 items-center justify-center rounded-[8px] border transition-all duration-300 ${visual.mark}`}>
             <ActurusMark className="h-6 w-6" />
           </span>
@@ -137,7 +147,7 @@ export function ActurusPublicHeader({
         </Link>
 
         <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary navigation">
-          {NAV_LINKS.map((item) => (
+          {navLinks.map((item) => (
             item.href.includes("#") ? (
               <a key={item.label} href={item.href} className={`text-xs uppercase tracking-[0.14em] transition-colors duration-300 ${visual.nav}`}>
                 {item.label}
@@ -161,7 +171,7 @@ export function ActurusPublicHeader({
 
         <button
           type="button"
-          className={`flex h-11 w-11 items-center justify-center rounded-[7px] border text-white lg:hidden ${theme === "grid" ? "border-[#78c9ff]/25" : "border-[#ffc96b]/25"}`}
+          className={`flex h-11 w-11 items-center justify-center rounded-[7px] border text-white lg:hidden ${theme === "grid" ? "border-[#78c9ff]/25" : "border-[#f58227]/35"}`}
           onClick={() => setMobileOpen((value) => !value)}
           aria-expanded={mobileOpen}
           aria-label="Toggle navigation"
@@ -173,7 +183,7 @@ export function ActurusPublicHeader({
       {mobileOpen ? (
         <div className={`max-h-[calc(100dvh-72px)] overflow-y-auto border-t px-5 py-5 lg:hidden ${visual.mobile}`}>
           <nav className="mx-auto flex max-w-[1200px] flex-col" aria-label="Mobile navigation">
-            {NAV_LINKS.map((item) => (
+            {navLinks.map((item) => (
               item.href.includes("#") ? (
                 <a key={item.label} href={item.href} className={`flex min-h-12 items-center border-b border-white/10 text-sm uppercase tracking-[0.14em] ${visual.nav}`} onClick={() => setMobileOpen(false)}>
                   {item.label}

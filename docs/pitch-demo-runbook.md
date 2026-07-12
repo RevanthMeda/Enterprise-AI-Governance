@@ -89,6 +89,8 @@ Close on three outcomes: **faster adoption, enforced safeguards, audit-ready evi
 
 ## Fallback plan
 
+- If `npm run demo:pitch` says the demo is already running, use the URLs it prints; the command now recognizes the existing instance and exits cleanly.
+- If another application owns port `18080`, use the alternate-port PowerShell command printed by the launcher. Nothing is stopped automatically.
 - If the page becomes stale, reload `http://127.0.0.1:18080/control-grid`.
 - If the demo state is unexpected, stop and rerun `npm run demo:pitch`; deterministic offline mode restores the starting dataset.
 - If a live interaction cannot be shown, use the seeded dashboard, registry, runtime event, and incident records to narrate the same safe-versus-blocked flow.

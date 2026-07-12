@@ -78,6 +78,8 @@ const LOGOUT_MARKER_KEY = "ai-control-grid:last-logout-at";
 const PUBLIC_SESSION_PATHS = new Set([
   "/",
   "/welcome",
+  "/acturus",
+  "/arcturos",
   "/auth",
   "/auth/login",
   "/auth/reset-password",

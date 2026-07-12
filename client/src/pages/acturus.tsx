@@ -1,16 +1,15 @@
 import { motion } from "framer-motion";
 import {
   ArrowRight,
-  Compass,
+  ArrowUpRight,
   ExternalLink,
-  Eye,
   Fingerprint,
-  Link2,
+  Network,
+  ScanLine,
   ShieldCheck,
-  Sparkles,
-  Workflow,
 } from "lucide-react";
 import { Link } from "wouter";
+import { ActurusControlPlane } from "@/components/acturus-control-plane";
 import {
   ActurusFooter,
   ActurusMark,
@@ -18,10 +17,6 @@ import {
   Reveal,
   usePublicReducedMotion,
 } from "@/components/acturus-public-shell";
-import {
-  ActurusLiquidBackdrop,
-  ActurusLiquidCore,
-} from "@/components/acturus-liquid-scene";
 import { ACTURUS_BRAND } from "@/lib/brand";
 
 const FOUNDERS = [
@@ -30,118 +25,227 @@ const FOUNDERS = [
     name: "Revanth Meda",
     role: "Co-founder",
     linkedin: ACTURUS_BRAND.founderLinkedIn.revanth,
-    bio: "An industrial automation and software engineer working across SCADA, PLC, and AI-enabled enterprise tools. Revanth began AI CONTROL GRID after seeing a familiar operational gap: powerful technology entering production without the live controls, ownership, and evidence expected in mission-critical systems.",
+    statement: "Mission-critical engineering, applied to enterprise AI.",
+    bio: "An industrial automation and software engineer whose work spans mission-critical SCADA and PLC systems and AI-enabled enterprise software. Revanth brings field-engineering discipline to AI CONTROL GRID: know what is running, define the control boundary, and keep evidence connected to every decision.",
     focus: ["Industrial automation", "Software engineering", "Enterprise AI"],
-    accent: "copper",
   },
   {
     initials: "HT",
     name: "Hitesh Thakkarr",
     role: "Co-founder",
     linkedin: ACTURUS_BRAND.founderLinkedIn.hitesh,
-    bio: "A business and technology leader with a background spanning strategic management, information security, and enterprise relationships. Hitesh brings the customer, security, and adoption perspective needed to turn a deeply technical governance platform into an operating model organisations can use.",
-    focus: ["Strategic management", "Information security", "Enterprise relationships"],
-    accent: "lilac",
+    statement: "Turning technical control into an enterprise operating model.",
+    bio: "A business and technology leader with experience in strategic management and information security. Hitesh brings the commercial, security, and adoption perspective needed to turn deep platform capability into an operating model enterprise teams can understand and use.",
+    focus: ["Strategic management", "Information security", "Enterprise adoption"],
   },
 ] as const;
 
 const ORIGIN_STEPS = [
   {
     number: "01",
-    title: "The observation",
-    body: "Enterprise AI was moving into real workflows faster than ownership, controls, and evidence could follow it.",
+    title: "The gap",
+    body: "Enterprise AI moved into real workflows faster than ownership, controls, and evidence could keep up.",
   },
   {
     number: "02",
-    title: "The engineering response",
-    body: "Bring the operating discipline of mission-critical systems to AI: visibility, explicit control, incident response, and a reconstructable trail.",
+    title: "The conviction",
+    body: "AI needs the same operating discipline as any mission-critical system: visibility, explicit control, accountable response, and a reconstructable trail.",
   },
   {
     number: "03",
-    title: "The company",
-    body: "ACTURUS is being built to develop AI CONTROL GRID and turn that model into a practical enterprise platform.",
+    title: "The build",
+    body: "ACTURUS was formed to turn that discipline into AI CONTROL GRID—a practical control layer for enterprise AI in motion.",
   },
-];
+] as const;
+
+const CONTROL_STAGES = ["Register", "Assess", "Enforce", "Respond", "Prove"] as const;
+
+const BUILD_AREAS = [
+  {
+    number: "01",
+    icon: ScanLine,
+    title: "System intelligence",
+    body: "One governed record of AI systems, owners, purpose, risk, approvals, and control readiness.",
+  },
+  {
+    number: "02",
+    icon: ShieldCheck,
+    title: "Runtime control",
+    body: "Policy checks that travel with prompts, outputs, approvals, and high-consequence actions.",
+  },
+  {
+    number: "03",
+    icon: Network,
+    title: "Incident operations",
+    body: "Turn a serious policy breach into owned response work with severity, context, and containment.",
+  },
+  {
+    number: "04",
+    icon: Fingerprint,
+    title: "Decision evidence",
+    body: "Keep the system, human action, policy reason, outcome, and response history connected.",
+  },
+] as const;
 
 const PRINCIPLES = [
   {
-    icon: Eye,
-    title: "Make AI visible",
-    body: "Teams cannot govern systems they cannot see. Inventory, ownership, context, and live posture belong in one operating picture.",
     number: "01",
+    title: "Visible by default",
+    body: "Teams cannot govern AI they cannot see. Inventory, ownership, context, and live posture belong in one operating picture.",
   },
   {
-    icon: ShieldCheck,
-    title: "Put control in the flow",
-    body: "Governance has to reach prompts, outputs, approvals, and incidents while the work is happening—not only after review.",
     number: "02",
+    title: "Control in the flow",
+    body: "Governance becomes useful when it reaches the decision while the work is happening—not only after a review.",
   },
   {
-    icon: Fingerprint,
-    title: "Keep evidence connected",
-    body: "A decision is defensible when the policy reason, system, human action, and response history can be reconstructed together.",
     number: "03",
+    title: "Evidence with meaning",
+    body: "A record is defensible when teams can reconstruct what happened, why it happened, and who owned the next step.",
   },
-];
+] as const;
 
-function LiquidKicker({ children, dark = false }: { children: React.ReactNode; dark?: boolean }) {
+function EditorialKicker({ children, dark = false }: { children: React.ReactNode; dark?: boolean }) {
   return (
-    <div className={`flex items-center gap-3 text-[10px] font-semibold uppercase tracking-[0.24em] ${dark ? "text-[#57263A]" : "text-[#F4B982]"}`}>
-      <span className={`h-px w-8 bg-gradient-to-r ${dark ? "from-[#C36F57] to-[#9B6ABC]" : "from-[#F4B982] to-[#C5A0FA]"}`} />
+    <div
+      className={
+        "inline-flex items-center gap-3 text-[10px] font-semibold uppercase tracking-[0.24em] " +
+        (dark ? "text-black/65" : "text-white/60")
+      }
+    >
+      <span
+        className={
+          "relative h-2.5 w-2.5 border " +
+          (dark ? "border-black/70" : "border-[#F58227]")
+        }
+        aria-hidden="true"
+      >
+        <span
+          className={
+            "absolute left-1/2 top-1/2 h-px w-4 -translate-x-1/2 -translate-y-1/2 " +
+            (dark ? "bg-black/35" : "bg-[#F58227]/60")
+          }
+        />
+      </span>
       {children}
+    </div>
+  );
+}
+
+function ControlSpine() {
+  return (
+    <div className="border-y border-black/25 bg-[#F58227] text-[#090909]" aria-label="AI CONTROL GRID operating loop">
+      <div className="mx-auto max-w-[1180px] px-2 sm:px-6">
+        <ol className="grid grid-cols-5">
+          {CONTROL_STAGES.map((stage, index) => (
+            <li
+              key={stage}
+              className={
+                "relative flex min-h-[80px] flex-col items-center justify-center gap-2 px-1 text-center sm:min-h-[86px] sm:flex-row sm:gap-4 sm:px-4 sm:text-left sm:first:pl-0 sm:last:pr-0 " +
+                (index < CONTROL_STAGES.length - 1 ? "border-r border-black/20" : "")
+              }
+            >
+              <span className="font-mono text-[7px] text-black/50 sm:text-[9px]">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <span className="font-acturus-display text-[9px] uppercase tracking-[0.02em] sm:text-base sm:tracking-[0.06em]">
+                {stage}
+              </span>
+              {index < CONTROL_STAGES.length - 1 ? (
+                <span className="absolute right-[-4px] top-1/2 h-2 w-2 -translate-y-1/2 rotate-45 border border-black/50 bg-[#F58227]" aria-hidden="true" />
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      </div>
+    </div>
+  );
+}
+
+function FounderPlate({
+  initials,
+  index,
+}: {
+  initials: string;
+  index: number;
+}) {
+  const orange = index === 0;
+  return (
+    <div
+      className={
+        "relative min-h-[320px] overflow-hidden border-b border-black/25 p-7 text-black lg:min-h-full lg:border-b-0 lg:border-r " +
+        (orange ? "bg-[#F58227]" : "bg-[#EEE9DF]")
+      }
+    >
+      <div
+        className="absolute inset-0 opacity-35 [background-image:linear-gradient(rgba(0,0,0,0.16)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.16)_1px,transparent_1px)] [background-size:34px_34px]"
+        aria-hidden="true"
+      />
+      <div className="absolute inset-y-0 left-1/2 w-px bg-black/20" aria-hidden="true" />
+      <div className="absolute inset-x-0 top-1/2 h-px bg-black/20" aria-hidden="true" />
+      <div className="absolute left-1/2 top-1/2 h-36 w-36 -translate-x-1/2 -translate-y-1/2 rotate-45 border border-black/30 sm:h-44 sm:w-44" aria-hidden="true">
+        <div className="absolute inset-5 border border-black/20" />
+      </div>
+      <div className="relative flex items-center justify-between text-[9px] font-semibold uppercase tracking-[0.2em]">
+        <span>Founder / {String(index + 1).padStart(2, "0")}</span>
+        <ActurusMark className="h-5 w-5" />
+      </div>
+      <div
+        className="font-acturus-display absolute bottom-5 left-5 text-[clamp(6.5rem,21vw,11rem)] leading-[0.72] tracking-[-0.09em] sm:bottom-7 sm:left-7"
+        aria-hidden="true"
+      >
+        {initials}
+      </div>
+      <span className="absolute bottom-7 right-7 font-mono text-[9px] uppercase tracking-[0.18em]">
+        ACT / {String(index + 1).padStart(2, "0")}
+      </span>
     </div>
   );
 }
 
 function FounderCard({ founder, index }: { founder: (typeof FOUNDERS)[number]; index: number }) {
   const reduceMotion = usePublicReducedMotion();
-  const copper = founder.accent === "copper";
 
   return (
-    <Reveal delay={index * 0.09} className="h-full">
+    <Reveal delay={index * 0.07}>
       <motion.article
-        whileHover={reduceMotion ? undefined : { y: -8, rotateX: 1.2, rotateY: index === 0 ? -1.2 : 1.2 }}
-        transition={{ duration: 0.35, ease: [0.22, 0.61, 0.36, 1] }}
-        className="group relative flex h-full flex-col overflow-hidden rounded-[28px] border border-white/[0.13] bg-white/[0.065] p-6 shadow-[0_28px_90px_rgba(5,2,9,0.3)] backdrop-blur-xl sm:p-8 lg:p-10 [transform-style:preserve-3d]"
+        whileHover={reduceMotion ? undefined : { y: -4 }}
+        transition={{ duration: 0.25, ease: [0.22, 0.61, 0.36, 1] }}
+        className="group grid overflow-hidden border border-white/12 bg-[#101010] lg:grid-cols-[0.76fr_1.24fr]"
       >
-        <div
-          className={`pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-[42%_58%_60%_40%/56%_42%_58%_44%] blur-3xl transition-opacity duration-500 group-hover:opacity-90 ${copper ? "bg-[#E98162]/25" : "bg-[#B997F0]/25"}`}
-          aria-hidden="true"
-        />
-        <div className="relative flex min-w-0 items-center gap-3 pr-8 sm:gap-4 sm:pr-10">
-          <div className={`relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-[46%_54%_43%_57%/59%_42%_58%_41%] border border-white/30 shadow-[inset_10px_10px_30px_rgba(255,255,255,0.12)] sm:h-[72px] sm:w-[72px] ${copper ? "bg-[linear-gradient(145deg,#F2BE8F,#A95363_72%,#3A183B)]" : "bg-[linear-gradient(145deg,#E5CCFF,#9B76BF_62%,#48204E)]"}`}>
-              <span className="font-acturus-display relative z-10 text-sm tracking-[0.08em] text-[#170B1D]">{founder.initials}</span>
-              <span className="absolute left-2 top-2 h-5 w-9 -rotate-12 rounded-full bg-white/[0.45] blur-[1px]" />
-          </div>
-          <div className="min-w-0">
-            <div className="text-[9px] font-semibold uppercase tracking-[0.2em] text-[#F4B982]">{founder.role}</div>
-            <h3 className="font-acturus-display mt-2 break-words text-base tracking-[-0.01em] text-[#FFF8EF] sm:text-xl">{founder.name}</h3>
-          </div>
-          <span className="absolute right-0 top-0 font-mono text-[10px] text-white/[0.58]">0{index + 1}</span>
-        </div>
+        <FounderPlate initials={founder.initials} index={index} />
 
-        <p className="relative mt-8 flex-1 text-[15px] leading-7 text-white/[0.66]">{founder.bio}</p>
+        <div className="flex flex-col p-7 sm:p-10 lg:p-12">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#F58227]">{founder.role}</span>
+            <span className="h-px w-16 bg-white/15" aria-hidden="true" />
+          </div>
+          <h3 className="font-acturus-display mt-7 text-3xl leading-tight tracking-[-0.03em] text-white sm:text-4xl">{founder.name}</h3>
+          <p className="mt-5 max-w-xl text-lg leading-8 text-white/90">{founder.statement}</p>
+          <p className="mt-7 max-w-2xl text-[15px] leading-8 text-white/55">{founder.bio}</p>
 
-        <div className="relative mt-8 flex flex-wrap gap-2">
-          {founder.focus.map((item) => (
-            <span key={item} className="rounded-full border border-white/[0.12] bg-white/[0.045] px-3 py-1.5 text-[9px] uppercase tracking-[0.13em] text-white/[0.62]">
-              {item}
+          <div className="mt-8 flex flex-wrap gap-x-5 gap-y-3 border-t border-white/10 pt-6">
+            {founder.focus.map((item) => (
+              <span key={item} className="flex items-center gap-2 text-[9px] uppercase tracking-[0.14em] text-white/55">
+                <span className="h-1.5 w-1.5 rotate-45 bg-[#F58227]" aria-hidden="true" />
+                {item}
+              </span>
+            ))}
+          </div>
+
+          <a
+            href={founder.linkedin}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-10 inline-flex min-h-12 items-center justify-between gap-4 border-t border-white/10 pt-6 text-[10px] font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:text-[#F8A45E] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F58227] focus-visible:ring-offset-4 focus-visible:ring-offset-[#101010]"
+            aria-label={"View " + founder.name + "'s LinkedIn profile (opens in a new tab)"}
+          >
+            View LinkedIn profile
+            <span className="flex h-10 w-10 items-center justify-center border border-white/15 bg-white/[0.03] transition-colors group-hover:border-[#F58227]/50">
+              <ExternalLink className="h-4 w-4" />
             </span>
-          ))}
+          </a>
         </div>
-
-        <a
-          href={founder.linkedin}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="relative mt-8 inline-flex min-h-11 items-center justify-between gap-2 border-t border-white/10 pt-6 text-[10px] font-semibold uppercase tracking-[0.17em] text-[#FFD3A7] transition-colors duration-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD0A2] focus-visible:ring-offset-4 focus-visible:ring-offset-[#170B1E]"
-          aria-label={`View ${founder.name}'s LinkedIn profile (opens in a new tab)`}
-        >
-          View LinkedIn profile
-          <span className="flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.04]">
-            <ExternalLink className="h-3.5 w-3.5" />
-          </span>
-        </a>
       </motion.article>
     </Reveal>
   );
@@ -149,179 +253,189 @@ function FounderCard({ founder, index }: { founder: (typeof FOUNDERS)[number]; i
 
 export default function ActurusPage() {
   return (
-    <div className="min-h-screen overflow-clip bg-[#100916] text-white antialiased" data-public-theme="acturus" data-testid="page-acturus">
+    <div className="min-h-screen overflow-clip bg-[#090909] text-white antialiased" data-public-theme="acturus" data-testid="page-acturus">
       <ActurusPublicHeader theme="acturus" />
 
       <main id="public-main-content" tabIndex={-1}>
-        <section className="relative isolate flex min-h-[880px] overflow-hidden px-5 pb-28 pt-32 sm:px-6 lg:min-h-[940px] lg:items-center lg:pb-32 lg:pt-36">
-          <ActurusLiquidBackdrop />
-          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(16,9,22,0.58)_0%,rgba(16,9,22,0.8)_46%,rgba(16,9,22,0.74)_100%)] lg:bg-[linear-gradient(90deg,rgba(16,9,22,0.9)_0%,rgba(16,9,22,0.62)_48%,rgba(16,9,22,0.12)_78%)]" aria-hidden="true" />
-          <div className="pointer-events-none absolute left-1/2 top-20 h-[620px] w-[620px] -translate-x-1/2 rounded-full border border-white/[0.07]" aria-hidden="true" />
-          <div className="pointer-events-none absolute left-1/2 top-36 h-[500px] w-[500px] -translate-x-1/2 rounded-full border border-white/[0.05]" aria-hidden="true" />
-
-          <div className="relative z-10 mx-auto grid w-full max-w-[1200px] items-center gap-12 lg:grid-cols-[1.08fr_0.92fr] lg:gap-14">
-            <div>
+        <section className="relative overflow-hidden px-5 pb-14 pt-32 sm:px-6 sm:pb-20 sm:pt-36 lg:pt-40">
+          <div
+            className="pointer-events-none absolute inset-0 opacity-[0.18] [background-image:linear-gradient(rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:44px_44px] [mask-image:linear-gradient(to_bottom,black,transparent_88%)]"
+            aria-hidden="true"
+          />
+          <div className="relative mx-auto grid max-w-[1180px] gap-14 lg:grid-cols-[0.82fr_1.18fr] lg:items-center lg:gap-16">
+            <div className="relative z-10">
               <Reveal>
-                <LiquidKicker>The company behind AI CONTROL GRID</LiquidKicker>
-                <div className="mt-8 inline-flex items-center gap-3 rounded-full border border-white/[0.14] bg-[#1A0F22]/[0.45] px-4 py-2 text-[#FFD1A1] shadow-[0_18px_55px_rgba(7,2,11,0.2)] backdrop-blur-xl">
-                  <ActurusMark className="h-5 w-5" />
-                  <span className="text-[9px] uppercase tracking-[0.2em] text-white/[0.68]">Building for accountable AI</span>
-                </div>
+                <EditorialKicker>ACTURUS / The company</EditorialKicker>
               </Reveal>
-              <Reveal delay={0.08}>
-                <h1 className="font-acturus-display mt-7 text-[clamp(2.55rem,10.5vw,8.25rem)] leading-[0.88] tracking-[-0.055em] text-[#FFF9F1]">
-                  ACTURUS
+              <Reveal delay={0.07}>
+                <h1 className="font-acturus-display mt-8 max-w-3xl text-[clamp(3.1rem,7.4vw,6.9rem)] leading-[0.88] tracking-[-0.065em] text-[#F6F3EE]">
+                  CONTROL FOR AI IN MOTION.
                 </h1>
               </Reveal>
-              <Reveal delay={0.15}>
-                <p className="mt-8 max-w-2xl text-lg leading-8 text-white/[0.68] sm:text-xl sm:leading-9">
-                  We build the operating layer that helps enterprise AI move with clarity, control, and evidence.
-                </p>
-                <p className="mt-4 max-w-2xl text-sm leading-7 text-white/[0.66] sm:text-[15px]">
-                  ACTURUS develops AI CONTROL GRID, bringing system registration, risk, controls, approvals, runtime monitoring, incidents, and audit evidence into one governed workspace.
+              <Reveal delay={0.14}>
+                <p className="mt-8 max-w-xl text-base leading-8 text-white/60 sm:text-lg sm:leading-9">
+                  ACTURUS is the company behind AI CONTROL GRID—an operating layer that helps enterprise teams see what is running, apply control in the flow, and keep evidence connected to every decision.
                 </p>
               </Reveal>
-              <Reveal delay={0.22} className="mt-9 flex flex-col gap-3 sm:flex-row">
-                <Link href="/welcome" className="inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-[#F0AD79] px-5 text-[10px] font-semibold uppercase tracking-[0.11em] text-[#26101E] shadow-[0_16px_46px_rgba(224,131,93,0.25)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#FFD0A2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD0A2] focus-visible:ring-offset-2 focus-visible:ring-offset-[#100916] sm:px-6 sm:text-xs sm:tracking-[0.14em]">
-                  Explore AI CONTROL GRID <ArrowRight className="h-4 w-4" />
+              <Reveal delay={0.21} className="mt-9 flex flex-col gap-3 sm:flex-row">
+                <Link href="/welcome" className="inline-flex min-h-12 items-center justify-center gap-2 bg-[#F58227] px-7 text-[11px] font-semibold uppercase tracking-[0.16em] text-black transition-colors duration-200 hover:bg-[#FFA65E] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F58227] focus-visible:ring-offset-4 focus-visible:ring-offset-black">
+                  Explore the product <ArrowRight className="h-4 w-4" />
                 </Link>
-                <Link href="/book-demo" className="inline-flex min-h-12 items-center justify-center rounded-full border border-white/[0.18] bg-white/[0.06] px-6 text-xs uppercase tracking-[0.14em] text-white/75 backdrop-blur-xl transition-colors duration-300 hover:border-[#D0ACFF]/50 hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D0ACFF] focus-visible:ring-offset-2 focus-visible:ring-offset-[#100916]">
-                  Book a demo
-                </Link>
+                <a href="#founders" className="inline-flex min-h-12 items-center justify-center gap-2 border border-white/20 bg-[#0F0F0F] px-7 text-[11px] uppercase tracking-[0.16em] text-white/75 transition-colors duration-200 hover:border-white/40 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F58227] focus-visible:ring-offset-4 focus-visible:ring-offset-black">
+                  Meet the founders <ArrowUpRight className="h-4 w-4" />
+                </a>
               </Reveal>
             </div>
 
-            <Reveal delay={0.1}>
-              <ActurusLiquidCore />
-            </Reveal>
-          </div>
-
-          <div className="absolute bottom-8 left-1/2 z-10 hidden -translate-x-1/2 items-center gap-3 text-[9px] uppercase tracking-[0.22em] text-white/60 sm:flex">
-            <span className="h-8 w-px bg-gradient-to-b from-[#F3B17D] to-transparent" />
-            Follow the story
-          </div>
-        </section>
-
-        <section className="relative overflow-hidden bg-[#F4EADD] px-5 py-24 text-[#29142E] sm:px-6 lg:py-32">
-          <div className="pointer-events-none absolute -right-24 -top-36 h-[430px] w-[430px] rounded-[42%_58%_48%_52%/52%_38%_62%_48%] bg-[#D7BCF0]/[0.45] blur-3xl" aria-hidden="true" />
-          <div className="pointer-events-none absolute -bottom-48 -left-28 h-[500px] w-[500px] rounded-[58%_42%_62%_38%/46%_61%_39%_54%] bg-[#F2AD7F]/[0.35] blur-3xl" aria-hidden="true" />
-          <div className="relative mx-auto max-w-[1200px]">
-            <div className="grid gap-14 lg:grid-cols-[0.8fr_1.2fr] lg:gap-24">
-              <Reveal>
-                <LiquidKicker dark>How it started</LiquidKicker>
-                <h2 className="font-acturus-display mt-8 text-3xl leading-[1.16] tracking-[-0.03em] sm:text-5xl">
-                  A practical question became a company.
-                </h2>
-                <p className="mt-7 max-w-md text-base leading-7 text-[#664D61]">
-                  How can enterprise teams turn AI governance from policy into day-to-day operations? The idea behind ACTURUS is to connect governance decisions to the systems, workflows, and evidence teams use every day.
-                </p>
-                <div className="mt-10 flex items-center gap-3 text-[#744537]">
-                  <Sparkles className="h-4 w-4" />
-                  <span className="text-[9px] font-semibold uppercase tracking-[0.2em]">Technology with operational discipline</span>
-                </div>
-              </Reveal>
-
-              <div className="space-y-4">
-                {ORIGIN_STEPS.map((item, index) => (
-                  <Reveal key={item.number} delay={index * 0.07}>
-                    <article className="group grid gap-5 rounded-[24px] border border-white/80 bg-white/[0.55] p-6 shadow-[0_24px_80px_rgba(71,37,55,0.08)] backdrop-blur-xl transition-transform duration-300 hover:-translate-y-1 sm:grid-cols-[56px_0.7fr_1.3fr] sm:items-start sm:p-7">
-                      <span className="font-mono text-[10px] text-[#7B4038]">{item.number}</span>
-                      <h3 className="font-acturus-display text-base leading-6 text-[#321734]">{item.title}</h3>
-                      <p className="text-sm leading-6 text-[#6E5669]">{item.body}</p>
-                    </article>
-                  </Reveal>
-                ))}
+            <div className="relative">
+              <div className="absolute -left-3 -top-3 h-8 w-8 border-l border-t border-[#F58227]" aria-hidden="true" />
+              <div className="absolute -bottom-3 -right-3 h-8 w-8 border-b border-r border-[#F58227]" aria-hidden="true" />
+              <div className="relative overflow-hidden border border-white/10 bg-[#F58227] p-3 sm:p-5">
+                <ActurusControlPlane />
+              </div>
+              <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-4 font-mono text-[9px] uppercase tracking-[0.17em] text-white/40">
+                <span>Govern what is running</span>
+                <span>Prove every decision</span>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="relative isolate overflow-hidden bg-[#120A19] px-5 py-24 sm:px-6 lg:py-32">
-          <ActurusLiquidBackdrop soft className="opacity-40" />
-          <div className="relative z-10 mx-auto max-w-[1200px]">
-            <Reveal>
-              <LiquidKicker>The co-founders</LiquidKicker>
-              <div className="mt-8 grid gap-8 lg:grid-cols-[1.05fr_0.75fr] lg:items-end">
-                <h2 className="font-acturus-display text-3xl leading-[1.16] tracking-[-0.03em] text-[#FFF8EF] sm:text-5xl">
-                  Two perspectives.<br />One shared focus.
-                </h2>
-                <p className="text-base leading-7 text-white/[0.62]">
-                  Revanth Meda and Hitesh Thakkarr are the co-founders of ACTURUS and are building AI CONTROL GRID together.
-                </p>
-              </div>
-            </Reveal>
-            <div className="mt-12 grid gap-5 [perspective:1400px] lg:grid-cols-2">
-              {FOUNDERS.map((founder, index) => <FounderCard key={founder.name} founder={founder} index={index} />)}
-            </div>
-          </div>
-        </section>
+        <ControlSpine />
 
-        <section className="relative overflow-hidden bg-[#21112A] px-5 py-24 sm:px-6 lg:py-32">
-          <div className="pointer-events-none absolute left-[12%] top-0 h-72 w-72 rounded-full bg-[#D59BFF]/10 blur-[90px]" aria-hidden="true" />
-          <div className="pointer-events-none absolute bottom-0 right-[8%] h-80 w-80 rounded-full bg-[#F29B6E]/10 blur-[100px]" aria-hidden="true" />
-          <div className="relative mx-auto max-w-[1200px]">
+        <section id="story" className="scroll-mt-20 bg-[#EEE9DF] px-5 py-24 text-black sm:px-6 lg:py-32">
+          <div className="mx-auto max-w-[1180px]">
             <Reveal>
-              <LiquidKicker>What guides the work</LiquidKicker>
-              <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_0.8fr] lg:items-end">
-                <h2 className="font-acturus-display max-w-3xl text-3xl leading-[1.18] tracking-[-0.03em] sm:text-5xl">
-                  Principles designed to stay in motion.
+              <EditorialKicker dark>Why ACTURUS exists</EditorialKicker>
+              <div className="mt-8 grid gap-8 lg:grid-cols-[1.18fr_0.82fr] lg:items-end">
+                <h2 className="font-acturus-display max-w-5xl text-[clamp(2.35rem,5.8vw,5rem)] leading-[1.01] tracking-[-0.05em]">
+                  AI MOVED INTO THE WORKFLOW. GOVERNANCE STAYED IN DOCUMENTS.
                 </h2>
-                <p className="text-sm leading-7 text-white/[0.55]">
-                  Governance becomes useful when it travels with the work—visible to teams, active in decisions, and connected to evidence.
+                <p className="max-w-xl text-base leading-8 text-black/62 lg:justify-self-end">
+                  ACTURUS began with a practical observation: enterprise AI was becoming operational while governance remained disconnected from the moment of use. Revanth Meda and Hitesh Thakkarr are building the operating response together.
                 </p>
               </div>
             </Reveal>
-            <div className="mt-12 grid gap-5 md:grid-cols-3">
-              {PRINCIPLES.map((principle, index) => (
-                <Reveal key={principle.title} delay={index * 0.07} className="h-full">
-                  <article className="group relative h-full min-h-[310px] overflow-hidden rounded-[26px] border border-white/[0.11] bg-[#170B1E]/[0.65] p-7 shadow-[0_24px_80px_rgba(5,2,9,0.22)] backdrop-blur-xl">
-                    <div className={`absolute -right-10 -top-12 h-36 w-36 rounded-[48%_52%_38%_62%/61%_42%_58%_39%] blur-2xl transition-transform duration-700 group-hover:scale-125 ${index === 1 ? "bg-[#C09BEF]/20" : "bg-[#EE986C]/20"}`} aria-hidden="true" />
-                    <div className="relative flex items-center justify-between">
-                      <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.055] text-[#F2B17D]">
-                        <principle.icon className="h-5 w-5" />
-                      </span>
-                      <span className="font-mono text-[10px] text-white/60">{principle.number}</span>
-                    </div>
-                    <h3 className="font-acturus-display relative mt-8 text-lg text-[#FFF8EF]">{principle.title}</h3>
-                    <p className="relative mt-5 text-sm leading-7 text-white/[0.58]">{principle.body}</p>
-                  </article>
-                </Reveal>
+
+            <div className="mt-14 border-t border-black/25">
+              {ORIGIN_STEPS.map((item) => (
+                <article key={item.number} className="grid gap-5 border-b border-black/25 py-8 sm:grid-cols-[80px_0.8fr_1.2fr] sm:items-start sm:px-4 lg:py-10">
+                  <span className="font-mono text-xs text-black/50">{item.number}</span>
+                  <h3 className="font-acturus-display text-lg leading-7">{item.title}</h3>
+                  <p className="max-w-2xl text-sm leading-7 text-black/62 sm:text-[15px]">{item.body}</p>
+                </article>
               ))}
             </div>
           </div>
         </section>
 
-        <section className="relative overflow-hidden bg-[#F0C89F] px-5 py-24 text-[#2A1228] sm:px-6 lg:py-32">
-          <div className="pointer-events-none absolute -left-24 top-1/2 h-[380px] w-[620px] -translate-y-1/2 rotate-[-13deg] rounded-[50%] bg-[linear-gradient(110deg,rgba(255,246,229,0.5),rgba(205,156,226,0.48),rgba(235,118,95,0.28))] opacity-[0.35] blur-2xl sm:opacity-100" aria-hidden="true" />
-          <div className="pointer-events-none absolute -right-24 top-1/2 h-[300px] w-[500px] -translate-y-1/2 rotate-[16deg] rounded-[50%] border border-white/40 bg-white/[0.15] backdrop-blur-2xl" aria-hidden="true" />
-          <Reveal className="relative mx-auto max-w-[930px] text-center">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-[45%_55%_58%_42%/56%_42%_58%_44%] border border-[#5C314D]/20 bg-[#35172F] text-[#FFD1A0] shadow-[0_20px_55px_rgba(78,39,58,0.2)]">
-              <Compass className="h-6 w-6" />
+        <section id="founders" className="scroll-mt-20 bg-[#0C0C0C] px-5 py-24 sm:px-6 lg:py-32">
+          <div className="mx-auto max-w-[1180px]">
+            <Reveal>
+              <EditorialKicker>The co-founders</EditorialKicker>
+              <div className="mt-8 grid gap-8 lg:grid-cols-[1.08fr_0.72fr] lg:items-end">
+                <h2 className="font-acturus-display min-w-0 break-words text-[clamp(2.15rem,5.4vw,4.8rem)] leading-[1.02] tracking-[-0.05em]">
+                  ENGINEERING DISCIPLINE. ENTERPRISE PERSPECTIVE.
+                </h2>
+                <p className="max-w-xl text-base leading-8 text-white/50 lg:justify-self-end">
+                  ACTURUS is co-founded by Revanth Meda and Hitesh Thakkarr. Their work brings together operational engineering, software, strategy, and information security.
+                </p>
+              </div>
+            </Reveal>
+
+            <div className="mt-14 space-y-7">
+              {FOUNDERS.map((founder, index) => (
+                <FounderCard key={founder.name} founder={founder} index={index} />
+              ))}
             </div>
-            <div className="mt-7 flex justify-center"><LiquidKicker dark>See the product</LiquidKicker></div>
-            <h2 className="font-acturus-display mt-8 text-3xl leading-[1.14] tracking-[-0.035em] sm:text-5xl">
-              See AI CONTROL GRID in action.
+          </div>
+        </section>
+
+        <section id="product" className="scroll-mt-20 bg-[#090909] px-5 py-24 sm:px-6 lg:py-32">
+          <div className="mx-auto max-w-[1180px]">
+            <Reveal>
+              <EditorialKicker>What we are building</EditorialKicker>
+              <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_0.72fr] lg:items-end">
+                <h2 className="font-acturus-display max-w-4xl text-[clamp(2.25rem,5.2vw,4.7rem)] leading-[1.03] tracking-[-0.05em]">
+                  GOVERNANCE THAT MOVES WITH THE WORK.
+                </h2>
+                <p className="max-w-lg text-base leading-8 text-white/50 lg:justify-self-end">
+                  AI CONTROL GRID connects four operating responsibilities—system intelligence, runtime control, incident operations, and decision evidence—into one enterprise control layer.
+                </p>
+              </div>
+            </Reveal>
+
+            <div className="mt-14 grid border-l border-t border-white/12 md:grid-cols-2">
+              {BUILD_AREAS.map((area) => (
+                <article key={area.title} className="group relative min-h-[300px] overflow-hidden border-b border-r border-white/12 bg-[#101010] p-7 transition-colors duration-200 hover:bg-[#141414] sm:p-9">
+                  <div className="absolute inset-x-0 top-0 h-px bg-[#F58227]/80" aria-hidden="true" />
+                  <span className="absolute right-8 top-0 h-2.5 w-2.5 -translate-y-1/2 rotate-45 bg-[#F58227]" aria-hidden="true" />
+                  <div className="relative flex items-center justify-between">
+                    <span className="flex h-12 w-12 rotate-45 items-center justify-center border border-white/15 bg-white/[0.03] text-[#F58227]">
+                      <area.icon className="h-5 w-5 -rotate-45" />
+                    </span>
+                    <span className="font-mono text-[10px] text-white/30">{area.number}</span>
+                  </div>
+                  <h3 className="font-acturus-display relative mt-11 text-xl tracking-[-0.02em] text-white sm:text-2xl">{area.title}</h3>
+                  <p className="relative mt-5 max-w-xl text-sm leading-7 text-white/50 sm:text-[15px]">{area.body}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="principles" className="scroll-mt-20 bg-[#EEE9DF] px-5 py-24 text-black sm:px-6 lg:py-32">
+          <div className="mx-auto max-w-[1180px]">
+            <Reveal>
+              <EditorialKicker dark>What guides the work</EditorialKicker>
+              <h2 className="font-acturus-display mt-8 max-w-5xl break-words text-[clamp(2.15rem,5vw,4.6rem)] leading-[1.03] tracking-[-0.05em]">
+                CLARITY WHEN CONSEQUENCES ARE REAL.
+              </h2>
+            </Reveal>
+
+            <div className="mt-14 border-t border-black/20">
+              {PRINCIPLES.map((principle) => (
+                <article key={principle.title} className="grid gap-5 border-b border-black/20 py-8 sm:grid-cols-[80px_0.8fr_1.2fr] sm:items-start lg:py-10">
+                  <span className="font-mono text-[10px] text-black/45">{principle.number}</span>
+                  <h3 className="font-acturus-display text-xl leading-7 tracking-[-0.02em]">{principle.title}</h3>
+                  <p className="max-w-2xl text-sm leading-7 text-black/60 sm:text-[15px]">{principle.body}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="relative overflow-hidden bg-[#F58227] px-5 py-24 text-black sm:px-6 lg:py-32">
+          <div
+            className="pointer-events-none absolute inset-0 opacity-25 [background-image:linear-gradient(rgba(0,0,0,0.18)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.18)_1px,transparent_1px)] [background-size:36px_36px]"
+            aria-hidden="true"
+          />
+          <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 overflow-hidden whitespace-nowrap text-center font-acturus-display text-[clamp(7rem,20vw,18rem)] leading-none tracking-[-0.08em] text-black/[0.045]" aria-hidden="true">
+            ACTURUS
+          </div>
+          <div className="pointer-events-none absolute left-6 top-6 h-10 w-10 border-l border-t border-black/35" aria-hidden="true" />
+          <div className="pointer-events-none absolute bottom-6 right-6 h-10 w-10 border-b border-r border-black/35" aria-hidden="true" />
+
+          <Reveal className="relative mx-auto max-w-[980px] text-center">
+            <div className="mx-auto flex h-14 w-14 rotate-45 items-center justify-center border border-black/30 bg-black text-[#F58227]">
+              <ActurusMark className="h-7 w-7 -rotate-45" />
+            </div>
+            <div className="mt-7"><EditorialKicker dark>See AI governance operate</EditorialKicker></div>
+            <h2 className="font-acturus-display mt-8 break-words text-[clamp(2.15rem,5.8vw,5.1rem)] leading-[1.01] tracking-[-0.055em]">
+              SEE AI GOVERNANCE OPERATE.
             </h2>
-            <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-[#503040]">
-              Walk through the full loop—from governed inventory to a live allow-or-block decision and the incident evidence it creates.
+            <p className="mx-auto mt-7 max-w-2xl text-base leading-8 text-black/65">
+              Walk through one governed AI request—from useful work released to a risky action stopped, investigated, and preserved as evidence.
             </p>
-            <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
-              <Link href="/book-demo" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#35172F] px-7 text-xs font-semibold uppercase tracking-[0.14em] text-white shadow-[0_16px_42px_rgba(62,24,49,0.2)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#512343] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#35172F] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F0C89F]">
+            <div className="mt-10 flex flex-col justify-center gap-3 sm:flex-row">
+              <Link href="/book-demo" className="inline-flex min-h-12 items-center justify-center gap-2 bg-black px-7 text-[11px] font-semibold uppercase tracking-[0.16em] text-white transition-colors duration-200 hover:bg-[#1B1B1B] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4 focus-visible:ring-offset-[#F58227]">
                 Book a private demo <ArrowRight className="h-4 w-4" />
               </Link>
-              <Link href="/welcome" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-[#5D364F]/30 bg-white/20 px-7 text-xs uppercase tracking-[0.14em] transition-colors duration-300 hover:bg-white/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#35172F] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F0C89F]">
-                <Workflow className="h-4 w-4" /> Explore the platform
+              <Link href="/welcome" className="inline-flex min-h-12 items-center justify-center gap-2 border border-black/30 bg-[#F58227] px-7 text-[11px] font-semibold uppercase tracking-[0.16em] transition-colors hover:bg-[#FFA65E] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-4 focus-visible:ring-offset-[#F58227]">
+                Explore the platform <ArrowUpRight className="h-4 w-4" />
               </Link>
             </div>
           </Reveal>
-        </section>
-
-        <section className="border-y border-white/10 bg-[#100916] px-5 py-8 sm:px-6">
-          <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-center gap-x-10 gap-y-5 text-[9px] uppercase tracking-[0.2em] text-white/[0.5]">
-            <span className="flex items-center gap-2 text-[#F3B17D]"><ActurusMark className="h-4 w-4" /> ACTURUS</span>
-            <span className="flex items-center gap-2"><Link2 className="h-3.5 w-3.5" /> Product + policy + evidence</span>
-            <span className="flex items-center gap-2"><Sparkles className="h-3.5 w-3.5 text-[#C5A0FA]" /> AI CONTROL GRID</span>
-          </div>
         </section>
       </main>
 

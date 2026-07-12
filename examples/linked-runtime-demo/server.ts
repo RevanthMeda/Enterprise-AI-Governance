@@ -2,6 +2,7 @@ import express from "express";
 import session from "express-session";
 import { randomUUID } from "crypto";
 import fs from "fs";
+import { createServer, type Server } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import {
@@ -201,6 +202,7 @@ const demoSessionSecret =
 const telemetryTimeoutMs = Number(process.env.AICT_TIMEOUT_MS || 10_000);
 const overallTurnTimeoutMs = Number(process.env.AICT_DEMO_TURN_TIMEOUT_MS || 20_000);
 const upstreamModelTimeoutMs = Number(process.env.AICT_DEMO_MODEL_TIMEOUT_MS || 12_000);
+const demoServiceId = "ai-control-grid-linked-runtime-demo";
 const demoBuildStamp = "northstar-agent-workspace-2026-03-21";
 
 if (!offlinePitchMode && !controlTowerBaseUrl.trim()) {
@@ -515,6 +517,7 @@ app.use((_req, res, next) => {
     Pragma: "no-cache",
     Expires: "0",
     "Surrogate-Control": "no-store",
+    "X-Demo-Service": demoServiceId,
     "X-Demo-Build": demoBuildStamp,
     "X-Demo-Mode": offlinePitchMode ? "offline-pitch" : "linked-runtime",
   });
@@ -562,6 +565,15 @@ function getActiveCase(caseId: unknown, demoUser?: DemoUser | null): DemoCase {
 
 app.get("/favicon.ico", (_req, res) => {
   res.status(204).end();
+});
+
+app.get("/healthz", (_req, res) => {
+  res.json({
+    ok: true,
+    service: demoServiceId,
+    build: demoBuildStamp,
+    mode: offlinePitchMode ? "offline-pitch" : "linked-runtime",
+  });
 });
 
 app.get("/control-grid/fragment", (req, res) => {
@@ -1123,38 +1135,170 @@ function executeOfflineGovernedTurn(
   return run;
 }
 
-const server = app.listen(port, bindHost, () => {
+function listenForStartup(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      server.off("listening", handleListening);
+      server.off("error", handleError);
+    };
+    const handleListening = () => {
+      cleanup();
+      resolve();
+    };
+    const handleError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+
+    server.once("listening", handleListening);
+    server.once("error", handleError);
+
+    try {
+      server.listen(port, bindHost);
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
+  });
+}
+
+function waitForServerClose(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      server.off("close", handleClose);
+      server.off("error", handleError);
+    };
+    const handleClose = () => {
+      cleanup();
+      resolve();
+    };
+    const handleError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+
+    server.once("close", handleClose);
+    server.once("error", handleError);
+  });
+}
+
+async function isSameDemoAlreadyRunning(): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1_500);
+  const expectedMode = offlinePitchMode ? "offline-pitch" : "linked-runtime";
+
+  try {
+    const response = await fetch(`${localWorkspaceBaseUrl}/healthz`, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+    const matchingMode = response.headers.get("x-demo-mode") === expectedMode;
+    const matchingHeaders =
+      matchingMode &&
+      (response.headers.get("x-demo-service") === demoServiceId ||
+        response.headers.get("x-demo-build") === demoBuildStamp);
+
+    if (matchingHeaders) {
+      await response.body?.cancel();
+      return true;
+    }
+    if (!response.ok) {
+      return false;
+    }
+
+    const payload = (await response.json().catch(() => null)) as {
+      service?: unknown;
+      build?: unknown;
+      mode?: unknown;
+    } | null;
+    return (
+      payload?.service === demoServiceId &&
+      payload.mode === expectedMode
+    );
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function logDemoUrls(prefix = "[demo:pitch]") {
+  console.log(`${prefix} Control Grid: ${localWorkspaceBaseUrl}/control-grid`);
+  console.log(`${prefix} Frontline workspace: ${localWorkspaceBaseUrl}`);
+}
+
+async function runDemoServer() {
+  const server = createServer(app);
+
+  try {
+    await listenForStartup(server);
+  } catch (error) {
+    const listenError = error as NodeJS.ErrnoException;
+    if (listenError?.code === "EADDRINUSE") {
+      if (await isSameDemoAlreadyRunning()) {
+        console.log(`[demo:pitch] Demo is already running on port ${port}.`);
+        logDemoUrls();
+        return;
+      }
+
+      const alternatePort = port >= 65_535 ? 18_081 : port + 1;
+      console.error(
+        `[demo:pitch] Port ${port} is already used by another service. Nothing was stopped.`,
+      );
+      console.error(
+        `[demo:pitch] PowerShell: $env:LINKED_RUNTIME_DEMO_PORT='${alternatePort}'; npm run demo:pitch`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    console.error(
+      `[demo:pitch] Unable to start the demo server: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   if (offlinePitchMode) {
-    console.log(`[demo:pitch] Control Grid: ${localWorkspaceBaseUrl}/control-grid`);
-    console.log(`[demo:pitch] Frontline workspace: ${localWorkspaceBaseUrl}`);
+    logDemoUrls();
     console.log("[demo:pitch] Synthetic offline mode; no database or external API is used");
   } else {
     console.log(
       `northstar agent workspace listening on ${localWorkspaceBaseUrl} (bound to ${bindHost}:${port})`,
     );
   }
-});
 
-server.on("close", () => {
-  console.log("northstar agent workspace server closed");
-});
-
-server.on("error", (error) => {
-  console.error("northstar agent workspace server error", error);
-});
-
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => {
-    server.close(() => {
-      process.exit(0);
-    });
+  server.once("close", () => {
+    console.log("northstar agent workspace server closed");
   });
+
+  const handleShutdown = () => {
+    if (server.listening) {
+      server.close();
+    }
+  };
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.once(signal, handleShutdown);
+  }
+
+  try {
+    await waitForServerClose(server);
+  } catch (error) {
+    console.error(
+      `[demo:pitch] Demo server stopped after an error: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exitCode = 1;
+    if (server.listening) {
+      server.close();
+    }
+  } finally {
+    for (const signal of ["SIGINT", "SIGTERM"] as const) {
+      process.off(signal, handleShutdown);
+    }
+  }
 }
 
-await new Promise<void>((resolve, reject) => {
-  server.on("close", resolve);
-  server.on("error", reject);
-});
+await runDemoServer();
 
 function inferConversationMode(prompt: string): ConversationMode {
   const normalized = prompt.toLowerCase();

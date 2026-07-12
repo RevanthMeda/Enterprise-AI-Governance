@@ -241,14 +241,14 @@ function PublicRouteLoadingFallback() {
 
   return (
     <div
-      className={`flex min-h-screen items-center justify-center px-6 text-white ${companyTheme ? "bg-[#100916]" : "bg-[#050914]"}`}
+      className={`flex min-h-screen items-center justify-center px-6 text-white ${companyTheme ? "bg-[#090909]" : "bg-[#050914]"}`}
       data-public-theme={companyTheme ? "acturus" : "grid"}
       role="status"
       aria-live="polite"
       aria-busy="true"
     >
       <div className="flex flex-col items-center text-center">
-        <span className={`flex h-14 w-14 items-center justify-center rounded-2xl border ${companyTheme ? "border-[#ffc96b]/30 bg-[#ff8a70]/10 text-[#ffd7a0]" : "border-[#5eebff]/30 bg-[#3aa7ff]/10 text-[#8dddff]"}`}>
+        <span className={`flex h-14 w-14 items-center justify-center rounded-2xl border ${companyTheme ? "border-[#f58227]/40 bg-[#f58227]/10 text-[#f8a45e]" : "border-[#5eebff]/30 bg-[#3aa7ff]/10 text-[#8dddff]"}`}>
           <ActurusMark className="h-8 w-8" />
         </span>
         <span className="font-acturus-display mt-5 text-sm tracking-[0.12em]">ACTURUS</span>
@@ -447,9 +447,9 @@ function AuthenticatedApp() {
 
     document.body.style.background = isPublicDocument ? (isCompanyPage ? "#100916" : lightPublicPage ? "#edf4ff" : "#050914") : "";
     document.body.style.color = isPublicDocument ? (lightPublicPage ? "#07101f" : "#f4f8ff") : "";
-    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", isCompanyPage ? "#160f18" : "#050914");
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", isCompanyPage ? "#090909" : "#050914");
     document.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="shortcut icon"]').forEach((icon) => {
-      icon.setAttribute("href", isCompanyPage ? "/favicon-acturus.svg?v=1" : "/favicon.svg?v=5");
+      icon.setAttribute("href", isCompanyPage ? "/favicon-acturus.svg?v=2" : "/favicon.svg?v=5");
     });
   }, [location, user]);
 
