@@ -100,7 +100,7 @@ export default function AuditLogPage() {
     staleTime: 5_000,
     queryFn: async () => {
       const res = await fetch(resolveApiUrl(`/api/audit-logs?${queryParams.toString()}`), { credentials: "include" });
-      captureCsrfTokenFromResponse(res);
+      captureCsrfTokenFromResponse(res, "include");
       if (!res.ok) throw new Error("Failed to fetch logs");
       return res.json();
     },

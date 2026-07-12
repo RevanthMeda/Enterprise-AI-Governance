@@ -88,7 +88,16 @@ export function createCsrfMiddleware(options?: {
       return next();
     }
 
-    if (req.session) {
+    const requestMethod = req.method.toUpperCase();
+    const exemptPath = isExemptPath(req.path);
+    const shouldIssueToken =
+      !exemptPath ||
+      DEFAULT_CSRF_EXEMPT_PATHS.has(req.path);
+
+    // Public telemetry, gateway, monitoring, and lead endpoints authenticate
+    // independently of the browser session. Do not let their responses mint an
+    // anonymous token that a client could mistake for the signed-in CSRF token.
+    if (req.session && shouldIssueToken) {
       if (!req.session.csrfToken) {
         req.session.csrfToken = randomBytes(32).toString("hex");
       }
@@ -99,8 +108,7 @@ export function createCsrfMiddleware(options?: {
       return next();
     }
 
-    const requestMethod = req.method.toUpperCase();
-    if (CSRF_SAFE_METHODS.has(requestMethod) || isExemptPath(req.path)) {
+    if (CSRF_SAFE_METHODS.has(requestMethod) || exemptPath) {
       return next();
     }
 
@@ -113,6 +121,8 @@ export function createCsrfMiddleware(options?: {
       csrfValid = a.length === b.length && timingSafeEqual(a, b);
     }
     if (!csrfValid) {
+      res.setHeader("X-Error-Code", "CSRF_TOKEN_INVALID");
+      res.setHeader("Cache-Control", "no-store");
       return res.status(403).json({ message: "Invalid CSRF token" });
     }
 

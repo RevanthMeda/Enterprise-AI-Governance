@@ -28,21 +28,15 @@ For this repo, Hosting works without adding the Firebase SDK at all.
 - [firebase.json](/mnt/d/Personal/Enterprise-AI-Governance/firebase.json)
 - [.firebaserc](/mnt/d/Personal/Enterprise-AI-Governance/.firebaserc)
 
-## Frontend environment variable
+## Frontend environment profile
 
-Create a production env file for the frontend build:
-
-`client/.env.production`
-
-```env
-VITE_API_BASE_URL=https://YOUR_BACKEND_HOST
-```
-
-Example:
+Firebase uses the checked-in, non-secret `client/.env.firebase` profile:
 
 ```env
 VITE_API_BASE_URL=https://enterprise-ai-governance.onrender.com
 ```
+
+`npm run build:firebase` selects this profile explicitly. Normal production builds leave `VITE_API_BASE_URL` empty and use same-origin `/api` requests.
 
 ## Required backend configuration
 
@@ -52,16 +46,18 @@ Set these backend env vars:
 
 ```env
 PUBLIC_APP_URL=https://aicontrolgrid.com
-CORS_ALLOWED_ORIGINS=https://aicontrolgrid.com,https://ai-control-grid.web.app,https://ai-control-grid.firebaseapp.com
+CORS_ALLOWED_ORIGINS=https://aicontrolgrid.com,https://ai-control-grid.netlify.app,https://ai-control-tower-d9854.web.app,https://ai-control-tower-d9854.firebaseapp.com
 PASSWORD_RESET_SECRET=<dedicated-long-random-secret>
 CONTROL_TOWER_VAULT_SECRET=<dedicated-long-random-secret>
 CSRF_ENFORCED=true
 SESSION_COOKIE_SAME_SITE=none
 SESSION_COOKIE_SECURE=true
+SESSION_COOKIE_PARTITIONED=true
+SESSION_COOKIE_NAME=__Host-aict.sid.v2
 TRUST_PROXY=true
 ```
 
-If you later add a custom domain, add that origin too.
+The shared backend has one canonical `PUBLIC_APP_URL`. Keep that exact canonical origin plus every enabled Netlify/Firebase preview origin in `CORS_ALLOWED_ORIGINS`; production validation requires the public origin to be present in that union.
 
 ## Why these backend settings are required
 
@@ -71,9 +67,13 @@ If you later add a custom domain, add that origin too.
 - `CSRF_ENFORCED=true` is the secure production default
 - `SESSION_COOKIE_SAME_SITE=none` allows session cookies to be sent cross-site
 - `SESSION_COOKIE_SECURE=true` is required when `SameSite=None`
+- `SESSION_COOKIE_PARTITIONED=true` scopes the Render session to the Firebase top-level site so modern browsers can retain it without enabling general third-party tracking
+- `SESSION_COOKIE_NAME=__Host-aict.sid.v2` avoids collisions with legacy unpartitioned `connect.sid` cookies during rollout
 - `TRUST_PROXY=true` helps secure-cookie behavior behind the hosting/proxy chain
 
 Without these, sign-in will fail even if the frontend deploys correctly.
+
+The new cookie name intentionally signs existing preview sessions out once. After the first deployment, close old app tabs and clear site data for the Firebase and Render origins if the browser still presents a legacy session.
 
 ## Deploy steps
 
@@ -114,13 +114,18 @@ Open the deployed site and test:
 1. landing page
 2. `/auth/login`
 3. successful login
-4. `/dashboard`
-5. `/telemetry-adapter`
-6. `/runtime-monitoring`
+4. refresh the page and confirm the session remains signed in
+5. create an AI Registry entry
+6. run a Runtime/Telemetry test, then create or update another protected record
+7. `/dashboard`
+8. `/telemetry-adapter`
+9. `/runtime-monitoring`
 
 ## Important limitation
 
-This does **not** move your backend into Firebase.
+This does **not** move your backend into Firebase. Firebase-to-Render remains a cross-site development/preview topology. Partitioned cookies and automatic CSRF recovery make it reliable on modern browsers, but the preferred public-production topology is still one origin.
+
+Use local username/password authentication for the split Firebase preview. Enterprise SSO callbacks and any future direct backend navigations should be tested on a same-origin deployment because a cookie partitioned under Firebase is not available after a top-level navigation to Render. Evidence downloads stay in-page and use the credentialed API client.
 
 Your backend still needs to stay on:
 
@@ -134,6 +139,14 @@ If you want a full Firebase-native backend later, that is a separate migration t
 - Firebase App Hosting
 - Cloud Run
 - or Functions
+
+For production, choose one of these same-origin patterns:
+
+- serve the built client and Express API together on Render or another Node host
+- route Firebase `/api/**` to the Express service through Cloud Run or Cloud Functions
+- deploy the existing Vercel frontend and serverless API together
+
+Do not disable CSRF enforcement to work around a hosting mismatch.
 
 ## Optional: Firebase Analytics
 

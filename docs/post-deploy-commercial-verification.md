@@ -135,6 +135,12 @@ Expected:
 - `CORS_ALLOWED_ORIGINS`
 - `PUBLIC_APP_URL`
 - `CSRF_ENFORCED=true`
+- for the shared Firebase/Netlify Render backend:
+  - `SESSION_COOKIE_SAME_SITE=none`
+  - `SESSION_COOKIE_SECURE=true`
+  - `SESSION_COOKIE_PARTITIONED=true`
+  - `SESSION_COOKIE_NAME=__Host-aict.sid.v2`
+- `CORS_ALLOWED_ORIGINS` includes every enabled frontend origin while `PUBLIC_APP_URL` identifies one canonical frontend
 - Jira, if testing integration live:
   - org-specific values entered in app UI
 
@@ -151,6 +157,7 @@ Expected:
 
 Only sign off when all of these are true:
 - smoke script passes
+- frontend session/CSRF topology check passes
 - Jira test succeeds or is intentionally marked not configured
 - decision trace create path works
 - incident create/contain/resolve path works

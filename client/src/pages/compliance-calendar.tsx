@@ -106,7 +106,7 @@ export default function ComplianceCalendar() {
       const params = new URLSearchParams({ month: monthParam });
       if (typeFilter !== "all") params.set("type", typeFilter);
       const res = await fetch(resolveApiUrl(`/api/calendar-events?${params.toString()}`), { credentials: "include" });
-      captureCsrfTokenFromResponse(res);
+      captureCsrfTokenFromResponse(res, "include");
       if (!res.ok) throw new Error("Failed to load calendar events");
       return res.json();
     },

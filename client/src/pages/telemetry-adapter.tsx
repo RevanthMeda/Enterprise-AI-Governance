@@ -171,7 +171,7 @@ export default function TelemetryAdapterPage() {
     staleTime: 10_000,
     queryFn: async () => {
       const response = await fetch(resolveApiUrl("/api/ai-systems"), { credentials: "include" });
-      captureCsrfTokenFromResponse(response);
+      captureCsrfTokenFromResponse(response, "include");
       if (!response.ok) {
         throw new Error("Failed to load AI systems");
       }
@@ -301,7 +301,8 @@ export default function TelemetryAdapterPage() {
         },
         body: JSON.stringify(parsedPayload),
       });
-      captureCsrfTokenFromResponse(response);
+      // API-key requests are intentionally session-independent; never copy a
+      // token from this response into the signed-in browser CSRF state.
 
       const rawText = await response.text();
       let body: unknown = null;

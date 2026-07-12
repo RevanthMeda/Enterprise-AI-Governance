@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import session from "express-session";
 import {
   areMockAuthRoutesEnabled,
   getSmtpEnvironmentConfig,
@@ -28,8 +29,90 @@ test("runtime config defaults to secure production behavior", () => {
   const config = getRuntimeConfig(makeProductionEnv());
   assert.equal(config.csrfEnforced, true);
   assert.equal(config.trustProxy, true);
+  assert.equal(config.sessionCookieName, "connect.sid");
   assert.equal(config.sessionCookieSameSite, "strict");
+  assert.equal(config.sessionCookiePartitioned, false);
   assert.equal(config.sessionCookieSecure, true);
+});
+
+test("cross-site session cookies enable partitioning by default", () => {
+  const config = getRuntimeConfig(
+    makeProductionEnv({
+      SESSION_COOKIE_SAME_SITE: "none",
+    }),
+  );
+
+  assert.equal(config.sessionCookieSameSite, "none");
+  assert.equal(config.sessionCookieName, "__Host-aict.sid.v2");
+  assert.equal(config.sessionCookiePartitioned, true);
+  assert.equal(config.sessionCookieSecure, true);
+});
+
+test("session middleware serializes the secure partitioned cookie attributes", () => {
+  const cookie = new session.Cookie({
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    partitioned: true,
+  });
+  const serialized = cookie.serialize("connect.sid", "test-session-id");
+
+  assert.match(serialized, /HttpOnly/);
+  assert.match(serialized, /Secure/);
+  assert.match(serialized, /Partitioned/);
+  assert.match(serialized, /SameSite=None/);
+});
+
+test("cross-site session cookie partitioning can be explicitly disabled", () => {
+  const config = getRuntimeConfig(
+    makeProductionEnv({
+      SESSION_COOKIE_SAME_SITE: "none",
+      SESSION_COOKIE_PARTITIONED: "false",
+    }),
+  );
+
+  assert.equal(config.sessionCookiePartitioned, false);
+});
+
+test("runtime validation rejects partitioned cookies without Secure", () => {
+  assert.throws(
+    () =>
+      validateRuntimeEnvironment({
+        NODE_ENV: "development",
+        DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/enterprise_ai_governance",
+        SESSION_SECRET: "dev-session-secret",
+        SESSION_COOKIE_PARTITIONED: "true",
+        SESSION_COOKIE_SECURE: "false",
+      }),
+    /SESSION_COOKIE_SECURE must be true when SESSION_COOKIE_PARTITIONED=true/,
+  );
+});
+
+test("runtime validation rejects an invalid session cookie name", () => {
+  assert.throws(
+    () =>
+      validateRuntimeEnvironment({
+        NODE_ENV: "development",
+        DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/enterprise_ai_governance",
+        SESSION_SECRET: "dev-session-secret",
+        SESSION_COOKIE_NAME: "invalid cookie name",
+      }),
+    /SESSION_COOKIE_NAME may contain only/,
+  );
+});
+
+test("runtime validation requires Secure for a __Host- cookie name", () => {
+  assert.throws(
+    () =>
+      validateRuntimeEnvironment({
+        NODE_ENV: "development",
+        DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/enterprise_ai_governance",
+        SESSION_SECRET: "dev-session-secret",
+        SESSION_COOKIE_NAME: "__Host-aict.sid.v2",
+        SESSION_COOKIE_SECURE: "false",
+      }),
+    /SESSION_COOKIE_SECURE must be true when SESSION_COOKIE_NAME uses the __Host- prefix/,
+  );
 });
 
 test("runtime validation rejects insecure cross-site cookie configuration", () => {
@@ -79,6 +162,7 @@ test("development runtime allows relaxed defaults", () => {
   assert.equal(config.csrfEnforced, false);
   assert.equal(config.trustProxy, false);
   assert.equal(config.sessionCookieSameSite, "lax");
+  assert.equal(config.sessionCookiePartitioned, false);
   assert.equal(config.sessionCookieSecure, false);
 });
 

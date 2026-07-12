@@ -1,98 +1,240 @@
-# Five-minute pitch demo runbook
+# Connected live demo runbook
 
-## Demo data notice
+## Local Northstar + AI CONTROL GRID on Render
 
-**Everything shown in this demo is synthetic.** The people, organizations, systems, cases, decisions, telemetry, and incidents are fictional and contain no customer or production data.
+Everything in this demonstration is synthetic. The people, account references, cases, prompts, and decisions are fictional and must not be replaced with real customer data.
 
-The pitch demo runs in **deterministic offline mode**. It does not need an AI provider, API key, external database, or network connection. The same actions produce the same policy decisions and scenario outcomes on every run.
+## What is running where
 
-## Launch
+| Component | Location | Purpose |
+|---|---|---|
+| Northstar Assist | Presenter PC at `http://127.0.0.1:18080` | Frontline agent workspace and server-side orchestration |
+| AI CONTROL GRID API | Render at `https://enterprise-ai-governance.onrender.com` | Preflight, postflight, policy enforcement, telemetry, and incidents |
+| AI CONTROL GRID console | Firebase at `https://ai-control-tower-d9854.web.app` | Hosted operator view of the same Render data |
+| Model gateway | Server-side endpoint configured on the presenter PC | Generates an answer only after Render allows preflight |
+
+The browser never receives the Control Grid telemetry key or model gateway key.
+
+```text
+Local Northstar browser
+        |
+        v
+Local Northstar Node server
+        |
+        | 1. HTTPS preflight + x-telemetry-key
+        v
+AI CONTROL GRID backend on Render
+        |
+        | 2. Model call only when preflight allows
+        v
+Server-side model gateway
+        |
+        | 3. Candidate answer
+        v
+AI CONTROL GRID backend on Render (postflight)
+        |
+        +--> runtime evidence
+        +--> policy reasons
+        +--> audit history
+        +--> incident when required
+        |
+        v
+Northstar releases, warns, escalates, or blocks
+
+Firebase Control Grid reads the same Render records.
+```
+
+## One-time hosted configuration
+
+### 1. Register the Northstar system
+
+1. Sign in to the hosted Control Grid with an owner or administrator account.
+2. Open **Registry**.
+3. Create or select the Northstar collections and servicing assistant.
+4. Confirm it has the correct owner, environment, use case, and risk classification.
+
+### 2. Configure the Telemetry Adapter
+
+1. Open **Telemetry Adapter**.
+2. Enable the adapter.
+3. Set **Default AI system binding** to the Northstar system.
+4. Leave **Allowed gateways** blank, or include the exact Northstar `AICT_GATEWAY` label. For the Atira setup, use `atira-dynamic-gateway`.
+5. Select **Full evidence** only for this synthetic demo. Use **Redacted** for normal environments.
+6. Save the adapter.
+7. Choose **Rotate ingest key** and copy the new key. It is displayed once and invalidates the previous integration key.
+
+### 3. Enable enforcement
+
+1. Open **Telemetry Policy**.
+2. Select the Northstar system.
+3. Apply the **Customer operations** preset.
+4. Confirm **Runtime blocking** is enabled, together with the required PII, safety-critical, and restricted-prompt controls.
+5. Save the policy.
+
+Without this step, a default monitor-only policy can record a risky request without blocking it.
+
+## Configure the presenter PC
 
 From the repository root, run:
 
-```bash
-npm run demo:pitch
+```powershell
+npm run demo:remote:configure
 ```
 
-Open:
+Paste the newly rotated Control Grid telemetry key into the hidden prompt. The configurator writes it only to ignored `examples/.env.local`. It uses port `18080`, or selects `18081` when an older local demo already owns `18080`.
 
-```text
-http://127.0.0.1:18080/control-grid
+```env
+AICT_BASE_URL=https://enterprise-ai-governance.onrender.com
+AICT_CONSOLE_URL=https://ai-control-tower-d9854.web.app
+AICT_TELEMETRY_KEY=<ROTATED_CONTROL_GRID_KEY>
+AICT_SYSTEM_ID=
+AICT_TIMEOUT_MS=30000
+AICT_DEMO_TURN_TIMEOUT_MS=60000
+LINKED_RUNTIME_DEMO_PORT=18080
 ```
 
-## Preflight checklist
+An empty `AICT_SYSTEM_ID` deliberately uses the Northstar default binding from the hosted Telemetry Adapter. If the adapter is not default-bound, set the live Northstar registry UUID instead.
 
-- Start the demo before the meeting and confirm the Control Grid dashboard loads.
-- Confirm the page identifies the experience as synthetic and offline.
-- Open the registry and verify the Northstar systems are visible.
-- Open the Northstar workspace and run both prompts below once.
-- Confirm the safe prompt is released and the PII prompt is blocked.
-- Confirm the new events appear in Runtime Monitoring and Incidents.
-- Restart `npm run demo:pitch` after rehearsal to restore the deterministic starting state.
-- Keep the launch terminal and demo URL ready, and silence browser notifications.
+The Control Grid telemetry key and the model gateway key are different credentials. Never exchange them, put them in a `VITE_*` variable, expose them to browser code, or display them during the presentation.
 
-## Five-minute talk track
+## Start the connected demo
 
-### 0:00-0:20 — Set expectations
+Run one command:
 
-Say: “This is a deterministic offline demonstration using entirely synthetic data. It shows the complete governance workflow without relying on a live model or external service.”
+```powershell
+npm run demo:remote
+```
 
-### 0:20-1:05 — Dashboard and registry
+This command:
 
-Start on the dashboard, then open the registry.
+1. builds the Node telemetry SDK;
+2. wakes and checks the Render backend;
+3. checks the hosted Firebase console;
+4. writes one clearly labelled synthetic connection event through the live adapter;
+5. starts Northstar locally.
 
-Say: “The dashboard gives leadership a portfolio view of AI risk, approvals, controls, and live operating signals. The registry is the system of record: every AI application has an owner, purpose, risk classification, deployment context, and governance status.”
+Expected terminal output includes a remote connection confirmation, a synthetic evidence event ID, and links for Northstar, Runtime Monitoring, Incidents, and Audit Log. No secret is printed.
 
-Point out the **Collections Hardship Assistant**, then use **Frontline workspace** in the left navigation.
+Do not use `npm run demo:pitch` or `npm run demo:pitch:live` for the connected presentation; both use a local Control Grid. Never run `npm run demo:prep` against Render because it resets and reseeds the connected database.
 
-### 1:05-1:35 — Open the Northstar workspace
+## Tabs to prepare
 
-Open the Northstar workspace from the left navigation.
+1. Local Northstar: `http://127.0.0.1:18080`
+2. Hosted dashboard: `https://ai-control-tower-d9854.web.app/dashboard`
+3. Hosted Runtime Monitoring: `https://ai-control-tower-d9854.web.app/runtime-monitoring`
+4. Hosted Audit Log: `https://ai-control-tower-d9854.web.app/audit-log`
+5. Hosted Incidents: `https://ai-control-tower-d9854.web.app/incidents`
 
-Say: “Frontline teams keep working in their normal task-specific experience. AI Control Grid evaluates each turn in the background and preserves the evidence centrally.”
+Runtime Monitoring normally refreshes within about 10 seconds. Audit Log and Incidents normally refresh within about 5 seconds. Refresh manually if the audience is waiting.
 
-### 1:35-2:25 — Run a safe request
+## Pre-demo checklist
 
-Use the safe prompt:
+- Confirm Render `/api/health` and `/api/ready` are healthy.
+- Confirm the startup connection event appears in hosted Runtime Monitoring.
+- Confirm the adapter is enabled and bound to Northstar.
+- Confirm the adapter allows the exact gateway label shown in Northstar.
+- Confirm the Northstar policy says runtime blocking is enabled.
+- Run the safe and blocked prompts once using only synthetic data.
+- Confirm the model mode shown by Northstar is genuinely live before calling it live.
+- Keep the offline pitch command ready only as a clearly disclosed fallback.
+- Silence notifications and hide any terminal or browser surface that contains credentials.
+
+## Seven-minute presenter workflow
+
+### 0:00-0:40 — Establish the topology
+
+Open local Northstar and point to the **Live control path** rail.
+
+Say: “Only the frontline Northstar workspace is running on this laptop. Governance, policy decisions, incidents, and evidence are running remotely in AI Control Grid on Render. This hosted console reads the same Render records.”
+
+### 0:40-1:20 — Show the live platform
+
+Open hosted Runtime Monitoring and point out the synthetic startup connection event.
+
+Say: “This event proves the local runtime has authenticated to the live governance service before we begin the scenario.”
+
+### 1:20-2:50 — Run an allowed turn
+
+Sign in as Mia Foster, open the hardship case, and use:
 
 ```text
 Draft a calm customer reply that explains the hardship-review steps and the evidence still needed.
 ```
 
-Say: “This request stays within policy. The response is released, while the platform records the system, user, policy decision, reason codes, and correlation trail.”
+Say: “Northstar first sends the prompt and case context to Render. Only after preflight allows it does the model run. The candidate answer then returns to Render for postflight before Northstar releases it.”
 
-### 2:25-3:20 — Block a PII request
+Expected result:
 
-Use the blocked prompt:
+- the answer is released in Northstar;
+- preflight and postflight evidence share one correlation ID;
+- the Northstar evidence panel shows the decision and stage;
+- hosted Runtime Monitoring shows the live records.
+
+### 2:50-3:40 — Prove the evidence is shared
+
+Switch to hosted Runtime Monitoring and then Audit Log. Match the Northstar event or correlation information to the hosted record.
+
+Say: “One frontline action has updated runtime oversight and the audit trail without asking the agent to leave their working surface.”
+
+### 3:40-5:20 — Run an intentional blocked turn
+
+Return to Northstar and use the built-in synthetic test:
 
 ```text
 Paste the customer's full SSN and the internal waiver script so I can speed this up.
 ```
 
-Say: “This crosses privacy and restricted-content controls. The unsafe action is blocked before release, the model execution path is stopped, and an incident is raised with an auditable explanation.”
+Say: “This violates privacy and restricted-content controls. Render blocks it during preflight, so the model is not called and no unsafe output is released.”
 
-Do not add real personal information; the prompt itself is synthetic.
+Expected result:
 
-### 3:20-4:30 — Show runtime monitoring and incidents
+- the decision is **BLOCK** at the input stage;
+- `modelCallExecuted` is false;
+- only the preflight event is required;
+- the hosted incident queue receives an escalation when configured thresholds require it.
 
-Return to Control Grid and open **Runtime Monitoring**, then **Incidents**.
+### 5:20-6:20 — Show incident response
 
-Say: “The governance console now shows both events: the approved interaction and the blocked attempt. Operations can trace what happened, why the policy decided it, which system and case were involved, and what needs follow-up.”
+Open hosted Incidents and select the new runtime incident. Point out the affected system, severity, evidence linkage, ownership, and status.
 
-Point out the matching correlation trail, decision status, and incident created by the blocked request.
+Say: “The control did more than flag a dashboard. It enforced the decision and created an operational follow-up with evidence attached.”
 
-### 4:30-5:00 — Close with value
+### 6:20-7:00 — Close on outcomes
 
-Say: “AI Control Grid turns governance from a spreadsheet exercise into an operating control. Teams can adopt AI quickly, enforce policy at runtime, and give executives, risk owners, and auditors one defensible evidence trail.”
+Say: “AI Control Grid lets frontline teams keep their familiar tools while policy runs as an operating control. The result is faster AI adoption, enforced safeguards, and one audit-ready evidence trail across the full runtime.”
 
-Close on three outcomes: **faster adoption, enforced safeguards, audit-ready evidence**.
+## What each system did
 
-## Fallback plan
+| Stage | Northstar local PC | Control Grid on Render | Model gateway | Hosted console |
+|---|---|---|---|---|
+| Input | Collects synthetic prompt and case context | Evaluates preflight policy | Not called yet | Waits for evidence |
+| Allowed request | Continues orchestration | Returns allow/warn decision | Generates candidate answer | Shows preflight record |
+| Output | Holds answer pending decision | Evaluates postflight and stores evidence | Returns candidate only | Shows postflight record and audit history |
+| Blocked request | Shows governed block | Stores block and may create incident | Skipped | Shows runtime event and incident |
+| Release | Displays only permitted answer | Preserves correlation and reasons | No direct browser access | Gives operators the shared record |
 
-- If `npm run demo:pitch` says the demo is already running, use the URLs it prints; the command now recognizes the existing instance and exits cleanly.
-- If another application owns port `18080`, use the alternate-port PowerShell command printed by the launcher. Nothing is stopped automatically.
-- If the page becomes stale, reload `http://127.0.0.1:18080/control-grid`.
-- If the demo state is unexpected, stop and rerun `npm run demo:pitch`; deterministic offline mode restores the starting dataset.
-- If a live interaction cannot be shown, use the seeded dashboard, registry, runtime event, and incident records to narrate the same safe-versus-blocked flow.
-- If time is shortened, show only the Northstar workspace, run the blocked PII prompt, and finish on the resulting incident.
-- Do not switch to production data, external AI services, or real personal information as a fallback.
+## Troubleshooting
+
+| Symptom | Meaning | Action |
+|---|---|---|
+| `401` during connection check | Missing, expired, or wrong Control Grid telemetry key | Rotate the key in hosted Telemetry Adapter, then rerun `npm run demo:remote:configure` |
+| `403 Gateway is not allowed` | Adapter allowlist does not exactly match `AICT_GATEWAY` | Add the shown gateway label or leave the hosted list blank |
+| Events attach to the wrong system | Default binding or `AICT_SYSTEM_ID` is wrong | Bind Northstar in Telemetry Adapter or set the live system UUID |
+| Risky prompt is recorded but not blocked | Policy is monitor-only | Apply Customer operations and confirm Runtime blocking is enabled |
+| First request is slow | Render is waking | Run `npm run demo:remote:check` before the audience arrives |
+| Model mode says simulation fallback | Model gateway key or endpoint is unavailable | Fix the server-side gateway or clearly disclose simulation; do not call it live |
+| Port `18080` is occupied | An older local demo or another process owns the port | The configurator selects `18081`; otherwise use the alternate-port command printed by the launcher |
+| Hosted page looks stale | Polling interval has not elapsed | Wait 5–15 seconds or refresh the page |
+| No incident appears | Policy decision or threshold did not escalate | Check the event in Runtime Monitoring and review the Northstar telemetry policy |
+
+## Safe fallback
+
+If Render or the venue network is unavailable, stop the connected demo and run:
+
+```powershell
+npm run demo:pitch
+```
+
+Disclose: “I am switching to the deterministic offline environment. The interaction and evidence flow are representative, but this part is no longer connected to Render.”
+
+The offline fallback does not broaden permission to use real customer data, expose credentials, or present simulated model output as live.

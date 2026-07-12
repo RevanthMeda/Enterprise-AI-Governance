@@ -148,7 +148,7 @@ export default function Registry() {
     staleTime: 10_000,
     queryFn: async () => {
       const res = await fetch(resolveApiUrl(`/api/ai-systems?${queryParams.toString()}`), { credentials: "include" });
-      captureCsrfTokenFromResponse(res);
+      captureCsrfTokenFromResponse(res, "include");
       if (!res.ok) throw new Error("Failed to fetch systems");
       return res.json();
     },

@@ -3,6 +3,7 @@ import passport from "passport";
 import { storage } from "../storage";
 import {
   buildTotpOtpAuthUrl,
+  clearSessionCookie,
   buildNextPasswordHistory,
   comparePasswords,
   consumeRecoveryCode,
@@ -412,7 +413,7 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
       if (err) return res.status(500).json({ message: "Logout failed" });
       req.session.destroy((destroyErr) => {
         if (destroyErr) return res.status(500).json({ message: "Logout failed" });
-        res.clearCookie("connect.sid");
+        clearSessionCookie(res);
         res.json({ message: "Logged out" });
       });
     });

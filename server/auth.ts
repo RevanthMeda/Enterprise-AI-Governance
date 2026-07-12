@@ -27,6 +27,7 @@ import {
 import { getPgPoolConfig } from "./db-config";
 import { getRuntimeConfig } from "./env";
 import { getVisibleActiveMemberships, pickCurrentOrganizationId } from "./auth-visibility";
+import { createSessionActivityMiddleware } from "./session-activity";
 
 declare global {
   namespace Express {
@@ -182,6 +183,17 @@ function clearFailedLogins(ip: string, username: string) {
 
 export function getPasswordExpiryDate(from: Date = new Date()): Date {
   return new Date(from.getTime() + PASSWORD_ROTATION_MS);
+}
+
+export function clearSessionCookie(res: Response): void {
+  const runtimeConfig = getRuntimeConfig();
+  res.clearCookie(runtimeConfig.sessionCookieName, {
+    httpOnly: true,
+    secure: runtimeConfig.sessionCookieSecure,
+    sameSite: runtimeConfig.sessionCookieSameSite,
+    partitioned: runtimeConfig.sessionCookiePartitioned,
+    path: "/",
+  });
 }
 
 export function validatePasswordStrength(password: string): { valid: boolean; message?: string } {
@@ -449,6 +461,7 @@ export function setupAuth(app: Express) {
 
   app.use(
     session({
+      name: runtimeConfig.sessionCookieName,
       store: sessionStore,
       secret: sessionSecret,
       resave: false,
@@ -459,6 +472,7 @@ export function setupAuth(app: Express) {
         httpOnly: true,
         secure: runtimeConfig.sessionCookieSecure,
         sameSite: runtimeConfig.sessionCookieSameSite,
+        partitioned: runtimeConfig.sessionCookiePartitioned,
       },
     })
   );
@@ -466,35 +480,13 @@ export function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
-  app.use((req, res, next) => {
-    if (!req.session) return next();
-    const now = Date.now();
-
-    if (!req.session.createdAt) req.session.createdAt = now;
-    if (!req.session.lastActivityAt) req.session.lastActivityAt = now;
-
-    if (!req.isAuthenticated?.()) {
-      return next();
-    }
-
-    const idleDuration = now - (req.session.lastActivityAt ?? now);
-    const absoluteDuration = now - (req.session.createdAt ?? now);
-
-    if (idleDuration > IDLE_TIMEOUT_MS || absoluteDuration > ABSOLUTE_TIMEOUT_MS) {
-      setNoStoreHeaders(res);
-      return req.logout((logoutErr) => {
-        if (logoutErr) return next(logoutErr);
-        req.session.destroy((destroyErr) => {
-          if (destroyErr) return next(destroyErr);
-          res.clearCookie("connect.sid");
-          return res.status(401).json({ message: "Session expired. Please sign in again." });
-        });
-      });
-    }
-
-    req.session.lastActivityAt = now;
-    return next();
-  });
+  app.use(
+    createSessionActivityMiddleware({
+      idleTimeoutMs: IDLE_TIMEOUT_MS,
+      absoluteTimeoutMs: ABSOLUTE_TIMEOUT_MS,
+      clearCookie: clearSessionCookie,
+    }),
+  );
 
   passport.use(
     new LocalStrategy({ passReqToCallback: true }, async (req: Request, username, password, done) => {

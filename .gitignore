@@ -7,4 +7,10 @@ vite.config.ts.*
 .env
 .env.*
 !.env.example
-!examples/.env
+!client/.env.firebase
+!examples/.env.example
+examples/.env
+*.cookie
+cookie.txt
+ct.cookies
+ct.headers

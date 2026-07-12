@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, type ReactNode } from "react";
 import { useQuery, useMutation, type UseMutationResult } from "@tanstack/react-query";
-import { apiRequest, captureCsrfTokenFromResponse, queryClient } from "@/lib/queryClient";
-import { resolveApiUrl } from "@/lib/api-url";
+import { apiFetch, apiRequest, clearCsrfToken, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type {
   AccessibilityPreferenceState,
@@ -99,6 +98,29 @@ const PUBLIC_SESSION_PATHS = new Set([
   "/api-docs",
 ]);
 
+async function fetchCurrentUser(signal?: AbortSignal): Promise<AuthUser | null> {
+  const res = await apiFetch("/api/auth/user", { cache: "no-store", signal });
+  if (res.status === 401) {
+    return null;
+  }
+  if (!res.ok) {
+    throw new Error("Failed to refresh session");
+  }
+  return (await res.json()) as AuthUser;
+}
+
+async function verifyAuthenticatedSession(): Promise<AuthUser> {
+  const user = await fetchCurrentUser();
+  if (!user) {
+    const error = new Error(
+      "Sign-in succeeded, but the browser did not retain the secure session. Allow cookies for this site or use the same-origin application address, then sign in again.",
+    ) as AuthMutationError;
+    error.status = 401;
+    throw error;
+  }
+  return user;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const syncAuthState = useCallback(async (redirectIfLoggedOut: boolean) => {
@@ -107,10 +129,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const res = await fetch(resolveApiUrl("/api/auth/user"), { credentials: "include", cache: "no-store" });
-      captureCsrfTokenFromResponse(res);
-
-      if (res.status === 401) {
+      const nextUser = await fetchCurrentUser();
+      if (!nextUser) {
         queryClient.setQueryData(["/api/auth/user"], null);
         if (redirectIfLoggedOut && !PUBLIC_SESSION_PATHS.has(window.location.pathname)) {
           window.location.replace("/auth/login");
@@ -118,11 +138,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (!res.ok) {
-        throw new Error("Failed to refresh session");
-      }
-
-      const nextUser = (await res.json()) as AuthUser;
       queryClient.setQueryData(["/api/auth/user"], nextUser);
     } catch {
       queryClient.setQueryData(["/api/auth/user"], null);
@@ -136,13 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const { data: user, isLoading } = useQuery<AuthUser | null>({
     queryKey: ["/api/auth/user"],
-    queryFn: async () => {
-      const res = await fetch(resolveApiUrl("/api/auth/user"), { credentials: "include", cache: "no-store" });
-      captureCsrfTokenFromResponse(res);
-      if (res.status === 401) return null;
-      if (!res.ok) throw new Error("Failed to fetch user");
-      return res.json();
-    },
+    queryFn: ({ signal }) => fetchCurrentUser(signal),
     staleTime: Infinity,
     retry: false,
   });
@@ -177,15 +186,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginMutation = useMutation({
     mutationFn: async (data: LoginInput) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/auth/user"] });
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 20000);
       let res: Response;
       try {
-        res = await fetch(resolveApiUrl("/api/auth/login"), {
+        res = await apiFetch("/api/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data),
-          credentials: "include",
           signal: controller.signal,
         });
       } catch (error) {
@@ -198,7 +207,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } finally {
         window.clearTimeout(timeout);
       }
-      captureCsrfTokenFromResponse(res);
 
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
@@ -207,7 +215,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         error.mfaRequired = Boolean(payload?.mfaRequired);
         throw error;
       }
-      return payload as AuthUser;
+      return verifyAuthenticatedSession();
     },
     onSuccess: (user: AuthUser) => {
       queryClient.setQueryData(["/api/auth/user"], user);
@@ -217,8 +225,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const registerMutation = useMutation({
     mutationFn: async (data: RegisterInput) => {
-      const res = await apiRequest("POST", "/api/auth/register", data);
-      return res.json();
+      await queryClient.cancelQueries({ queryKey: ["/api/auth/user"] });
+      await apiRequest("POST", "/api/auth/register", data);
+      return verifyAuthenticatedSession();
     },
     onSuccess: (user: AuthUser) => {
       queryClient.setQueryData(["/api/auth/user"], user);
@@ -232,10 +241,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const switchOrganizationMutation = useMutation({
     mutationFn: async (organizationId: string) => {
       await apiRequest("POST", "/api/auth/switch-organization", { organizationId });
-      const res = await fetch(resolveApiUrl("/api/auth/user"), { credentials: "include" });
-      captureCsrfTokenFromResponse(res);
-      if (!res.ok) throw new Error("Failed to refresh user after organization switch");
-      return res.json();
+      return verifyAuthenticatedSession();
     },
     onSuccess: async (nextUser: AuthUser) => {
       queryClient.setQueryData(["/api/auth/user"], nextUser);
@@ -257,6 +263,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     await apiRequest("POST", "/api/auth/logout");
+    clearCsrfToken();
     queryClient.setQueryData(["/api/auth/user"], null);
     queryClient.clear();
     if (typeof window !== "undefined") {

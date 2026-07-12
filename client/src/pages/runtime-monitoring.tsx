@@ -295,7 +295,7 @@ export default function RuntimeMonitoringPage() {
     staleTime: 10_000,
     queryFn: async () => {
       const response = await fetch(resolveApiUrl("/api/ai-systems"), { credentials: "include" });
-      captureCsrfTokenFromResponse(response);
+      captureCsrfTokenFromResponse(response, "include");
       if (!response.ok) {
         throw new Error("Failed to load AI systems");
       }
@@ -310,7 +310,7 @@ export default function RuntimeMonitoringPage() {
     staleTime: 5_000,
     queryFn: async () => {
       const response = await fetch(resolveApiUrl("/api/telemetry/summary"), { credentials: "include" });
-      captureCsrfTokenFromResponse(response);
+      captureCsrfTokenFromResponse(response, "include");
       if (!response.ok) {
         throw new Error("Failed to load telemetry summary");
       }
@@ -325,7 +325,7 @@ export default function RuntimeMonitoringPage() {
     staleTime: 5_000,
     queryFn: async () => {
       const response = await fetch(resolveApiUrl("/api/incidents/summary"), { credentials: "include" });
-      captureCsrfTokenFromResponse(response);
+      captureCsrfTokenFromResponse(response, "include");
       if (!response.ok) {
         throw new Error("Failed to load incident summary");
       }
@@ -340,7 +340,7 @@ export default function RuntimeMonitoringPage() {
     staleTime: 10_000,
     queryFn: async () => {
       const response = await fetch(resolveApiUrl("/api/organization/telemetry-adapter"), { credentials: "include" });
-      captureCsrfTokenFromResponse(response);
+      captureCsrfTokenFromResponse(response, "include");
       if (!response.ok) {
         const detail = (await response.text()) || response.statusText;
         throw new Error(`${response.status}: ${detail}`);
@@ -528,7 +528,8 @@ export default function RuntimeMonitoringPage() {
         },
         body: JSON.stringify(parsedPayload),
       });
-      captureCsrfTokenFromResponse(response);
+      // API-key requests are intentionally session-independent; never copy a
+      // token from this response into the signed-in browser CSRF state.
 
       setStatusCode(response.status);
       const data = (await response.json()) as RuntimeResponse;

@@ -7,7 +7,9 @@ export type RuntimeConfig = {
   allowedCorsOrigins: string[];
   csrfEnforced: boolean;
   trustProxy: boolean;
+  sessionCookieName: string;
   sessionCookieSameSite: SameSitePolicy;
+  sessionCookiePartitioned: boolean;
   sessionCookieSecure: boolean;
   publicAppUrl: string | null;
 };
@@ -277,13 +279,21 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
   const configuredCookieSecure = parseBooleanEnv(env.SESSION_COOKIE_SECURE, isProduction);
   const sessionCookieSecure =
     sessionCookieSameSite === "none" ? true : configuredCookieSecure;
+  const sessionCookiePartitioned = parseBooleanEnv(
+    env.SESSION_COOKIE_PARTITIONED,
+    sessionCookieSameSite === "none",
+  );
+  const sessionCookieName = normalizeOptionalString(env.SESSION_COOKIE_NAME) ??
+    (sessionCookiePartitioned ? "__Host-aict.sid.v2" : "connect.sid");
 
   return {
     isProduction,
     allowedCorsOrigins,
     csrfEnforced: parseBooleanEnv(env.CSRF_ENFORCED, isProduction),
     trustProxy: parseBooleanEnv(env.TRUST_PROXY, isProduction),
+    sessionCookieName,
     sessionCookieSameSite,
+    sessionCookiePartitioned,
     sessionCookieSecure,
     publicAppUrl: normalizeOptionalString(
       env.PUBLIC_APP_URL || env.APP_BASE_URL || env.FRONTEND_URL,
@@ -304,6 +314,18 @@ export function validateRuntimeEnvironment(env: NodeJS.ProcessEnv = process.env)
   }
 
   validateSmtpConfig(env, errors, config.isProduction);
+
+  if (config.sessionCookiePartitioned && !config.sessionCookieSecure) {
+    errors.push("SESSION_COOKIE_SECURE must be true when SESSION_COOKIE_PARTITIONED=true");
+  }
+
+  if (!/^[A-Za-z0-9._-]+$/.test(config.sessionCookieName)) {
+    errors.push("SESSION_COOKIE_NAME may contain only letters, numbers, dots, underscores, and hyphens");
+  }
+
+  if (config.sessionCookieName.startsWith("__Host-") && !config.sessionCookieSecure) {
+    errors.push("SESSION_COOKIE_SECURE must be true when SESSION_COOKIE_NAME uses the __Host- prefix");
+  }
 
   if (config.isProduction) {
     validateSecret("SESSION_SECRET", env.SESSION_SECRET, errors);

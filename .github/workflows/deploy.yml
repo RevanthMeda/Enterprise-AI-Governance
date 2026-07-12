@@ -68,8 +68,14 @@ jobs:
       - name: Run tenant route tests
         run: npm run test:tenant:routes
 
+      - name: Run CSRF security tests
+        run: npm run test:security:csrf-middleware && npm run test:security:csrf-client && npm run test:security:http-headers && npm run test:security:csrf
+
       - name: Run regression suite
         run: npm run test:regression:all
+
+      - name: Validate Firebase preview build
+        run: npm run build:firebase
 
       - name: Build application
         run: npm run build

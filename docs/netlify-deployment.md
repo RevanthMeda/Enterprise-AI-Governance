@@ -29,11 +29,15 @@ Required backend environment variables:
 - `PASSWORD_RESET_SECRET=<dedicated-long-random-secret>`
 - `CONTROL_TOWER_VAULT_SECRET=<dedicated-long-random-secret>`
 - `TRUST_PROXY=true`
-- `PUBLIC_APP_URL=https://<your-netlify-site>.netlify.app`
-- `CORS_ALLOWED_ORIGINS=https://<your-netlify-site>.netlify.app`
+- `PUBLIC_APP_URL=https://aicontrolgrid.com`
+- `CORS_ALLOWED_ORIGINS=https://aicontrolgrid.com,https://ai-control-grid.netlify.app,https://ai-control-tower-d9854.web.app,https://ai-control-tower-d9854.firebaseapp.com`
 - `SESSION_COOKIE_SAME_SITE=none`
 - `SESSION_COOKIE_SECURE=true`
+- `SESSION_COOKIE_PARTITIONED=true`
+- `SESSION_COOKIE_NAME=__Host-aict.sid.v2`
 - `CSRF_ENFORCED=true`
+
+Those cookie values assume this deployment shares the Render backend with the Firebase preview. One backend must use one cookie policy; the partitioned cross-site policy also works when Netlify relays `/api` on the frontend origin. If you provision a dedicated Netlify-only backend, `SameSite=lax`, `Partitioned=false`, and the default cookie name are acceptable instead.
 
 Optional (if used in your flows):
 - `LEAD_WEBHOOK_URL=<webhook-url>`
@@ -60,8 +64,7 @@ The repo now includes:
 
 These ensure SPA routing works (no Netlify 404 on app routes).
 
-Set this Netlify environment variable:
-- `VITE_API_BASE_URL=https://<your-backend-domain>`
+Leave `VITE_API_BASE_URL` unset (or empty). The checked-in Netlify proxy forwards same-origin `/api/*` requests to the backend. This keeps the browser session first-party even though the server runs separately.
 
 Then deploy.
 
@@ -70,8 +73,8 @@ Then deploy.
 After deploy, verify:
 1. `https://<netlify-domain>/` loads (no Netlify 404 page).
 2. Login works from Netlify frontend.
-3. API requests go to backend domain (browser network tab).
-4. Session cookie is set on backend domain with `Secure` and `SameSite=None`.
+3. Browser API requests stay on the Netlify domain under `/api/*`.
+4. Session cookie is set through the Netlify origin with `Secure`, `SameSite=None`, `Partitioned`, and the versioned `__Host-aict.sid.v2` name.
 5. Organization invites generate frontend `/invite/accept` links and are delivered through SMTP or webhook if configured.
 
 ## 4) Common failure modes
@@ -79,12 +82,14 @@ After deploy, verify:
 - Netlify root shows "Page not found":
   - Missing SPA redirect config. This is fixed by `netlify.toml` and `_redirects`.
 - Frontend loads but login/API fail:
-  - `VITE_API_BASE_URL` missing or wrong.
+  - `VITE_API_BASE_URL` was set and bypassed the same-origin Netlify proxy. Remove it and rebuild.
 - Login request succeeds but user is immediately unauthenticated:
   - Cookie policy/CORS mismatch. Recheck:
     - `CORS_ALLOWED_ORIGINS`
     - `SESSION_COOKIE_SAME_SITE=none`
     - `SESSION_COOKIE_SECURE=true`
+    - `SESSION_COOKIE_PARTITIONED=true`
+    - `SESSION_COOKIE_NAME=__Host-aict.sid.v2`
     - `TRUST_PROXY=true`
 - Backend fails immediately on boot:
   - Runtime validation rejected missing or placeholder production settings. Recheck:

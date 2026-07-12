@@ -1,4 +1,5 @@
-const rawApiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() ?? "";
+const runtimeEnv = (import.meta as ImportMeta & { env?: ImportMetaEnv }).env;
+const rawApiBaseUrl = (runtimeEnv?.VITE_API_BASE_URL as string | undefined)?.trim() ?? "";
 const apiBaseUrl = rawApiBaseUrl.replace(/\/+$/, "");
 
 function isApiPath(pathname: string): boolean {

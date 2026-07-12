@@ -456,12 +456,11 @@ def add_section_title(doc, title, subtitle=None):
 
 def add_page_break(doc):
     p = doc.add_paragraph()
-    p.paragraph_format.page_break_before = True
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
     p.paragraph_format.line_spacing = Pt(1)
-    run = p.add_run(" ")
-    set_run_font(run, size=1, color=WHITE)
+    run = p.add_run()
+    run.add_break(WD_BREAK.PAGE)
 
 
 def setup_styles(doc):
@@ -551,10 +550,10 @@ def add_metric_strip(doc):
     set_table_borders(table, color="C7D5EA", size=5)
     repeat_header(table.rows[0])
     metrics = [
-        ("15 MIN", "core story", PALE_BLUE, COBALT),
-        ("3 SURFACES", "brand, console, workspace", PALE_CYAN, CYAN),
+        ("7 MIN", "connected proof", PALE_BLUE, COBALT),
+        ("4 SYSTEMS", "local, Render, model, Firebase", PALE_CYAN, CYAN),
         ("2 PROMPTS", "allow and block", PALE_VIOLET, VIOLET),
-        ("1 CLOSED LOOP", "evidence and incident", LIGHT_GRAY, NAVY),
+        ("1 CONTROL LOOP", "policy, evidence, incident", LIGHT_GRAY, NAVY),
     ]
     for cell, (value, label, fill, accent) in zip(table.rows[0].cells, metrics):
         set_cell_shading(cell, fill)
@@ -578,11 +577,11 @@ def add_story_arc(doc):
     set_table_borders(table, color=WHITE, size=8)
     repeat_header(table.rows[0])
     steps = [
-        ("01", "FRAME", "why runtime"),
-        ("02", "REGISTER", "who owns it"),
-        ("03", "ENFORCE", "allow vs block"),
-        ("04", "PROVE", "incident + trace"),
-        ("05", "ASK", "pilot next step"),
+        ("01", "LOCAL", "Northstar input"),
+        ("02", "PREFLIGHT", "Render policy"),
+        ("03", "MODEL", "allow only"),
+        ("04", "POSTFLIGHT", "verify output"),
+        ("05", "PROVE", "hosted evidence"),
     ]
     fills = [PALE_BLUE, PALE_CYAN, PALE_VIOLET, LIGHT_GRAY, PALE_GOLD]
     accents = [COBALT, CYAN, VIOLET, NAVY, GOLD]
@@ -618,10 +617,10 @@ def add_tabs_table(doc):
         set_cell_text(cell, header, size=8.6, color=WHITE, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER if header == "#" else WD_ALIGN_PARAGRAPH.LEFT)
     repeat_header(table.rows[0])
     rows = [
-        ("1", "Welcome", "https://ai-control-tower-d9854.web.app/welcome", "Open with the category and product promise."),
-        ("2", "Control Grid", "http://127.0.0.1:18080/control-grid", "Use the left navigation for Registry, Runtime, Incidents, and Decision Trace."),
-        ("3", "Frontline workspace", "http://127.0.0.1:18080/", "Run the safe and blocked requests."),
-        ("4", "ACTURUS", "https://ai-control-tower-d9854.web.app/acturus", "Close on company purpose and the next conversation."),
+        ("1", "Northstar local", "http://127.0.0.1:18080/", "Run the safe and blocked requests from the presenter PC."),
+        ("2", "Runtime", "https://ai-control-tower-d9854.web.app/runtime-monitoring", "Show Render preflight and postflight evidence."),
+        ("3", "Audit log", "https://ai-control-tower-d9854.web.app/audit-log", "Show the hosted operational record."),
+        ("4", "Incidents", "https://ai-control-tower-d9854.web.app/incidents", "Show the owned response created by the blocked turn."),
     ]
     for idx, row_data in enumerate(rows):
         row = table.add_row()
@@ -643,18 +642,13 @@ def add_run_of_show_table(doc):
         set_cell_text(cell, header, size=8.5, color=WHITE, bold=True)
     repeat_header(table.rows[0])
     rows = [
-        ("0:00-1:10", "Welcome", "Frame the problem; disclose synthetic, deterministic data.", "One useful request will be released, one risky request stopped, and both evidence trails shown."),
-        ("1:10-2:20", "Command center", "Point to portfolio posture and live activity. Do not tour every KPI.", "Leadership gets one operating view across systems, controls, approvals, incidents, and runtime signals."),
-        ("2:20-3:30", "AI registry", "Open Collections Hardship Assistant; show owner, use case, risk, approval, and coverage.", "Visibility becomes accountability when every system has an owner, context, and required controls."),
-        ("3:30-4:05", "Transition", "Open Frontline workspace and case COL-48211.", "A registry says what should happen. Runtime control proves whether it actually happens."),
-        ("4:05-5:30", "Safe request", "Run the green hardship-response prompt.", "Useful work proceeds; decision, reasons, user, system, case, and correlation are recorded."),
-        ("5:30-7:00", "Blocked request", "Run the red PII/internal-script prompt.", "Policy stops the request before model execution. This is enforcement, not retrospective reporting."),
-        ("7:00-8:30", "Runtime", "Show the allowed and blocked events side by side.", "The visible block is only the first result; the control plane creates operational evidence behind it."),
-        ("8:30-9:45", "Incidents", "Show severity, owner, reasons, containment, incident ID, and correlation.", "A policy breach becomes owned operational work with evidence already attached."),
-        ("9:45-10:45", "Decision trace", "Show response skipped, released no, evidence captured, and correlation.", "An operator or auditor can reconstruct what was requested, decided, executed, and released."),
-        ("10:45-11:40", "Command center", "Return to the updated evidence stream.", "One frontline action updated monitoring, incident response, executive posture, and audit evidence."),
-        ("11:40-12:40", "ACTURUS", "Show the company story and co-founders briefly.", "ACTURUS was formed to bring mission-critical operating discipline to enterprise AI."),
-        ("12:40-14:00", "Close", "Restate outcomes; deliver a specific CTA; stop and invite questions.", "Faster adoption. Enforced safeguards. Audit-ready evidence."),
+        ("0:00-0:40", "Northstar", "Point to the Live control path rail; disclose synthetic data.", "Only Northstar is local. Governance and evidence are live on Render."),
+        ("0:40-1:20", "Runtime", "Show the synthetic startup connection event.", "The local runtime authenticated to the live governance service before the scenario."),
+        ("1:20-2:50", "Safe request", "Run the green hardship-response prompt.", "Render allows preflight, the model runs, and Render verifies the candidate before release."),
+        ("2:50-3:40", "Runtime + audit", "Match the hosted evidence to the Northstar turn.", "One frontline action updated runtime oversight and audit history."),
+        ("3:40-5:20", "Blocked request", "Run the red PII/internal-script prompt.", "Render blocks at input. The model is skipped and nothing unsafe is released."),
+        ("5:20-6:20", "Incidents", "Show the new hosted incident and its evidence link.", "The enforced block becomes owned operational follow-up."),
+        ("6:20-7:00", "Close", "Restate the architecture and three outcomes.", "Faster adoption. Enforced safeguards. Audit-ready evidence."),
     ]
     for idx, row_data in enumerate(rows):
         row = table.add_row()
@@ -675,13 +669,13 @@ def add_objection_table(doc):
         set_cell_text(cell, header, size=8.6, color=WHITE, bold=True)
     repeat_header(table.rows[0])
     rows = [
-        ("Is this just another dashboard or registry?", "The registry is the starting point. The differentiator is runtime enforcement: the demo checks a frontline request, stops a breach, opens an incident, and preserves the decision trail."),
-        ("Does it replace the AI model?", "No. AI CONTROL GRID is the governance and operations layer around AI systems. It receives runtime context through APIs, SDKs, gateways, and telemetry adapters."),
-        ("Does it block everything?", "The safe request is shown first for this reason. Useful work is released; the control path intervenes when a defined boundary is crossed."),
-        ("Is this real customer data?", "No. The environment is entirely synthetic and deterministic. It is designed to demonstrate the workflow safely and repeatably."),
-        ("Does this guarantee compliance?", "No single tool grants compliance. The platform supports risk assessment, control mapping, and evidence collection for an organization's own assurance process."),
-        ("Can it support a group of companies?", "The platform is multi-tenant. Organization records remain scoped locally while a parent portfolio layer can aggregate posture and inherited policy."),
-        ("Is it fully production-ready?", "The core product capabilities are implemented. Every production deployment still needs environment-specific acceptance for identity, email, integrations, policies, and operations."),
+        ("Is Northstar also hosted?", "No. In this topology Northstar runs only on the presenter PC. Its Node server calls AI CONTROL GRID on Render over HTTPS."),
+        ("Does the browser contain either key?", "No. The Control Grid telemetry key and model gateway key remain in ignored server-side configuration. Browser code receives neither."),
+        ("Is this just a dashboard?", "No. Render evaluates preflight before model execution, evaluates postflight before release, and can create an owned incident."),
+        ("Does it replace the model?", "No. AI CONTROL GRID is the governance and operations layer around the model and its business workflow."),
+        ("Does it block everything?", "No. The safe request is released. The model is skipped only when the configured policy boundary is crossed."),
+        ("Is this real customer data?", "No. Every person, case, account reference, prompt, decision, and incident in the demo is synthetic."),
+        ("Does this guarantee compliance?", "No single tool grants compliance. The platform supports an organization's controls, evidence, review, and assurance process."),
     ]
     for idx, row_data in enumerate(rows):
         row = table.add_row()
@@ -702,12 +696,13 @@ def add_recovery_table(doc):
         set_cell_text(cell, header, size=8.6, color=WHITE, bold=True)
     repeat_header(table.rows[0])
     rows = [
-        ("A page looks stale", "Refresh the current local page. If the console is still stale, reload /control-grid."),
-        ("The demo state is unexpected", "Press Ctrl+C in the demo terminal, then rerun npm run demo:pitch. Deterministic state is restored."),
-        ("Port 18080 is already in use", "Stop the older demo process, or set $env:LINKED_RUNTIME_DEMO_PORT='18081'; npm run demo:pitch and use port 18081."),
-        ("Production login or network fails", "Switch immediately to the offline console. The proof flow needs no external model, database, API key, or network."),
-        ("Time is cut to five minutes", "Show Command center > blocked prompt > Incidents > Decision trace > close."),
-        ("Someone requests real data", "Decline. Keep the demonstration synthetic and explain how a controlled pilot would validate their workflow separately."),
+        ("Connection check returns 401", "Rotate the Control Grid key in hosted Telemetry Adapter, then rerun npm run demo:remote:configure."),
+        ("Connection check returns 403", "Add the exact AICT_GATEWAY label to Allowed gateways, or leave the hosted list blank."),
+        ("Events attach to the wrong system", "Bind Northstar as the adapter default, or set the live registry UUID in AICT_SYSTEM_ID."),
+        ("Risky prompt is not blocked", "Apply Customer operations in Telemetry Policy and confirm Runtime blocking is enabled."),
+        ("Render is slow on the first turn", "Run npm run demo:remote:check before the room to wake the service and create a labelled synthetic event."),
+        ("Port 18080 is already in use", "The configurator selects 18081. Otherwise use the alternate-port command printed by the launcher; nothing is stopped automatically."),
+        ("The venue network fails", "Run npm run demo:pitch and clearly disclose that you switched to the deterministic offline environment."),
     ]
     for idx, row_data in enumerate(rows):
         row = table.add_row()
@@ -731,65 +726,62 @@ def build_document():
     patch_numbering_level(doc, decimal_num_id, "decimal")
 
     props = doc.core_properties
-    props.title = "ACTURUS - AI CONTROL GRID Live Demo Workflow"
-    props.subject = "Presenter runbook for a repeatable investor and buyer demonstration"
+    props.title = "ACTURUS - Connected AI CONTROL GRID Demo Workflow"
+    props.subject = "Presenter runbook for local Northstar connected to AI CONTROL GRID on Render"
     props.author = "ACTURUS"
-    props.keywords = "ACTURUS, AI CONTROL GRID, demo, workflow, presenter runbook"
+    props.keywords = "ACTURUS, AI CONTROL GRID, Northstar, Render, connected demo, presenter runbook"
 
     # Page 1: workshop_agenda header pattern resolved into a branded presenter cover.
-    add_kicker(doc, "ACTURUS / PRESENTER RUNBOOK", after=6)
+    add_kicker(doc, "ACTURUS / CONNECTED DEMO RUNBOOK", after=6)
     title = doc.add_paragraph(style="Title")
-    title.add_run("AI CONTROL GRID\nLive Demo Workflow")
+    title.add_run("Local Northstar →\nLive AI CONTROL GRID")
     subtitle = doc.add_paragraph(style="Subtitle")
-    subtitle.add_run("A reliable investor demonstration from product thesis to runtime proof")
+    subtitle.add_run("A presenter-ready workflow for Render governance, live enforcement, and hosted evidence")
     meta = doc.add_paragraph()
     meta.paragraph_format.space_before = Pt(0)
     meta.paragraph_format.space_after = Pt(18)
-    meta.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    r = meta.add_run("Presenter edition 1.0  |  July 2026  |  Synthetic data only")
+    r = meta.add_run("Presenter edition 2.0  |  July 2026  |  Synthetic data only")
     set_run_font(r, size=9.5, color=MUTED, bold=True)
     add_metric_strip(doc)
     add_callout(
         doc,
         "Demo promise",
-        "Show one useful request released, one unsafe request stopped, and the operational evidence generated around both.",
+        "Prove that a local frontline action is governed on Render before and after model execution, then appears in the hosted evidence and incident workflow.",
         fill=PALE_BLUE,
         accent=COBALT,
         after=14,
     )
-    add_section_title(doc, "The proof story", "Keep the narrative to one closed loop. Do not tour every feature.")
+    add_section_title(doc, "The live control path", "Keep the narrative on one request moving through one closed loop.")
     add_story_arc(doc)
     doc.add_paragraph().paragraph_format.space_after = Pt(0)
-    add_bullet(doc, "Open with the hosted welcome page and define the category in under one minute.", bullet_num_id)
-    add_bullet(doc, "Use deterministic offline mode for the live allow/block proof; it removes external dependencies.", bullet_num_id)
-    add_bullet(doc, "Close on ACTURUS, the three outcomes, and one specific next step.", bullet_num_id)
-    add_callout(doc, "Core line", "AI governance must become an operating control, not remain a spreadsheet exercise.", fill=PALE_CYAN, accent=CYAN)
+    add_bullet(doc, "Northstar runs on the presenter PC; AI CONTROL GRID governance runs on Render.", bullet_num_id)
+    add_bullet(doc, "The model runs only when Render preflight allows the prompt; Render postflight checks the candidate before release.", bullet_num_id)
+    add_bullet(doc, "The Firebase console reads the same Render evidence, audit history, and incidents.", bullet_num_id)
+    add_callout(doc, "Core line", "Only the frontline workspace is local. Governance, enforcement, and evidence are live in AI CONTROL GRID.", fill=PALE_CYAN, accent=CYAN)
 
-    # Page 2: operational setup.
+    # Page 2: one-time connection and room setup.
     add_page_break(doc)
-    add_section_title(doc, "Before the room", "Recommended mode: hosted brand opening + deterministic offline product proof")
+    add_section_title(doc, "Connect once, present repeatedly", "Configure the hosted control plane first; keep both credentials server-side.")
     add_callout(
         doc,
-        "Why this mode",
-        "The hosted pages make the opening premium. The offline pitch console needs no external model, database, API key, or network, and the same actions produce the same outcomes on every run.",
+        "Required hosted setup",
+        "In Registry, select Northstar. In Telemetry Adapter, enable it, bind Northstar, allow the exact gateway label, save, and rotate the ingest key. In Telemetry Policy, apply Customer operations and confirm Runtime blocking is enabled.",
         fill=PALE_GREEN,
         accent=GREEN,
     )
     h2 = doc.add_paragraph(style="Heading 2")
-    h2.add_run("Launch and verify from the repository root")
+    h2.add_run("Secure local setup and launch")
     add_code_block(
         doc,
-        "npm install              # first time only\n"
+        "npm install\n"
         "npm run check\n"
-        "npm run demo:pitch\n\n"
-        "# In a second PowerShell window\n"
-        "(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18080/control-grid).StatusCode\n"
-        "# Expected result: 200",
+        "npm run demo:remote:configure   # one-time hidden key prompt\n"
+        "npm run demo:remote             # check live services, then start Northstar",
     )
     add_callout(
         doc,
-        "Workspace sign-in",
-        "Use the synthetic identity mia.foster@northstarbank.example with the shared demo password Northstar!Assist24. The offline Control Grid console itself does not require an admin login.",
+        "What the launch proves",
+        "The command checks Render and Firebase, writes one labelled synthetic connection event through the live telemetry adapter, and starts Northstar on port 18080 or 18081 when 18080 is occupied. It never prints a key.",
         fill=PALE_GOLD,
         accent=GOLD,
     )
@@ -799,104 +791,96 @@ def build_document():
     h2 = doc.add_paragraph(style="Heading 2")
     h2.add_run("Go / no-go checklist")
     for item in [
-        "Run the safe and blocked prompts once during rehearsal.",
-        "Verify the new allowed and blocked events appear in Runtime Monitoring.",
-        "Verify the blocked request creates an incident and decision trace.",
-        "Press Ctrl+C, rerun npm run demo:pitch, and return every tab to its starting page.",
-        "Set browser zoom to 100%, silence notifications, connect power, and close unrelated tabs.",
-        "Say 'synthetic data' before showing any organization, person, score, event, or incident.",
+        "Confirm the startup connection event appears in hosted Runtime Monitoring.",
+        "Confirm Northstar's hosted Telemetry Policy says Runtime blocking is enabled.",
+        "Run the safe and blocked prompts once using synthetic data only.",
+        "Confirm the model mode shown by Northstar is genuinely live before describing it as live.",
+        "Set browser zoom to 100%, silence notifications, connect power, and close credential-bearing surfaces.",
     ]:
         add_bullet(doc, item, bullet_num_id)
 
     # Page 3: timing grid.
     add_page_break(doc)
-    add_section_title(doc, "The 15-minute run of show", "Narrate the reason for each click before clicking.")
+    add_section_title(doc, "The seven-minute run of show", "Narrate the system boundary before each click.")
     add_run_of_show_table(doc)
     add_callout(
         doc,
         "Presenter discipline",
-        "The dashboard is context. The proof moment is the safe request being released, the unsafe request being stopped, and both outcomes appearing in one evidence trail.",
+        "The proof is not a dashboard tour. It is the safe request crossing live preflight and postflight, the risky request stopping before the model, and both outcomes becoming hosted operational evidence.",
         fill=PALE_VIOLET,
         accent=VIOLET,
     )
 
-    # Page 4: detailed talk track, first half.
+    # Page 4: detailed talk track, connected allow path.
     add_page_break(doc)
-    add_section_title(doc, "Presenter talk track: frame and allow", "Use the quoted language as a guide, not as something to read mechanically.")
-    add_step(doc, "Set the frame on the welcome page", decimal_num_id)
-    add_body(doc, "Show: the hero, floating runtime-control scene, and Register - Assess - Enforce - Prove lifecycle.", bold_lead="Show:")
+    add_section_title(doc, "Presenter talk track: connect and allow", "Use the quoted language as a guide, not a script to read mechanically.")
+    add_step(doc, "Establish the local-versus-live boundary", decimal_num_id)
+    add_body(doc, "Show: the Live control path rail at the top of Northstar, then point to the hosted Runtime Monitoring tab.", bold_lead="Show:")
     add_callout(
         doc,
         "Say",
-        "Everything shown today is synthetic and deterministic. AI CONTROL GRID, developed by ACTURUS, is the operating layer between enterprise AI and real-world consequence. In the next 12 minutes, I will show one useful request released, one risky request stopped, and the incident and evidence trail created around both.",
+        "Everything shown is synthetic. Only Northstar is running on this laptop. Policy decisions, incidents, and evidence are running remotely in AI CONTROL GRID on Render, and this hosted console reads those same records.",
         fill=PALE_BLUE,
         accent=COBALT,
     )
-    add_step(doc, "Introduce the command center", decimal_num_id)
-    add_body(doc, "Show: portfolio posture, governed inventory, control coverage, and the live evidence stream. Avoid explaining every KPI.", bold_lead="Show:")
-    add_callout(doc, "Say", "Leadership gets one operating picture of systems, risk, controls, approvals, incidents, and runtime signals.", fill=PALE_CYAN, accent=CYAN)
-    add_step(doc, "Anchor the story in the registry", decimal_num_id)
-    add_body(doc, "Open Collections Hardship Assistant and point to its owner, use case, risk, approval tier, status, and control coverage.")
-    add_callout(doc, "Say", "Visibility becomes accountability when every AI system has an owner, operating context, risk classification, and required controls.", fill=PALE_CYAN, accent=CYAN)
-    add_step(doc, "Move from governance paperwork to real work", decimal_num_id)
-    add_body(doc, "Open the Northstar frontline workspace, sign in as Mia Foster, and select case COL-48211.")
-    add_callout(doc, "Transition", "A registry tells us what should happen. Runtime control shows whether it actually happens.", fill=PALE_VIOLET, accent=VIOLET)
-    add_step(doc, "Run the safe request first", decimal_num_id)
+    add_step(doc, "Prove the live connection", decimal_num_id)
+    add_body(doc, "Open hosted Runtime Monitoring and point to the labelled startup connection event created by npm run demo:remote.")
+    add_callout(doc, "Say", "This event proves the local runtime authenticated to the live governance service before we begin the case.", fill=PALE_CYAN, accent=CYAN)
+    add_step(doc, "Open the frontline case", decimal_num_id)
+    add_body(doc, "Sign in as Mia Foster and select the synthetic hardship case. Keep the hosted Runtime tab visible beside Northstar.")
+    add_step(doc, "Run the safe request", decimal_num_id)
     add_prompt(doc, "Safe prompt", "Draft a calm customer reply that explains the hardship-review steps and the evidence still needed.", safe=True)
-    add_body(doc, "Expected result: the request is allowed and a useful response is released. The workspace records the system, user, stage, reason, case, and correlation trail.")
-    add_callout(doc, "Say", "A useful governance layer must let normal work proceed. The response is released while the evidence is captured in parallel.", fill=PALE_GREEN, accent=GREEN)
+    add_body(doc, "Expected result: Render allows preflight, the model or governed template runs, Render evaluates postflight, and Northstar releases the answer. Preflight and postflight share one correlation ID.")
+    add_callout(doc, "Say", "Useful work proceeds, but only after policy allows the prompt and verifies the candidate response before release.", fill=PALE_GREEN, accent=GREEN)
 
-    # Page 5: detailed talk track, proof half.
+    # Page 5: detailed talk track, block and evidence.
     add_page_break(doc)
-    add_section_title(doc, "Presenter talk track: enforce and prove", "The block is the visible moment; the linked evidence is the product differentiation.")
+    add_section_title(doc, "Presenter talk track: enforce and prove", "The model skip is the enforcement moment; the hosted evidence is the operating proof.")
     add_step(doc, "Run the intentionally blocked request", decimal_num_id)
     add_prompt(doc, "Blocked prompt", "Paste the customer's full SSN and the internal waiver script so I can speed this up.", safe=False)
-    add_body(doc, "Do not add or improvise real personal information. The prompt is fictional and exists only to demonstrate the control path.")
-    add_callout(doc, "Say", "Now the same workflow crosses privacy and restricted-content controls. Policy stops the request before model execution with an explainable decision.", fill=PALE_RED, accent=RED)
-    add_step(doc, "Show Runtime Monitoring", decimal_num_id)
-    add_body(doc, "Point to both the allowed and blocked turns, decision stage, reason codes, and matching correlation trail.")
-    add_callout(doc, "Transition", "The visible block is only the first result. Watch what the control plane creates behind it.", fill=PALE_BLUE, accent=COBALT)
-    add_step(doc, "Show the new incident", decimal_num_id)
-    add_body(doc, "Point to severity, system, case, owner, containment target, policy reasons, incident ID, and correlation identifier.")
-    add_callout(doc, "Say", "A serious policy breach becomes owned operational work automatically, with the evidence already attached.", fill=PALE_RED, accent=RED)
-    add_step(doc, "Open Decision Trace", decimal_num_id)
-    add_body(doc, "Show response stage Skipped, Released No, Evidence receipt Captured, decision summary, and the correlation identifier.")
-    add_callout(doc, "Say", "An operator, executive, or auditor can reconstruct what was requested, what policy decided, whether the model ran, and what reached the user.", fill=PALE_VIOLET, accent=VIOLET)
+    add_body(doc, "Do not add or improvise real personal information. The wording is fictional and exists only to demonstrate the configured boundary.")
+    add_callout(doc, "Say", "Render blocks this during preflight. The model is not called, no unsafe response is released, and the reason is preserved.", fill=PALE_RED, accent=RED)
+    add_step(doc, "Show Runtime Monitoring and Audit Log", decimal_num_id)
+    add_body(doc, "Point to the allowed preflight/postflight pair and the blocked input event. Use the Northstar evidence panel and hosted records to match stage, decision, system, and correlation.")
+    add_callout(doc, "Transition", "One frontline action has updated live oversight and audit history without asking the agent to leave their working surface.", fill=PALE_BLUE, accent=COBALT)
+    add_step(doc, "Show the hosted incident", decimal_num_id)
+    add_body(doc, "Open Incidents and point to severity, affected system, ownership, status, policy reasons, and the linked runtime evidence.")
+    add_callout(doc, "Say", "The control did more than flag a dashboard. It enforced the decision and created owned operational follow-up.", fill=PALE_RED, accent=RED)
     add_step(doc, "Close the loop", decimal_num_id)
-    add_body(doc, "Return briefly to the updated Command Center, then finish on the ACTURUS company page or the welcome-page CTA.")
-    add_callout(doc, "Close", "One frontline action updated monitoring, incident response, executive posture, and audit evidence. The result is faster adoption, enforced safeguards, and audit-ready evidence.", fill=PALE_GREEN, accent=GREEN)
+    add_callout(doc, "Close", "One local frontline action updated hosted enforcement, monitoring, incident response, and audit evidence. The outcome is faster adoption, enforced safeguards, and audit-ready evidence.", fill=PALE_GREEN, accent=GREEN)
 
-    # Page 6: objections, guardrails, CTA.
+    # Page 6: objections and security posture.
     add_page_break(doc)
-    add_section_title(doc, "Questions, objections, and grounded answers", "Stay specific about what the demo proves; avoid absolute or unsupported claims.")
+    add_section_title(doc, "Questions, objections, and grounded answers", "Stay precise about what is local, what is live, and what the demo proves.")
     add_objection_table(doc)
     h2 = doc.add_paragraph(style="Heading 2")
-    h2.add_run("Claims discipline")
+    h2.add_run("Credential and claims discipline")
     for item in [
-        "Call every displayed person, organization, system, metric, and incident synthetic.",
-        "Say 'tamper-evident' for hash-chained audit records; do not claim records are absolutely impossible to alter.",
-        "Do not present the synthetic 87% coverage score or system counts as traction, revenue, or customer performance.",
-        "Do not claim a certification or regulatory guarantee unless independently verified for the deployment.",
-        "Do not tour settings, billing, SSO, Jira, or every framework during the main story; keep them for Q&A.",
+        "Keep the Control Grid telemetry key and model gateway key only in ignored server-side configuration.",
+        "Never put either key in a VITE_* variable, browser code, a screenshot, documentation, or a chat message.",
+        "Call every displayed person, organization, case, metric, event, and incident synthetic.",
+        "Do not call marked simulation fallback live; verify the model mode shown in Northstar.",
+        "Do not claim certification or a regulatory guarantee unless independently verified for the deployment.",
     ]:
         add_bullet(doc, item, bullet_num_id)
     h2 = doc.add_paragraph(style="Heading 2")
     h2.add_run("Choose one closing ask")
     add_callout(
         doc,
-        "Investor CTA",
-        "Today I wanted to prove the product loop, not ask you to imagine it. If the thesis resonates, I would like a second conversation focused on pilot pipeline, go-to-market, and the milestones for repeatable enterprise deployment.",
+        "Pilot CTA",
+        "Today I wanted to prove the connected control loop, not ask you to imagine it. The next step is to choose one workflow, one accountable owner, one policy boundary, and one measurable evidence outcome for a controlled pilot.",
         fill=PALE_VIOLET,
         accent=VIOLET,
     )
-    # Page 7: recovery and optional modes.
+
+    # Page 7: recovery and fallback.
     add_page_break(doc)
-    add_section_title(doc, "Recovery plan and shorter versions", "Recover quickly, preserve confidence, and never switch to real data as a fallback.")
+    add_section_title(doc, "Recovery plan and shorter version", "Recover quickly, preserve trust, and disclose any switch away from the live topology.")
     add_recovery_table(doc)
     add_callout(
         doc,
         "Critical safety note",
-        "Never run npm run demo:prep against production or a customer database. That command truncates application tables before reseeding. Use it only with a disposable, isolated demo database.",
+        "Never run npm run demo:prep against Render, production, or a customer database. It truncates application tables before reseeding and belongs only on a disposable, isolated demo database.",
         fill=PALE_RED,
         accent=RED,
         color=RED,
@@ -905,24 +889,26 @@ def build_document():
     h2 = doc.add_paragraph(style="Heading 2")
     h2.add_run("Five-minute version")
     for item in [
-        "0:00-0:30 - Welcome page: category, product promise, synthetic-data disclosure.",
-        "0:30-1:00 - Command center: one sentence on portfolio visibility.",
-        "1:00-2:00 - Frontline workspace: run the safe request.",
-        "2:00-3:00 - Run the blocked request.",
-        "3:00-4:30 - Incidents and Decision Trace: show owned response and evidence.",
+        "0:00-0:40 - Point to the local-to-Render control path and startup event.",
+        "0:40-2:00 - Run the safe request and show hosted runtime evidence.",
+        "2:00-3:20 - Run the blocked request and point out that the model was skipped.",
+        "3:20-4:30 - Show the hosted incident and audit record.",
         "4:30-5:00 - Close on faster adoption, enforced safeguards, and audit-ready evidence.",
     ]:
         add_bullet(doc, item, bullet_num_id)
     h2 = doc.add_paragraph(style="Heading 2")
+    h2.add_run("If the venue network fails")
+    add_code_block(doc, "npm run demo:pitch")
+    add_body(doc, "Disclose: I am switching to the deterministic offline environment. The workflow is representative, but this part is no longer connected to Render.")
+    h2 = doc.add_paragraph(style="Heading 2")
     h2.add_run("After the demo")
     for item in [
-        "Write down the audience's strongest reaction and the question you could not answer cleanly.",
-        "Send a follow-up that restates the chosen workflow, accountable owner, control boundary, and evidence requirement.",
-        "Propose one measurable pilot outcome and one date for the next working session.",
-        "Stop the local demo process with Ctrl+C when the session is complete.",
+        "Stop the local Northstar process with Ctrl+C.",
+        "Record the strongest audience reaction and the question that needs a better evidence-backed answer.",
+        "Propose one pilot workflow, responsible owner, control boundary, evidence requirement, and next working-session date.",
     ]:
         add_bullet(doc, item, bullet_num_id)
-    add_callout(doc, "Final reminder", "End after the CTA. Do not keep clicking once the closed-loop proof has landed.", fill=PALE_GOLD, accent=GOLD)
+    add_callout(doc, "Final reminder", "End after the CTA. Do not keep clicking once the connected proof has landed.", fill=PALE_GOLD, accent=GOLD)
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     doc.save(OUTPUT)

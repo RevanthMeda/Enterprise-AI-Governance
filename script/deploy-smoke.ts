@@ -28,10 +28,18 @@ function cookieFromSetCookie(setCookie: string | null) {
   return pair || null;
 }
 
-async function loginAndGetCookie(backend: string, username: string, password: string) {
+async function loginAndGetSession(
+  backend: string,
+  username: string,
+  password: string,
+  origin?: string,
+) {
   const response = await fetch(`${backend}/api/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(origin ? { Origin: origin } : {}),
+    },
     body: JSON.stringify({ username, password }),
   });
 
@@ -40,12 +48,113 @@ async function loginAndGetCookie(backend: string, username: string, password: st
     throw new Error(`login failed with ${response.status}: ${text}`);
   }
 
-  const cookie = cookieFromSetCookie(response.headers.get("set-cookie"));
+  const setCookie = response.headers.get("set-cookie");
+  const cookie = cookieFromSetCookie(setCookie);
   if (!cookie) {
     throw new Error("login succeeded but no session cookie was returned");
   }
 
-  return cookie;
+  const verification = await fetch(`${backend}/api/auth/user`, {
+    headers: { Cookie: cookie, ...(origin ? { Origin: origin } : {}) },
+  });
+  if (!verification.ok) {
+    const text = await verification.text();
+    throw new Error(`login cookie was not accepted by the session endpoint (${verification.status}): ${text}`);
+  }
+
+  const csrfToken =
+    verification.headers.get("x-csrf-token") ||
+    response.headers.get("x-csrf-token");
+  if (!csrfToken) {
+    throw new Error("authenticated session did not return a CSRF token");
+  }
+
+  return { cookie, csrfToken, setCookie: setCookie ?? "" };
+}
+
+async function assertCsrfMutationPath(
+  apiBase: string,
+  sessionState: { cookie: string; csrfToken: string },
+  origin?: string,
+): Promise<void> {
+  const { response, text } = await fetchText(`${apiBase}/api/ai-systems`, {
+    method: "POST",
+    headers: {
+      Cookie: sessionState.cookie,
+      "Content-Type": "application/json",
+      "X-CSRF-Token": sessionState.csrfToken,
+      ...(origin ? { Origin: origin } : {}),
+    },
+    body: "{}",
+  });
+
+  if (
+    response.status === 403 &&
+    response.headers.get("x-error-code") === "CSRF_TOKEN_INVALID"
+  ) {
+    throw new Error(`CSRF validation rejected a matching session token: ${text}`);
+  }
+  if (response.status !== 400) {
+    throw new Error(`expected schema validation 400 after CSRF passed, received ${response.status}`);
+  }
+}
+
+async function assertFrontendSessionTopology(
+  frontend: string,
+  backend: string,
+  username: string,
+  password: string,
+  topology: "same-origin" | "cross-site",
+): Promise<void> {
+  if (topology === "same-origin") {
+    const frontendHealth = await fetch(`${frontend}/api/health`);
+    const contentType = frontendHealth.headers.get("content-type") ?? "";
+    if (!frontendHealth.ok || !contentType.includes("application/json")) {
+      throw new Error(
+        `same-origin frontend /api/health expected JSON 200, received ${frontendHealth.status} ${contentType || "without content type"}`,
+      );
+    }
+    const sessionState = await loginAndGetSession(frontend, username, password);
+    await assertCsrfMutationPath(frontend, sessionState);
+    return;
+  }
+
+  const origin = new URL(frontend).origin;
+  const preflight = await fetch(`${backend}/api/auth/login`, {
+    method: "OPTIONS",
+    headers: {
+      Origin: origin,
+      "Access-Control-Request-Method": "POST",
+      "Access-Control-Request-Headers": "content-type,x-csrf-token",
+    },
+  });
+  if (preflight.status !== 204) {
+    throw new Error(`cross-site API preflight expected 204, received ${preflight.status}`);
+  }
+  if (preflight.headers.get("access-control-allow-origin") !== origin) {
+    throw new Error("cross-site API did not allow the frontend origin");
+  }
+  if (preflight.headers.get("access-control-allow-credentials") !== "true") {
+    throw new Error("cross-site API did not allow credentialed requests");
+  }
+  const exposed = preflight.headers.get("access-control-expose-headers") ?? "";
+  if (!exposed.includes("X-CSRF-Token") || !exposed.includes("X-Error-Code")) {
+    throw new Error("cross-site API did not expose CSRF recovery headers");
+  }
+
+  const sessionState = await loginAndGetSession(backend, username, password, origin);
+  for (const attribute of [
+    "__Host-aict.sid.v2=",
+    "HttpOnly",
+    "Secure",
+    "Partitioned",
+    "SameSite=None",
+  ]) {
+    if (!sessionState.setCookie.includes(attribute)) {
+      throw new Error(`cross-site session cookie is missing ${attribute}`);
+    }
+  }
+  await assertCsrfMutationPath(backend, sessionState, origin);
 }
 
 async function runCheck(name: string, fn: () => Promise<void>): Promise<CheckResult> {
@@ -94,6 +203,11 @@ async function main() {
   const backend = backendBase ? normalizeBaseUrl(backendBase) : frontend;
   const adminUsername = process.env.SMOKE_ADMIN_USERNAME;
   const adminPassword = process.env.SMOKE_ADMIN_PASSWORD;
+  const configuredTopology = process.env.SMOKE_FRONTEND_TOPOLOGY?.trim() || "same-origin";
+  if (configuredTopology !== "same-origin" && configuredTopology !== "cross-site") {
+    throw new Error("SMOKE_FRONTEND_TOPOLOGY must be same-origin or cross-site");
+  }
+  const frontendTopology = configuredTopology as "same-origin" | "cross-site";
 
   const checks: Promise<CheckResult>[] = [];
 
@@ -138,7 +252,7 @@ async function main() {
       for (const path of authenticatedApiChecks) {
         checks.push(
           runCheckWithRetry(`authenticated ${path}`, async () => {
-            const cookie = await loginAndGetCookie(backend, adminUsername, adminPassword);
+            const { cookie } = await loginAndGetSession(backend, adminUsername, adminPassword);
             const { response } = await fetchText(`${backend}${path}`, {
               headers: { Cookie: cookie },
             });
@@ -148,10 +262,35 @@ async function main() {
           }),
         );
       }
+
+      checks.push(
+        runCheckWithRetry("authenticated CSRF mutation path", async () => {
+          const sessionState = await loginAndGetSession(
+            backend,
+            adminUsername,
+            adminPassword,
+          );
+          await assertCsrfMutationPath(backend, sessionState);
+        }),
+      );
     }
   }
 
   if (frontend) {
+    if (backend && adminUsername && adminPassword) {
+      checks.push(
+        runCheckWithRetry("frontend session and CSRF topology", async () => {
+          await assertFrontendSessionTopology(
+            frontend,
+            backend,
+            adminUsername,
+            adminPassword,
+            frontendTopology,
+          );
+        }),
+      );
+    }
+
     checks.push(
       runCheckWithRetry("frontend landing", async () => {
         const { response, text } = await fetchText(`${frontend}/`);

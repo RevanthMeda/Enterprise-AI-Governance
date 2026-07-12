@@ -60,7 +60,36 @@ test("csrf middleware exempts wildcard-prefixed gateway paths", async () => {
 
   assert.equal(nextCalled, true);
   assert.equal(res.statusCode, 200);
-  assert.equal(typeof req.session?.csrfToken, "string");
+  assert.equal(req.session?.csrfToken, undefined);
+  assert.equal(res.headers["x-csrf-token"], undefined);
+});
+
+test("csrf middleware does not create sessions for health probes", async () => {
+  const middleware = createCsrfMiddleware({
+    enforced: true,
+    exemptPaths: ["/api/health", "/api/ready"],
+  });
+
+  for (const path of ["/api/health", "/api/ready"]) {
+    const req: FakeRequest = {
+      path,
+      method: "GET",
+      session: {},
+      get() {
+        return undefined;
+      },
+    };
+    const res = makeResponse();
+    let nextCalled = false;
+
+    await middleware(req as any, res as any, () => {
+      nextCalled = true;
+    });
+
+    assert.equal(nextCalled, true);
+    assert.equal(req.session?.csrfToken, undefined);
+    assert.equal(res.headers["x-csrf-token"], undefined);
+  }
 });
 
 test("csrf middleware exempts public password recovery endpoints", async () => {
@@ -111,5 +140,7 @@ test("csrf middleware still protects non-exempt mutating api paths", async () =>
 
   assert.equal(nextCalled, false);
   assert.equal(res.statusCode, 403);
+  assert.equal(res.headers["x-error-code"], "CSRF_TOKEN_INVALID");
+  assert.equal(res.headers["cache-control"], "no-store");
   assert.deepEqual(res.body, { message: "Invalid CSRF token" });
 });

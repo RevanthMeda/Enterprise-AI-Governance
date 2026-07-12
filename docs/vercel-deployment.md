@@ -24,7 +24,13 @@ Recommended:
 
 - `TRUST_PROXY=true`
 - `CSRF_ENFORCED=true`
+- `SESSION_COOKIE_SAME_SITE=lax`
+- `SESSION_COOKIE_SECURE=true`
+- `SESSION_COOKIE_PARTITIONED=false`
+- `SESSION_COOKIE_NAME=__Host-aict.sid.v2`
 - `AUTO_SEED_ON_STARTUP=false`
+
+Leave `VITE_API_BASE_URL` unset (or empty). Vercel serves the frontend and `/api` function on one origin; an external API base URL would unnecessarily turn the session cookie into a third-party cookie.
 
 Optional path overrides:
 
@@ -74,10 +80,13 @@ Verify:
 1. `/api/health`
 2. `/api/ready`
 3. sign-in flow
-4. `/telemetry-adapter`
-5. `/runtime-monitoring`
-6. background jobs summary
-7. retention summary
+4. refresh and confirm the session remains signed in
+5. create an AI Registry entry
+6. run a Runtime/Telemetry test, then perform another protected write
+7. `/telemetry-adapter`
+8. `/runtime-monitoring`
+9. background jobs summary
+10. retention summary
 
 ## Remaining production hardening
 

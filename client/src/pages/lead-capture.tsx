@@ -84,7 +84,7 @@ function LeadCapturePage({ formType, copyKey }: LeadCapturePageProps) {
           ctaSource: attribution.ctaSource,
         }),
       });
-      captureCsrfTokenFromResponse(res);
+      captureCsrfTokenFromResponse(res, "include");
 
       const payload = await res.json().catch(() => null);
       if (!res.ok) {

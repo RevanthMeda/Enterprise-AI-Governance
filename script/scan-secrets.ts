@@ -42,6 +42,14 @@ type SecretPattern = {
 const secretEnvKeys = new Set([
   "API_KEY",
   "OPENAI_API_KEY",
+  "AICT_MODEL_API_KEY",
+  "AICT_TELEMETRY_KEY",
+  "CT_TELEMETRY_KEY",
+  "AICT_GOVERNANCE_CRITIC_API_KEY",
+  "AICT_DEMO_WORKSPACE_PASSWORD",
+  "AICT_DEMO_CONSOLE_PASSWORD",
+  "DEMO_WORKSPACE_PASSWORD",
+  "DEMO_USER_PASSWORD",
   "OPENROUTER_API_KEY",
   "SUPABASE_SERVICE_ROLE_KEY",
   "SUPABASE_PUBLISHABLE_KEY",
@@ -53,6 +61,7 @@ const secretEnvKeys = new Set([
   "SECRET_KEY",
   "JWT_SECRET",
   "TOKEN",
+  "GOVERNANCE_EVENT_WEBHOOK_TOKEN",
   "ACCESS_KEY_ID",
   "SECRET_ACCESS_KEY",
 ]);
@@ -65,6 +74,7 @@ const secretPatterns: SecretPattern[] = [
   { name: "Slack token", regex: /xox[baprs]-[A-Za-z0-9-]{10,200}/g },
   { name: "Stripe secret key", regex: /sk_(?:live|test)_[A-Za-z0-9]{16,255}/g },
   { name: "Supabase service role key", regex: /sb_secret_[A-Za-z0-9._-]{20,}/g },
+  { name: "Dynamic gateway token", regex: /nx_live_[A-Za-z0-9_-]{16,255}/g },
 ];
 
 type Finding = {
@@ -116,8 +126,8 @@ function offsetToLine(offset: number, lineStarts: number[]): number {
   return right + 1;
 }
 
-function formatSnippet(line: string): string {
-  return line.trim().slice(0, 160);
+function formatSnippet(_line: string): string {
+  return "[REDACTED]";
 }
 
 function looksLikePlaceholder(value: string): boolean {

@@ -1,49 +1,13 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import { resolveApiUrl } from "@/lib/api-url";
+import { apiFetch, throwIfResponseNotOk } from "@/lib/api-client";
 
-let csrfToken: string | null = null;
-const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
-
-export function getCsrfToken() {
-  return csrfToken;
-}
-
-export function captureCsrfTokenFromResponse(res: Response) {
-  const token = res.headers.get("x-csrf-token");
-  if (token) {
-    csrfToken = token;
-  }
-}
-
-async function throwIfResNotOk(res: Response) {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
-  }
-}
-
-export async function apiRequest(
-  method: string,
-  url: string,
-  data?: unknown | undefined,
-): Promise<Response> {
-  const upperMethod = method.toUpperCase();
-  const headers: Record<string, string> = data ? { "Content-Type": "application/json" } : {};
-  if (!SAFE_METHODS.has(upperMethod) && csrfToken) {
-    headers["X-CSRF-Token"] = csrfToken;
-  }
-
-  const res = await fetch(resolveApiUrl(url), {
-    method: upperMethod,
-    headers,
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
-
-  captureCsrfTokenFromResponse(res);
-  await throwIfResNotOk(res);
-  return res;
-}
+export {
+  apiFetch,
+  apiRequest,
+  captureCsrfTokenFromResponse,
+  clearCsrfToken,
+  getCsrfToken,
+} from "@/lib/api-client";
 
 type UnauthorizedBehavior = "returnNull" | "throw";
 export const getQueryFn: <T>(options: {
@@ -51,16 +15,13 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(resolveApiUrl(queryKey.join("/") as string), {
-      credentials: "include",
-    });
-    captureCsrfTokenFromResponse(res);
+    const res = await apiFetch(queryKey.join("/") as string);
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
     }
 
-    await throwIfResNotOk(res);
+    await throwIfResponseNotOk(res);
     return await res.json();
   };
 

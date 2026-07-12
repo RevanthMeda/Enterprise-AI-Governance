@@ -13,9 +13,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { resolveApiUrl } from "@/lib/api-url";
 import { formatLawPackLabel, formatLegalProfileLabel } from "@/lib/governance-display";
-import { captureCsrfTokenFromResponse, getCsrfToken, queryClient } from "@/lib/queryClient";
+import { apiFetch, apiRequest, queryClient } from "@/lib/queryClient";
 import type { EvidenceFile } from "@shared/schema";
 
 function formatFileSize(bytes: number): string {
@@ -114,8 +113,7 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
   const { data: files = [], isLoading } = useQuery<EvidenceFile[]>({
     queryKey,
     queryFn: async () => {
-      const res = await fetch(resolveApiUrl(`/api/evidence?${queryParams.toString()}`), { credentials: "include" });
-      captureCsrfTokenFromResponse(res);
+      const res = await apiFetch(`/api/evidence?${queryParams.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch evidence");
       return res.json();
     },
@@ -131,17 +129,13 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
       formData.append("category", category);
       formData.append("tags", tags);
       if (expiryDate) formData.append("expiryDate", expiryDate);
-      const csrfToken = getCsrfToken();
-      const res = await fetch(resolveApiUrl("/api/evidence"), {
+      const res = await apiFetch("/api/evidence", {
         method: "POST",
-        headers: csrfToken ? { "X-CSRF-Token": csrfToken } : undefined,
         body: formData,
-        credentials: "include",
       });
-      captureCsrfTokenFromResponse(res);
       if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || "Upload failed");
+        const error = await res.json().catch(() => null);
+        throw new Error(error?.message || "Upload failed");
       }
       return res.json();
     },
@@ -156,14 +150,7 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const csrfToken = getCsrfToken();
-      const res = await fetch(resolveApiUrl(`/api/evidence/${id}`), {
-        method: "DELETE",
-        headers: csrfToken ? { "X-CSRF-Token": csrfToken } : undefined,
-        credentials: "include",
-      });
-      captureCsrfTokenFromResponse(res);
-      if (!res.ok) throw new Error("Delete failed");
+      await apiRequest("DELETE", `/api/evidence/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/evidence"] });
@@ -185,6 +172,32 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
     e.preventDefault();
     setDragOver(false);
     handleUpload(e.dataTransfer.files);
+  };
+
+  const handleDownload = async (file: EvidenceFile) => {
+    try {
+      const response = await apiFetch(`/api/evidence/${file.id}/download`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error("Download failed");
+      }
+
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = file.fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description: error instanceof Error ? error.message : "Unable to download evidence",
+        variant: "destructive",
+      });
+    }
   };
 
   if (compact) {
@@ -211,6 +224,7 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
             onDrop={handleDrop}
             onUpload={handleUpload}
             onDelete={(id) => deleteMutation.mutate(id)}
+            onDownload={(file) => void handleDownload(file)}
             category={category}
             onCategoryChange={setCategory}
             tags={tags}
@@ -235,6 +249,7 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
       onDrop={handleDrop}
       onUpload={handleUpload}
       onDelete={(id) => deleteMutation.mutate(id)}
+      onDownload={(file) => void handleDownload(file)}
       category={category}
       onCategoryChange={setCategory}
       tags={tags}
@@ -256,6 +271,7 @@ function EvidenceContent({
   onDrop,
   onUpload,
   onDelete,
+  onDownload,
   category,
   onCategoryChange,
   tags,
@@ -273,6 +289,7 @@ function EvidenceContent({
   onDrop: (e: React.DragEvent) => void;
   onUpload: (files: FileList | null) => void;
   onDelete: (id: string) => void;
+  onDownload: (file: EvidenceFile) => void;
   category: string;
   onCategoryChange: (value: string) => void;
   tags: string;
@@ -415,13 +432,15 @@ function EvidenceContent({
                 })()}
               </div>
               <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                <a
-                  href={resolveApiUrl(`/api/evidence/${file.id}/download`)}
+                <button
+                  type="button"
+                  onClick={() => onDownload(file)}
+                  aria-label={`Download ${file.fileName}`}
                   className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-background"
                   data-testid={`button-download-evidence-${file.id}`}
                 >
                   <Download className="h-3 w-3 text-muted-foreground" />
-                </a>
+                </button>
                 <button
                   className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-background"
                   onClick={() => onDelete(file.id)}
@@ -442,8 +461,7 @@ export function EvidenceCount({ systemId }: { systemId: string }) {
   const { data: files = [] } = useQuery<EvidenceFile[]>({
     queryKey: ["/api/evidence", `systemId=${systemId}`],
     queryFn: async () => {
-      const res = await fetch(resolveApiUrl(`/api/evidence?systemId=${encodeURIComponent(systemId)}`), { credentials: "include" });
-      captureCsrfTokenFromResponse(res);
+      const res = await apiFetch(`/api/evidence?systemId=${encodeURIComponent(systemId)}`);
       if (!res.ok) throw new Error("Failed to fetch evidence");
       return res.json();
     },

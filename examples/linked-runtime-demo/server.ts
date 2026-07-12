@@ -15,6 +15,12 @@ import {
   renderPitchConsolePage,
   renderPitchConsolePanel,
 } from "./pitch-console";
+import {
+  normalizeModelGatewayEndpoint,
+  requestModelGatewayChat,
+  type ModelGatewayMessage,
+  type ModelGatewayRequestFormat,
+} from "./model-gateway";
 
 declare module "express-session" {
   interface SessionData {
@@ -152,6 +158,7 @@ const loadedEnvKeys = new Set<string>();
 const offlinePitchRequested =
   process.argv.includes("--offline") ||
   /^(1|true|yes|on)$/i.test(process.env.AICT_DEMO_OFFLINE_MODE?.trim() || "");
+const liveGatewayPitchFlag = process.argv.includes("--live-gateway");
 
 if (!offlinePitchRequested) {
   loadEnvFile(path.join(repoRootDir, ".env"));
@@ -169,47 +176,97 @@ const browserHost =
 const offlinePitchMode =
   offlinePitchRequested ||
   /^(1|true|yes|on)$/i.test(firstDefined("AICT_DEMO_OFFLINE_MODE"));
+const liveGatewayPitchMode =
+  !offlinePitchMode &&
+  (liveGatewayPitchFlag ||
+    /^(1|true|yes|on)$/i.test(firstDefined("AICT_DEMO_LIVE_GATEWAY_MODE")));
+const pitchConsoleMode = offlinePitchMode || liveGatewayPitchMode;
 const localWorkspaceBaseUrl = `http://${browserHost}:${port}`;
-const controlTowerBaseUrl = offlinePitchMode
+const controlTowerBaseUrl = pitchConsoleMode
   ? `${localWorkspaceBaseUrl}/control-grid`
   : firstDefined("AICT_BASE_URL", "CT_API") || "";
 const controlTowerConsoleUrl =
-  (offlinePitchMode
+  (pitchConsoleMode
     ? `${localWorkspaceBaseUrl}/control-grid`
     : firstDefined("AICT_CONSOLE_URL", "AICT_APP_URL", "PUBLIC_APP_URL")) ||
   controlTowerBaseUrl;
-const telemetryKey = offlinePitchMode
+const telemetryKey = pitchConsoleMode
   ? "offline-pitch-demo-key"
   : firstDefined("AICT_TELEMETRY_KEY", "CT_TELEMETRY_KEY") || "";
-const configuredSystemId = offlinePitchMode
+const configuredSystemId = pitchConsoleMode
   ? "northstar-collections-hardship-assistant"
   : firstDefined("AICT_SYSTEM_ID", "CT_SYSTEM_ID") || null;
-const configuredGateway = firstDefined("AICT_GATEWAY") || "customer-support-gateway";
-const configuredProvider = firstDefined("AICT_PROVIDER") || "openai";
-const configuredModel = firstDefined("AICT_MODEL_NAME") || "gpt-4.1-mini";
-const openAiApiKey = offlinePitchMode ? null : firstDefined("OPENAI_API_KEY") || null;
+const configuredGateway =
+  firstDefined("AICT_GATEWAY") ||
+  (liveGatewayPitchMode ? "atira-dynamic-gateway" : "customer-support-gateway");
+const configuredProvider =
+  firstDefined("AICT_PROVIDER") || (liveGatewayPitchMode ? "atira-cohere" : "openai");
+const configuredModel =
+  firstDefined("AICT_MODEL_NAME") || (liveGatewayPitchMode ? "dynamic" : "gpt-4.1-mini");
+const configuredModelEndpoint =
+  firstDefined("AICT_MODEL_ENDPOINT", "OPENAI_CHAT_COMPLETIONS_URL") ||
+  "https://api.openai.com/v1/chat/completions";
+const dedicatedModelApiKey = firstDefined("AICT_MODEL_API_KEY") || null;
+const modelApiKey = offlinePitchMode
+  ? null
+  : (
+      dedicatedModelApiKey ??
+      (isOfficialOpenAiModelEndpoint(configuredModelEndpoint)
+        ? firstDefined("OPENAI_API_KEY")
+        : "")
+    ) || null;
+const configuredModelRequestFormat: ModelGatewayRequestFormat = offlinePitchMode
+  ? "dynamic"
+  : resolveModelRequestFormat(
+      firstDefined("AICT_MODEL_REQUEST_FORMAT"),
+      configuredModelEndpoint,
+    );
 const demoWorkspacePassword =
   firstDefined("AICT_DEMO_WORKSPACE_PASSWORD", "DEMO_WORKSPACE_PASSWORD") ||
   "Northstar!Assist24";
-const controlTowerDemoEmail =
-  firstDefined("AICT_DEMO_CONSOLE_EMAIL") || "olivia.grant@pilotwaveholdings.example";
-const controlTowerDemoPassword =
-  firstDefined("AICT_DEMO_CONSOLE_PASSWORD", "DEMO_USER_PASSWORD") ||
-  "Northstar!Demo24";
 const demoSessionSecret =
   firstDefined("LINKED_RUNTIME_DEMO_SESSION_SECRET", "SESSION_SECRET") ||
   "linked-runtime-demo-session-secret";
 const telemetryTimeoutMs = Number(process.env.AICT_TIMEOUT_MS || 10_000);
 const overallTurnTimeoutMs = Number(process.env.AICT_DEMO_TURN_TIMEOUT_MS || 20_000);
 const upstreamModelTimeoutMs = Number(process.env.AICT_DEMO_MODEL_TIMEOUT_MS || 12_000);
+const maxLiveGatewayCalls = getBoundedInteger(
+  process.env.AICT_DEMO_MAX_LIVE_MODEL_CALLS,
+  50,
+  1,
+  500,
+);
+const maxConcurrentLiveGatewayCalls = getBoundedInteger(
+  process.env.AICT_DEMO_MAX_CONCURRENT_MODEL_CALLS,
+  2,
+  1,
+  10,
+);
 const demoServiceId = "ai-control-grid-linked-runtime-demo";
 const demoBuildStamp = "northstar-agent-workspace-2026-03-21";
+const demoRuntimeMode = offlinePitchMode
+  ? "offline-pitch"
+  : liveGatewayPitchMode
+    ? "live-gateway-pitch"
+    : "linked-runtime";
+const demoLogPrefix = offlinePitchMode
+  ? "[demo:pitch]"
+  : liveGatewayPitchMode
+    ? "[demo:pitch:live]"
+    : "[demo:remote]";
+const liveGatewayStartupError = liveGatewayPitchMode
+  ? validateLiveGatewayConfiguration({
+      endpoint: configuredModelEndpoint,
+      endpointWasExplicitlyConfigured: Boolean(firstDefined("AICT_MODEL_ENDPOINT")),
+      apiKey: modelApiKey,
+    })
+  : null;
 
-if (!offlinePitchMode && !controlTowerBaseUrl.trim()) {
+if (!pitchConsoleMode && !controlTowerBaseUrl.trim()) {
   throw new Error("AICT_BASE_URL or CT_API must be set");
 }
 
-if (!offlinePitchMode && !telemetryKey.trim()) {
+if (!pitchConsoleMode && !telemetryKey.trim()) {
   throw new Error("AICT_TELEMETRY_KEY or CT_TELEMETRY_KEY must be set");
 }
 
@@ -509,6 +566,8 @@ const client = new AiControlGridTelemetryClient({
 });
 
 const recentRuns: DemoRun[] = [];
+let liveGatewayCallCount = 0;
+let activeLiveGatewayCalls = 0;
 
 const app = express();
 app.use((_req, res, next) => {
@@ -519,7 +578,8 @@ app.use((_req, res, next) => {
     "Surrogate-Control": "no-store",
     "X-Demo-Service": demoServiceId,
     "X-Demo-Build": demoBuildStamp,
-    "X-Demo-Mode": offlinePitchMode ? "offline-pitch" : "linked-runtime",
+    "X-Demo-Mode": demoRuntimeMode,
+    "X-Demo-Control-Tower": controlTowerBaseUrl,
   });
   next();
 });
@@ -572,21 +632,22 @@ app.get("/healthz", (_req, res) => {
     ok: true,
     service: demoServiceId,
     build: demoBuildStamp,
-    mode: offlinePitchMode ? "offline-pitch" : "linked-runtime",
+    mode: demoRuntimeMode,
+    controlTowerBaseUrl,
   });
 });
 
 app.get("/control-grid/fragment", (req, res) => {
-  if (!offlinePitchMode) {
-    return res.status(404).send("Pitch console is available only in offline demo mode.");
+  if (!pitchConsoleMode) {
+    return res.status(404).send("Pitch console is available only in local pitch modes.");
   }
   const view = normalizePitchConsoleView(req.query.view);
   return res.type("html").send(renderPitchConsolePanel(view, recentRuns));
 });
 
 app.get(["/control-grid", "/control-grid/:view"], (req, res) => {
-  if (!offlinePitchMode) {
-    return res.status(404).send("Pitch console is available only in offline demo mode.");
+  if (!pitchConsoleMode) {
+    return res.status(404).send("Pitch console is available only in local pitch modes.");
   }
   const view = normalizePitchConsoleView(req.params.view);
   return res.type("html").send(
@@ -608,8 +669,9 @@ app.get("/api/bootstrap", (req, res) => {
   res.json({
     controlTowerBaseUrl,
     controlTowerConsoleUrl,
-    usingLiveModel: Boolean(openAiApiKey),
+    usingLiveModel: Boolean(modelApiKey && !offlinePitchMode),
     offlinePitchMode,
+    liveGatewayPitchMode,
     configuredGateway,
     configuredModel,
     configuredProvider,
@@ -701,7 +763,7 @@ app.post("/api/runs/:id/release", async (req, res) => {
   }
 
   let releaseReviewEventId: string | null = null;
-  if (offlinePitchMode) {
+  if (pitchConsoleMode) {
     releaseReviewEventId = `evt-demo-release-${randomUUID()}`;
   } else {
     try {
@@ -821,7 +883,10 @@ async function executeGovernedTurn(
   demoUser: DemoUser,
 ): Promise<DemoRun> {
   if (offlinePitchMode) {
-    return executeOfflineGovernedTurn(prompt, activeCase, demoUser);
+    return executeLocalPitchGovernedTurn(prompt, activeCase, demoUser, false);
+  }
+  if (liveGatewayPitchMode) {
+    return executeLocalPitchGovernedTurn(prompt, activeCase, demoUser, true);
   }
 
   const mode = modes[activeCase.modeId] ?? inferConversationMode(prompt);
@@ -997,11 +1062,12 @@ async function executeGovernedTurn(
   return run;
 }
 
-function executeOfflineGovernedTurn(
+async function executeLocalPitchGovernedTurn(
   prompt: string,
   activeCase: DemoCase,
   demoUser: DemoUser,
-): DemoRun {
+  useLiveModel: boolean,
+): Promise<DemoRun> {
   const mode = modes[activeCase.modeId] ?? inferConversationMode(prompt);
   const promptSignals = detectPromptSignals(prompt, mode);
   const correlationId = randomUUID();
@@ -1014,6 +1080,8 @@ function executeOfflineGovernedTurn(
   let blocked = preflightBlocked;
   let decisionStage: "input" | "output" = preflightBlocked ? "input" : "output";
   let modelCallExecuted = false;
+  let usedSimulation = false;
+  let upstreamError: string | null = null;
 
   if (!preflightBlocked) {
     const governedTemplate = buildGovernedTemplateResponse({
@@ -1029,8 +1097,24 @@ function executeOfflineGovernedTurn(
         title: demoUser.title,
       },
     });
-    response = governedTemplate?.response ?? simulateModelOutput(prompt, mode, activeCase, demoUser);
-    modelCallExecuted = true;
+
+    if (governedTemplate) {
+      response = governedTemplate.response;
+    } else if (useLiveModel) {
+      modelCallExecuted = true;
+      try {
+        response = await generateModelOutput(prompt, mode, activeCase, demoUser);
+      } catch (error) {
+        upstreamError = error instanceof Error ? error.message : "Model gateway request failed.";
+        usedSimulation = true;
+        response = simulateModelOutput(prompt, mode, activeCase, demoUser);
+      }
+    } else {
+      modelCallExecuted = true;
+      usedSimulation = true;
+      response = simulateModelOutput(prompt, mode, activeCase, demoUser);
+    }
+
     outputSignals = detectOutputSignals(response, prompt, mode, promptSignals);
     blocked =
       outputSignals.severity === "critical" &&
@@ -1073,6 +1157,14 @@ function executeOfflineGovernedTurn(
       ? "The response was released with elevated oversight signals recorded for review."
       : "Preflight and postflight policy checks passed. The response was released and an evidence receipt was captured.";
 
+  const runtimeSummary = preflightBlocked
+    ? "Prompt evaluated locally before model execution."
+    : useLiveModel && !usedSimulation
+      ? "Prompt and live gateway response evaluated locally before release."
+      : useLiveModel
+        ? "Gateway fallback response evaluated locally before release."
+        : "Prompt and deterministic candidate response evaluated before release.";
+
   const run: DemoRun = {
     id: randomUUID(),
     createdAt: new Date().toISOString(),
@@ -1095,9 +1187,7 @@ function executeOfflineGovernedTurn(
     reasonCodes,
     escalatedIncidentId,
     correlationId,
-    runtimeSummary: preflightBlocked
-      ? "Prompt evaluated locally before model execution."
-      : "Prompt and deterministic candidate response evaluated before release.",
+    runtimeSummary,
     decisionSummary,
     legalProfileApplied: "northstar-financial-services-demo",
     lawPackIdsApplied: ["eu-ai-act", "nist-ai-rmf", "iso-42001"],
@@ -1123,8 +1213,8 @@ function executeOfflineGovernedTurn(
     reviewAcknowledgedBy: null,
     reviewAcknowledgmentNote: null,
     releaseReviewEventId: null,
-    usedSimulation: modelCallExecuted,
-    upstreamError: null,
+    usedSimulation,
+    upstreamError,
   };
 
   recentRuns.unshift(run);
@@ -1185,7 +1275,7 @@ function waitForServerClose(server: Server): Promise<void> {
 async function isSameDemoAlreadyRunning(): Promise<boolean> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 1_500);
-  const expectedMode = offlinePitchMode ? "offline-pitch" : "linked-runtime";
+  const expectedMode = demoRuntimeMode;
 
   try {
     const response = await fetch(`${localWorkspaceBaseUrl}/healthz`, {
@@ -1193,8 +1283,11 @@ async function isSameDemoAlreadyRunning(): Promise<boolean> {
       signal: controller.signal,
     });
     const matchingMode = response.headers.get("x-demo-mode") === expectedMode;
+    const matchingControlTower =
+      response.headers.get("x-demo-control-tower") === controlTowerBaseUrl;
     const matchingHeaders =
       matchingMode &&
+      matchingControlTower &&
       (response.headers.get("x-demo-service") === demoServiceId ||
         response.headers.get("x-demo-build") === demoBuildStamp);
 
@@ -1210,10 +1303,12 @@ async function isSameDemoAlreadyRunning(): Promise<boolean> {
       service?: unknown;
       build?: unknown;
       mode?: unknown;
+      controlTowerBaseUrl?: unknown;
     } | null;
     return (
       payload?.service === demoServiceId &&
-      payload.mode === expectedMode
+      payload.mode === expectedMode &&
+      payload.controlTowerBaseUrl === controlTowerBaseUrl
     );
   } catch {
     return false;
@@ -1222,12 +1317,27 @@ async function isSameDemoAlreadyRunning(): Promise<boolean> {
   }
 }
 
-function logDemoUrls(prefix = "[demo:pitch]") {
+function logDemoUrls(prefix = demoLogPrefix) {
   console.log(`${prefix} Control Grid: ${localWorkspaceBaseUrl}/control-grid`);
   console.log(`${prefix} Frontline workspace: ${localWorkspaceBaseUrl}`);
 }
 
+function logRemoteUrls() {
+  console.log(`${demoLogPrefix} Northstar local: ${localWorkspaceBaseUrl}`);
+  console.log(`${demoLogPrefix} Render governance: ${controlTowerBaseUrl}`);
+  console.log(`${demoLogPrefix} Hosted Control Grid: ${controlTowerConsoleUrl}`);
+  console.log(
+    `${demoLogPrefix} Flow: local Northstar -> Render preflight -> model if allowed -> Render postflight -> hosted evidence`,
+  );
+}
+
 async function runDemoServer() {
+  if (liveGatewayStartupError) {
+    console.error(demoLogPrefix + " " + liveGatewayStartupError);
+    process.exitCode = 1;
+    return;
+  }
+
   const server = createServer(app);
 
   try {
@@ -1236,36 +1346,48 @@ async function runDemoServer() {
     const listenError = error as NodeJS.ErrnoException;
     if (listenError?.code === "EADDRINUSE") {
       if (await isSameDemoAlreadyRunning()) {
-        console.log(`[demo:pitch] Demo is already running on port ${port}.`);
-        logDemoUrls();
+        console.log(`${demoLogPrefix} Demo is already running on port ${port}.`);
+        if (pitchConsoleMode) {
+          logDemoUrls();
+        } else {
+          logRemoteUrls();
+        }
         return;
       }
 
       const alternatePort = port >= 65_535 ? 18_081 : port + 1;
+      const alternateCommand = liveGatewayPitchMode
+        ? "npm run demo:pitch:live"
+        : offlinePitchMode
+          ? "npm run demo:pitch"
+          : "npm run demo:linked-runtime-app";
       console.error(
-        `[demo:pitch] Port ${port} is already used by another service. Nothing was stopped.`,
+        `${demoLogPrefix} Port ${port} is already used by another service. Nothing was stopped.`,
       );
       console.error(
-        `[demo:pitch] PowerShell: $env:LINKED_RUNTIME_DEMO_PORT='${alternatePort}'; npm run demo:pitch`,
+        `${demoLogPrefix} PowerShell: $env:LINKED_RUNTIME_DEMO_PORT='${alternatePort}'; ${alternateCommand}`,
       );
       process.exitCode = 1;
       return;
     }
 
     console.error(
-      `[demo:pitch] Unable to start the demo server: ${error instanceof Error ? error.message : String(error)}`,
+      `${demoLogPrefix} Unable to start the demo server: ${error instanceof Error ? error.message : String(error)}`,
     );
     process.exitCode = 1;
     return;
   }
 
-  if (offlinePitchMode) {
+  if (pitchConsoleMode) {
     logDemoUrls();
-    console.log("[demo:pitch] Synthetic offline mode; no database or external API is used");
-  } else {
     console.log(
-      `northstar agent workspace listening on ${localWorkspaceBaseUrl} (bound to ${bindHost}:${port})`,
+      liveGatewayPitchMode
+        ? `${demoLogPrefix} Local governance with live ${configuredProvider} model responses`
+        : `${demoLogPrefix} Synthetic offline mode; no database or external API is used`,
     );
+  } else {
+    logRemoteUrls();
+    console.log(`${demoLogPrefix} Listening on ${bindHost}:${port}`);
   }
 
   server.once("close", () => {
@@ -1285,7 +1407,7 @@ async function runDemoServer() {
     await waitForServerClose(server);
   } catch (error) {
     console.error(
-      `[demo:pitch] Demo server stopped after an error: ${error instanceof Error ? error.message : String(error)}`,
+      `${demoLogPrefix} Demo server stopped after an error: ${error instanceof Error ? error.message : String(error)}`,
     );
     process.exitCode = 1;
     if (server.listening) {
@@ -1515,87 +1637,72 @@ async function generateModelOutput(
   activeCase: DemoCase,
   demoUser: DemoUser,
 ) {
-  if (!openAiApiKey) {
-    throw new Error("OPENAI_API_KEY not configured");
+  if (!modelApiKey) {
+    throw new Error("AICT_MODEL_API_KEY or OPENAI_API_KEY is not configured.");
   }
 
-  const controller = typeof AbortController !== "undefined" ? new AbortController() : undefined;
-  const timeout =
-    controller && Number.isFinite(upstreamModelTimeoutMs)
-      ? setTimeout(() => controller.abort(), upstreamModelTimeoutMs)
-      : null;
+  const messages: ModelGatewayMessage[] = [
+    {
+      role: "system",
+      content: [
+        mode.systemPrompt,
+        "You are supporting a real frontline banking agent inside Northstar Assist Workspace.",
+        "Only use the supplied case context and authoritative facts. Do not invent approvals, waivers, policy exceptions, missing figures, or unsupported legal authority.",
+        "If a requested fact is not listed as authoritative, say it is unavailable or needs verification.",
+        "Do not claim system changes, calls, notes, or customer contact happened unless the executed actions list explicitly confirms them.",
+        "Do not quote regulators, policies, or legal guidance as authoritative unless approved supporting sources are provided.",
+        "Keep outputs concise, operationally useful, and ready for a human agent to send or speak.",
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        `Agent: ${demoUser.fullName} (${demoUser.title}, ${demoUser.team})`,
+        `Case reference: ${activeCase.reference}`,
+        `Customer or queue: ${activeCase.customerName}`,
+        `Product: ${activeCase.product}`,
+        `Queue: ${activeCase.queue}`,
+        `Status: ${activeCase.status}`,
+        `Next milestone: ${activeCase.nextMilestone}`,
+        `Case summary: ${activeCase.accountSummary}`,
+        `Narrative: ${activeCase.narrative}`,
+        `Risk flags: ${activeCase.riskFlags.join(", ")}`,
+        `Policy checklist: ${activeCase.policyChecklist.join(" | ")}`,
+        `Authoritative facts: ${formatAuthoritativeFacts(activeCase)}`,
+        `Approved supporting sources: ${formatSourceReferences(activeCase)}`,
+        "Executed actions: none",
+        "",
+        "User request:",
+        prompt,
+      ].join("\n"),
+    },
+  ];
 
-  let response: Response;
+  if (liveGatewayPitchMode) {
+    if (liveGatewayCallCount >= maxLiveGatewayCalls) {
+      throw new Error("Live gateway request limit reached for this demo session.");
+    }
+    if (activeLiveGatewayCalls >= maxConcurrentLiveGatewayCalls) {
+      throw new Error("Live gateway concurrency limit reached; retry shortly.");
+    }
+    liveGatewayCallCount += 1;
+    activeLiveGatewayCalls += 1;
+  }
+
   try {
-    response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${openAiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: configuredModel,
-        temperature: 0.4,
-        messages: [
-          {
-            role: "system",
-            content: [
-              mode.systemPrompt,
-              "You are supporting a real frontline banking agent inside Northstar Assist Workspace.",
-              "Only use the supplied case context and authoritative facts. Do not invent approvals, waivers, policy exceptions, missing figures, or unsupported legal authority.",
-              "If a requested fact is not listed as authoritative, say it is unavailable or needs verification.",
-              "Do not claim system changes, calls, notes, or customer contact happened unless the executed actions list explicitly confirms them.",
-              "Do not quote regulators, policies, or legal guidance as authoritative unless approved supporting sources are provided.",
-              "Keep outputs concise, operationally useful, and ready for a human agent to send or speak.",
-            ].join("\n"),
-          },
-          {
-            role: "user",
-            content: [
-              `Agent: ${demoUser.fullName} (${demoUser.title}, ${demoUser.team})`,
-              `Case reference: ${activeCase.reference}`,
-              `Customer or queue: ${activeCase.customerName}`,
-              `Product: ${activeCase.product}`,
-              `Queue: ${activeCase.queue}`,
-              `Status: ${activeCase.status}`,
-              `Next milestone: ${activeCase.nextMilestone}`,
-              `Case summary: ${activeCase.accountSummary}`,
-              `Narrative: ${activeCase.narrative}`,
-              `Risk flags: ${activeCase.riskFlags.join(", ")}`,
-              `Policy checklist: ${activeCase.policyChecklist.join(" | ")}`,
-              `Authoritative facts: ${formatAuthoritativeFacts(activeCase)}`,
-              `Approved supporting sources: ${formatSourceReferences(activeCase)}`,
-              "Executed actions: none",
-              "",
-              "User request:",
-              prompt,
-            ].join("\n"),
-          },
-        ],
-      }),
-      signal: controller?.signal,
+    return await requestModelGatewayChat(messages, {
+      endpoint: configuredModelEndpoint,
+      apiKey: modelApiKey,
+      requestFormat: configuredModelRequestFormat,
+      model: configuredModel,
+      temperature: 0.4,
+      timeoutMs: upstreamModelTimeoutMs,
     });
   } finally {
-    if (timeout) {
-      clearTimeout(timeout);
+    if (liveGatewayPitchMode) {
+      activeLiveGatewayCalls = Math.max(0, activeLiveGatewayCalls - 1);
     }
   }
-
-  const body = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string | null } }>;
-    error?: { message?: string };
-  };
-
-  if (!response.ok) {
-    throw new Error(body.error?.message || `OpenAI request failed with ${response.status}`);
-  }
-
-  const output = body.choices?.[0]?.message?.content?.trim();
-  if (!output) {
-    throw new Error("OpenAI returned no message content");
-  }
-
-  return output;
 }
 
 function formatAuthoritativeFacts(activeCase: DemoCase) {
@@ -1676,6 +1783,61 @@ function simulateModelOutput(
     `Next step: ${activeCase.nextMilestone}`,
     "Your case remains in the priority servicing queue, and we will update you as soon as the review is complete.",
   ].join("\n\n");
+}
+
+function isOfficialOpenAiModelEndpoint(endpoint: string) {
+  try {
+    const url = new URL(endpoint);
+    return url.protocol === "https:" && url.hostname === "api.openai.com";
+  } catch {
+    return false;
+  }
+}
+
+function resolveModelRequestFormat(
+  configuredValue: string,
+  endpoint: string,
+): ModelGatewayRequestFormat {
+  const normalized = configuredValue.trim().toLowerCase();
+  if (!normalized) {
+    return endpoint.includes("api.openai.com/") ? "openai" : "dynamic";
+  }
+  if (normalized === "dynamic" || normalized === "openai") {
+    return normalized;
+  }
+  throw new Error("AICT_MODEL_REQUEST_FORMAT must be either dynamic or openai.");
+}
+
+function getBoundedInteger(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    return fallback;
+  }
+  return Math.min(maximum, Math.max(minimum, parsed));
+}
+
+function validateLiveGatewayConfiguration(params: {
+  endpoint: string;
+  endpointWasExplicitlyConfigured: boolean;
+  apiKey: string | null;
+}): string | null {
+  if (!params.endpointWasExplicitlyConfigured) {
+    return "AICT_MODEL_ENDPOINT is required for live gateway pitch mode.";
+  }
+  if (!params.apiKey) {
+    return "AICT_MODEL_API_KEY is required for live gateway pitch mode.";
+  }
+  try {
+    normalizeModelGatewayEndpoint(params.endpoint);
+  } catch (error) {
+    return error instanceof Error ? error.message : "AICT_MODEL_ENDPOINT is invalid.";
+  }
+  return null;
 }
 
 function firstDefined(...keys: string[]) {
@@ -1862,13 +2024,14 @@ function serializeForInlineJson(value: unknown) {
 }
 
 function buildControlTowerUrl(routePath: string) {
-  if (offlinePitchMode) {
+  if (pitchConsoleMode) {
     const offlineRoutes: Record<string, string> = {
       "/dashboard": "/control-grid",
       "/registry": "/control-grid/registry",
       "/runtime-monitoring": "/control-grid/runtime",
       "/incidents": "/control-grid/incidents",
       "/decision-trace": "/control-grid/decisions",
+      "/audit-log": "/control-grid/decisions",
     };
     return `${localWorkspaceBaseUrl}${offlineRoutes[routePath] ?? "/control-grid"}`;
   }
@@ -2337,6 +2500,64 @@ function renderStyles() {
       gap: 10px;
       flex-wrap: wrap;
     }
+    .connection-panel {
+      order: -1;
+      padding: 18px 20px;
+      overflow: hidden;
+      background: linear-gradient(135deg, rgba(240, 253, 250, 0.96), rgba(239, 246, 255, 0.96));
+      border-color: rgba(15, 118, 110, 0.14);
+    }
+    .connection-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .connection-heading p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .connection-rail {
+      display: grid;
+      grid-template-columns: minmax(142px, 1fr) auto minmax(142px, 1fr) auto minmax(142px, 1fr) auto minmax(142px, 1fr) auto minmax(142px, 1fr);
+      align-items: stretch;
+      gap: 9px;
+    }
+    .connection-node {
+      display: grid;
+      gap: 5px;
+      min-height: 76px;
+      padding: 13px 14px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+    }
+    .connection-node span {
+      color: var(--brand);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+    }
+    .connection-node strong {
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .connection-node small {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .connection-arrow {
+      align-self: center;
+      color: var(--brand);
+      font-size: 20px;
+      font-weight: 800;
+    }
     .meta-card {
       min-width: 180px;
       padding: 14px 16px;
@@ -2764,6 +2985,11 @@ function renderStyles() {
       font-size: 14px;
     }
     @media (max-width: 1280px) {
+      .connection-rail {
+        grid-template-columns: repeat(9, minmax(110px, auto));
+        overflow-x: auto;
+        padding-bottom: 4px;
+      }
       .workspace-grid {
         grid-template-columns: 260px minmax(0, 1fr);
       }
@@ -2966,6 +3192,19 @@ function buildPresenterChecklistHtml(activeCase: DemoCase) {
   </div>`;
 }
 
+function getModelModeLabel() {
+  if (offlinePitchMode) {
+    return "Deterministic offline pitch mode";
+  }
+  if (liveGatewayPitchMode) {
+    return "Live " + configuredProvider + " gateway responses";
+  }
+  if (modelApiKey) {
+    return "Live " + configuredProvider + " responses";
+  }
+  return "Simulation fallback with governed flow";
+}
+
 function renderLoginPage(authError: string | null) {
   const workspaceIdentities = demoUsers.map((user) => `<div class="identity-card">
     <div class="identity-top">
@@ -2999,7 +3238,7 @@ function renderLoginPage(authError: string | null) {
         </div>
         <div class="metric-grid">
           <div class="metric-card"><span>Linked organization</span><strong>Northstar Consumer Bank Demo</strong></div>
-          <div class="metric-card"><span>Workspace mode</span><strong>${offlinePitchMode ? "Deterministic offline pitch mode" : openAiApiKey ? "Live OpenAI responses" : "Simulation fallback with governed flow"}</strong></div>
+          <div class="metric-card"><span>Workspace mode</span><strong>${escapeHtml(getModelModeLabel())}</strong></div>
           <div class="metric-card"><span>Gateway</span><strong class="mono">${escapeHtml(configuredGateway)}</strong></div>
           <div class="metric-card"><span>System binding</span><strong class="mono">${escapeHtml(configuredSystemId || "adapter default")}</strong></div>
         </div>
@@ -3074,12 +3313,11 @@ function renderLoginPage(authError: string | null) {
         </div>
 
         <div class="section-card" style="padding: 18px;">
-          <p class="section-label">Control Grid ${offlinePitchMode ? "pitch console" : "demo login"}</p>
+          <p class="section-label">Control Grid ${pitchConsoleMode ? "pitch console" : "demo login"}</p>
           <div class="credential-grid">
-            ${offlinePitchMode
-              ? `<div class="credential-row"><span>Access</span><span>No admin login required in offline pitch mode</span></div>`
-              : `<div class="credential-row"><span>Email</span><code>${escapeHtml(controlTowerDemoEmail)}</code></div>
-                 <div class="credential-row"><span>Password</span><code>${escapeHtml(controlTowerDemoPassword)}</code></div>`}
+            ${pitchConsoleMode
+              ? `<div class="credential-row"><span>Access</span><span>No admin login required in local pitch mode</span></div>`
+              : `<div class="credential-row"><span>Access</span><span>Sign in separately with your live Control Grid organization account</span></div>`}
             <div class="credential-row"><span>Console URL</span><code>${escapeHtml(controlTowerConsoleUrl)}</code></div>
           </div>
           <div class="hero-actions" style="margin-top: 14px;">
@@ -3125,19 +3363,40 @@ function renderWorkspacePage(options: Required<Pick<RenderPageOptions, "sessionU
             <div class="meta-card"><span>Signed in as</span><strong>${escapeHtml(options.sessionUser.fullName)}<br /><span class="muted">${escapeHtml(options.sessionUser.title)}</span></strong></div>
             <div class="meta-card"><span>Gateway</span><strong class="mono">${escapeHtml(configuredGateway)}</strong></div>
             <div class="meta-card"><span>System binding</span><strong class="mono">${escapeHtml(configuredSystemId || "adapter default")}</strong></div>
-            <div class="meta-card"><span>Model mode</span><strong>${offlinePitchMode ? "Deterministic demo" : openAiApiKey ? "Live OpenAI" : "Simulation fallback"}</strong></div>
+            <div class="meta-card"><span>Model mode</span><strong>${escapeHtml(getModelModeLabel())}</strong></div>
             <div class="meta-card"><span>Recent counts</span><strong><span id="status-incidents">${incidentCount}</span> incidents · <span id="status-blocked">${blockedCount}</span> blocked · ${warnedCount} warned</strong></div>
           </div>
         </div>
         <div class="top-links">
           <a class="button secondary" href="${escapeHtml(buildControlTowerUrl("/runtime-monitoring"))}" target="_blank" rel="noreferrer">Runtime monitoring</a>
           <a class="button secondary" href="${escapeHtml(buildControlTowerUrl("/incidents"))}" target="_blank" rel="noreferrer">Incidents</a>
-          <a class="button secondary" href="${escapeHtml(buildControlTowerUrl("/decision-trace"))}" target="_blank" rel="noreferrer">Decision trace</a>
+          <a class="button secondary" href="${escapeHtml(buildControlTowerUrl("/audit-log"))}" target="_blank" rel="noreferrer">Audit log</a>
           <form class="logout-form" method="post" action="/logout">
             <button class="button primary" type="submit">Switch agent</button>
           </form>
         </div>
       </header>
+
+      <section class="panel connection-panel">
+        <div class="connection-heading">
+          <div>
+            <p class="section-label" style="margin-bottom: 4px;">Live control path</p>
+            <strong>${pitchConsoleMode ? "Self-contained pitch topology" : "Local Northstar connected to AI Control Grid on Render"}</strong>
+          </div>
+          <p>Model execution happens only after preflight allows the request.</p>
+        </div>
+        <div class="connection-rail">
+          <div class="connection-node"><span>1 · Local</span><strong>Northstar agent workspace</strong><small>Prompt and case context enter through the local Node server.</small></div>
+          <div class="connection-arrow" aria-hidden="true">→</div>
+          <div class="connection-node"><span>2 · Govern</span><strong>Control Grid preflight</strong><small>${pitchConsoleMode ? "Local pitch policy engine" : "Render runtime policy decision"}</small></div>
+          <div class="connection-arrow" aria-hidden="true">→</div>
+          <div class="connection-node"><span>3 · Allow only</span><strong>${escapeHtml(configuredProvider)} model gateway</strong><small>Skipped when the incoming request is blocked.</small></div>
+          <div class="connection-arrow" aria-hidden="true">→</div>
+          <div class="connection-node"><span>4 · Verify</span><strong>Control Grid postflight</strong><small>Candidate output is checked before release.</small></div>
+          <div class="connection-arrow" aria-hidden="true">→</div>
+          <div class="connection-node"><span>5 · Prove</span><strong>Hosted evidence console</strong><small>Runtime event, policy reasons, audit history, and incident when required.</small></div>
+        </div>
+      </section>
 
       <section class="workspace-grid">
         <aside class="panel rail">

@@ -67,11 +67,12 @@ test("csp headers in production remain strict and set hsts", async () => {
   assert.match(csp, /base-uri 'self'/);
   assert.match(csp, /frame-ancestors 'none'/);
   assert.match(csp, /object-src 'none'/);
-  assert.match(csp, /script-src 'self' 'unsafe-inline' https:\/\/cdn\.jsdelivr\.net/);
+  assert.match(csp, /script-src 'self' https:\/\/cdn\.jsdelivr\.net/);
   assert.match(csp, /style-src 'self' 'unsafe-inline' https:\/\/fonts\.googleapis\.com/);
   assert.match(csp, /font-src 'self' https:\/\/fonts\.gstatic\.com data:/);
   assert.match(csp, /img-src 'self' data: blob: https:/);
-  assert.match(csp, /connect-src 'self' https:/);
+  assert.match(csp, /connect-src 'self'(?:;|$)/);
+  assert.doesNotMatch(csp, /script-src[^;]*'unsafe-inline'/);
   assert.doesNotMatch(csp, /unsafe-eval/);
   assert.equal(headers.get("strict-transport-security"), "max-age=63072000; includeSubDomains; preload");
 });

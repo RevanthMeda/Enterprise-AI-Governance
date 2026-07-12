@@ -5,6 +5,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { seedDatabase } from "./seed";
 import { setupAuth } from "./auth";
+import { applyCors } from "./cors";
 import { applySecurityHeaders, createCsrfMiddleware } from "./security";
 import { monitoringService } from "./services/monitoringService";
 import { backgroundJobService } from "./services/backgroundJobService";
@@ -122,8 +123,6 @@ export async function bootstrapApp(
   const app = express();
   const httpServer = createServer(app);
 
-  const allowedCorsOrigins = new Set(runtimeConfig.allowedCorsOrigins);
-
   if (runtimeConfig.trustProxy) {
     app.set("trust proxy", 1);
   }
@@ -137,33 +136,7 @@ export async function bootstrapApp(
   );
   app.use(express.urlencoded({ extended: false }));
 
-  if (allowedCorsOrigins.size > 0) {
-    app.use((req, res, next) => {
-      const origin = req.headers.origin;
-      if (!origin || !allowedCorsOrigins.has(origin)) {
-        return next();
-      }
-
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Access-Control-Allow-Credentials", "true");
-      res.setHeader(
-        "Access-Control-Allow-Headers",
-        "Content-Type, X-CSRF-Token, X-Telemetry-Key, X-API-Key, Authorization",
-      );
-      res.setHeader(
-        "Access-Control-Allow-Methods",
-        "GET,HEAD,OPTIONS,POST,PUT,PATCH,DELETE",
-      );
-      res.setHeader("Access-Control-Expose-Headers", "X-CSRF-Token");
-      res.append("Vary", "Origin");
-
-      if (req.method === "OPTIONS") {
-        return res.sendStatus(204);
-      }
-
-      return next();
-    });
-  }
+  applyCors(app, runtimeConfig.allowedCorsOrigins);
 
   applySecurityHeaders(app);
   registerProcessHandlers();
@@ -221,6 +194,8 @@ export async function bootstrapApp(
     createCsrfMiddleware({
       enforced: runtimeConfig.csrfEnforced,
       exemptPaths: [
+        "/api/health",
+        "/api/ready",
         "/api/track",
         "/api/leads",
         "/api/monitoring/client-errors",
