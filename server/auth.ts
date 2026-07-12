@@ -28,6 +28,7 @@ import { getPgPoolConfig } from "./db-config";
 import { getRuntimeConfig } from "./env";
 import { getVisibleActiveMemberships, pickCurrentOrganizationId } from "./auth-visibility";
 import { createSessionActivityMiddleware } from "./session-activity";
+import { sendAuthenticationRequired } from "./auth-errors";
 
 declare global {
   namespace Express {
@@ -561,13 +562,13 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     setNoStoreHeaders(res);
     return next();
   }
-  res.status(401).json({ message: "Authentication required" });
+  return sendAuthenticationRequired(res);
 }
 
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Authentication required" });
+      return sendAuthenticationRequired(res);
     }
     if (!roles.includes(req.user!.role)) {
       return res.status(403).json({ message: "Insufficient permissions" });

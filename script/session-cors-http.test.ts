@@ -7,6 +7,10 @@ import session from "express-session";
 import { applyCors } from "../server/cors";
 import { createCsrfMiddleware } from "../server/security";
 import { createSessionActivityMiddleware } from "../server/session-activity";
+import {
+  sendAuthenticationRequired,
+  sendSessionExpired,
+} from "../server/auth-errors";
 
 async function startServer(app: Express): Promise<{ server: Server; baseUrl: string }> {
   const server = createServer(app);
@@ -53,6 +57,30 @@ test("credentialed CORS exposes CSRF recovery headers", async () => {
     });
     assert.equal(preflight.status, 204);
     assert.match(preflight.headers.get("access-control-allow-headers") ?? "", /X-CSRF-Token/);
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test("authentication failures are explicit, non-cacheable, and readable cross-site", async () => {
+  const app = express();
+  const origin = "https://frontend.example.test";
+  applyCors(app, [origin]);
+  app.get("/api/protected", (_req, res) => sendAuthenticationRequired(res));
+  app.get("/api/expired", (_req, res) => sendSessionExpired(res));
+
+  const { server, baseUrl } = await startServer(app);
+  try {
+    for (const [path, errorCode] of [
+      ["/api/protected", "AUTHENTICATION_REQUIRED"],
+      ["/api/expired", "SESSION_EXPIRED"],
+    ] as const) {
+      const response = await fetch(`${baseUrl}${path}`, { headers: { Origin: origin } });
+      assert.equal(response.status, 401);
+      assert.equal(response.headers.get("x-error-code"), errorCode);
+      assert.match(response.headers.get("cache-control") ?? "", /no-store/);
+      assert.match(response.headers.get("access-control-expose-headers") ?? "", /X-Error-Code/);
+    }
   } finally {
     await closeServer(server);
   }

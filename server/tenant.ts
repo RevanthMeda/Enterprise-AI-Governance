@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { storage, type UserMembershipContext } from "./storage";
 import { getVisibleActiveMemberships } from "./auth-visibility";
+import { sendAuthenticationRequired } from "./auth-errors";
 
 declare global {
   namespace Express {
@@ -50,7 +51,7 @@ function pickMembership(
 
 export async function requireTenant(req: Request, res: Response, next: NextFunction) {
   if (!req.isAuthenticated?.() || !req.user) {
-    return res.status(401).json({ message: "Authentication required" });
+    return sendAuthenticationRequired(res);
   }
 
   const explicitOrgId = req.header("X-Organization-Id") || undefined;

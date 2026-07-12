@@ -31,7 +31,7 @@ import {
   formatLegalProfileLabel,
   formatStrictnessLabel,
 } from "@/lib/governance-display";
-import { captureCsrfTokenFromResponse } from "@/lib/queryClient";
+import { apiFetch } from "@/lib/queryClient";
 import { usePageCopy } from "@/lib/page-copy";
 import { resolveSystemLawPackIds } from "@shared/law-packs";
 import type { AiSystem } from "@shared/schema";
@@ -293,9 +293,8 @@ export default function RuntimeMonitoringPage() {
     queryKey: ["runtime-monitoring-systems"],
     refetchInterval: 30_000,
     staleTime: 10_000,
-    queryFn: async () => {
-      const response = await fetch(resolveApiUrl("/api/ai-systems"), { credentials: "include" });
-      captureCsrfTokenFromResponse(response, "include");
+    queryFn: async ({ signal }) => {
+      const response = await apiFetch("/api/ai-systems", { signal });
       if (!response.ok) {
         throw new Error("Failed to load AI systems");
       }
@@ -308,9 +307,8 @@ export default function RuntimeMonitoringPage() {
     refetchInterval: 10_000,
     refetchIntervalInBackground: true,
     staleTime: 5_000,
-    queryFn: async () => {
-      const response = await fetch(resolveApiUrl("/api/telemetry/summary"), { credentials: "include" });
-      captureCsrfTokenFromResponse(response, "include");
+    queryFn: async ({ signal }) => {
+      const response = await apiFetch("/api/telemetry/summary", { signal });
       if (!response.ok) {
         throw new Error("Failed to load telemetry summary");
       }
@@ -323,9 +321,8 @@ export default function RuntimeMonitoringPage() {
     refetchInterval: 10_000,
     refetchIntervalInBackground: true,
     staleTime: 5_000,
-    queryFn: async () => {
-      const response = await fetch(resolveApiUrl("/api/incidents/summary"), { credentials: "include" });
-      captureCsrfTokenFromResponse(response, "include");
+    queryFn: async ({ signal }) => {
+      const response = await apiFetch("/api/incidents/summary", { signal });
       if (!response.ok) {
         throw new Error("Failed to load incident summary");
       }
@@ -338,9 +335,8 @@ export default function RuntimeMonitoringPage() {
     refetchInterval: 30_000,
     refetchIntervalInBackground: true,
     staleTime: 10_000,
-    queryFn: async () => {
-      const response = await fetch(resolveApiUrl("/api/organization/telemetry-adapter"), { credentials: "include" });
-      captureCsrfTokenFromResponse(response, "include");
+    queryFn: async ({ signal }) => {
+      const response = await apiFetch("/api/organization/telemetry-adapter", { signal });
       if (!response.ok) {
         const detail = (await response.text()) || response.statusText;
         throw new Error(`${response.status}: ${detail}`);

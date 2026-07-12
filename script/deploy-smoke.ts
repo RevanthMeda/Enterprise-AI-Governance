@@ -99,6 +99,38 @@ async function assertCsrfMutationPath(
   }
 }
 
+async function assertUnauthorizedContract(apiBase: string, origin?: string): Promise<void> {
+  const { response, text } = await fetchText(`${apiBase}/api/organization/telemetry-adapter`, {
+    headers: origin ? { Origin: origin } : undefined,
+  });
+  if (response.status !== 401) {
+    throw new Error(`unauthenticated adapter request expected 401, received ${response.status}`);
+  }
+  if (response.headers.get("x-error-code") !== "AUTHENTICATION_REQUIRED") {
+    throw new Error("unauthenticated adapter response is missing AUTHENTICATION_REQUIRED");
+  }
+  if (!(response.headers.get("cache-control") ?? "").includes("no-store")) {
+    throw new Error("unauthenticated adapter response is cacheable");
+  }
+  const payload = JSON.parse(text) as { message?: string };
+  if (payload.message !== "Authentication required") {
+    throw new Error("unauthenticated adapter response has an unexpected message");
+  }
+
+  if (origin) {
+    if (response.headers.get("access-control-allow-origin") !== origin) {
+      throw new Error("cross-site authentication failure did not allow the frontend origin");
+    }
+    if (response.headers.get("access-control-allow-credentials") !== "true") {
+      throw new Error("cross-site authentication failure did not allow credentials");
+    }
+    const exposed = response.headers.get("access-control-expose-headers") ?? "";
+    if (!exposed.includes("X-Error-Code")) {
+      throw new Error("cross-site authentication failure did not expose X-Error-Code");
+    }
+  }
+}
+
 async function assertFrontendSessionTopology(
   frontend: string,
   backend: string,
@@ -114,12 +146,14 @@ async function assertFrontendSessionTopology(
         `same-origin frontend /api/health expected JSON 200, received ${frontendHealth.status} ${contentType || "without content type"}`,
       );
     }
+    await assertUnauthorizedContract(frontend);
     const sessionState = await loginAndGetSession(frontend, username, password);
     await assertCsrfMutationPath(frontend, sessionState);
     return;
   }
 
   const origin = new URL(frontend).origin;
+  await assertUnauthorizedContract(backend, origin);
   const preflight = await fetch(`${backend}/api/auth/login`, {
     method: "OPTIONS",
     headers: {
@@ -235,6 +269,12 @@ async function main() {
         if (!payload.ready) {
           throw new Error("readiness payload missing ready=true");
         }
+      }),
+    );
+
+    checks.push(
+      runCheckWithRetry("backend authentication failure contract", async () => {
+        await assertUnauthorizedContract(backend);
       }),
     );
 

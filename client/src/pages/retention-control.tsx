@@ -35,16 +35,16 @@ export default function RetentionControlPage() {
 
   const summaryQuery = useQuery<RetentionSummary>({
     queryKey: ["/api/decision-audits/retention-summary"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/decision-audits/retention-summary");
+    queryFn: async ({ signal }) => {
+      const response = await apiRequest("GET", "/api/decision-audits/retention-summary", undefined, { signal });
       return response.json();
     },
   });
 
   const auditsQuery = useQuery<DecisionAudit[]>({
     queryKey: ["/api/decision-audits", "retention"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/decision-audits");
+    queryFn: async ({ signal }) => {
+      const response = await apiRequest("GET", "/api/decision-audits", undefined, { signal });
       return response.json();
     },
   });

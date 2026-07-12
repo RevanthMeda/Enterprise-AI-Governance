@@ -92,7 +92,7 @@ test("csrf middleware does not create sessions for health probes", async () => {
   }
 });
 
-test("csrf middleware exempts public password recovery endpoints", async () => {
+test("csrf middleware exempts password recovery without creating an anonymous session token", async () => {
   const middleware = createCsrfMiddleware({ enforced: true });
 
   for (const path of ["/api/auth/forgot-password", "/api/auth/reset-password"]) {
@@ -113,7 +113,8 @@ test("csrf middleware exempts public password recovery endpoints", async () => {
 
     assert.equal(nextCalled, true);
     assert.equal(res.statusCode, 200);
-    assert.equal(typeof req.session?.csrfToken, "string");
+    assert.equal(req.session?.csrfToken, undefined);
+    assert.equal(res.headers["x-csrf-token"], undefined);
   }
 });
 

@@ -614,8 +614,8 @@ function AgentGovernanceOverridesCard({
 
   const { data: profiles = [] } = useQuery<AgentGovernanceProfile[]>({
     queryKey: ["/api/ai-systems", system.id, "agent-governance"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", `/api/ai-systems/${system.id}/agent-governance`);
+    queryFn: async ({ signal }) => {
+      const response = await apiRequest("GET", `/api/ai-systems/${system.id}/agent-governance`, undefined, { signal });
       return response.json();
     },
     enabled: Boolean(system.id),
@@ -1094,8 +1094,8 @@ function RiskAssessmentHistoryCard({
   });
   const assessmentsQuery = useQuery<RiskAssessment[]>({
     queryKey: ["/api/risk-assessments/system", systemId],
-    queryFn: async () => {
-      const response = await apiRequest("GET", `/api/risk-assessments/system/${encodeURIComponent(systemId)}`);
+    queryFn: async ({ signal }) => {
+      const response = await apiRequest("GET", `/api/risk-assessments/system/${encodeURIComponent(systemId)}`, undefined, { signal });
       return response.json();
     },
     staleTime: 10_000,

@@ -14,7 +14,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { exportAuditTrailCsv } from "@/lib/export-utils";
-import { resolveApiUrl } from "@/lib/api-url";
 import { usePageCopy } from "@/lib/page-copy";
 import {
   formatGovernanceCriticVerdict,
@@ -22,7 +21,7 @@ import {
   formatLawPackLabel,
   formatLegalProfileLabel,
 } from "@/lib/governance-display";
-import { captureCsrfTokenFromResponse } from "@/lib/queryClient";
+import { apiFetch } from "@/lib/queryClient";
 import { DISPLAY_TIMEZONE_LABEL, formatDateTime } from "@/lib/date-format";
 import type { AuditLog } from "@shared/schema";
 
@@ -98,9 +97,8 @@ export default function AuditLogPage() {
     refetchInterval: 5_000,
     refetchIntervalInBackground: true,
     staleTime: 5_000,
-    queryFn: async () => {
-      const res = await fetch(resolveApiUrl(`/api/audit-logs?${queryParams.toString()}`), { credentials: "include" });
-      captureCsrfTokenFromResponse(res, "include");
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch(`/api/audit-logs?${queryParams.toString()}`, { signal });
       if (!res.ok) throw new Error("Failed to fetch logs");
       return res.json();
     },

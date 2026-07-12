@@ -152,8 +152,8 @@ export default function DecisionTracePage() {
     refetchInterval: activeTraceId ? 15_000 : false,
     refetchIntervalInBackground: true,
     staleTime: 5_000,
-    queryFn: async () => {
-      const response = await apiRequest("GET", `/api/decision-audits/${activeTraceId}/versions`);
+    queryFn: async ({ signal }) => {
+      const response = await apiRequest("GET", `/api/decision-audits/${activeTraceId}/versions`, undefined, { signal });
       return response.json();
     },
   });

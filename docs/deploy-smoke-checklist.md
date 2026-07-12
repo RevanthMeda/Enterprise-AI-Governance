@@ -41,6 +41,7 @@ The script checks:
   - `/api/telemetry/summary`
   - `/api/audit-logs/verify-chain`
 - cookie-backed `/api/auth/user` session verification
+- an unauthenticated Telemetry Adapter probe that requires a non-cacheable `401` with `X-Error-Code: AUTHENTICATION_REQUIRED`
 - a no-data authenticated Registry mutation probe that must pass CSRF and stop at schema validation
 - frontend session topology:
   - same-origin/proxied frontends authenticate and pass the mutation probe through their own `/api`

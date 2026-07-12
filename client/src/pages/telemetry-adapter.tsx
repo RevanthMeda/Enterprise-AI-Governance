@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { apiRequest, captureCsrfTokenFromResponse, queryClient } from "@/lib/queryClient";
+import { apiFetch, apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { resolveApiUrl } from "@/lib/api-url";
 import { usePageCopy } from "@/lib/page-copy";
@@ -160,8 +160,12 @@ export default function TelemetryAdapterPage() {
 
   const adapterQuery = useQuery<TelemetryAdapter>({
     queryKey: ["/api/organization/telemetry-adapter"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/organization/telemetry-adapter");
+    queryFn: async ({ signal }) => {
+      const response = await apiFetch("/api/organization/telemetry-adapter", { signal });
+      if (!response.ok) {
+        const detail = (await response.text()) || response.statusText;
+        throw new Error(`${response.status}: ${detail}`);
+      }
       return response.json();
     },
   });
@@ -169,9 +173,8 @@ export default function TelemetryAdapterPage() {
     queryKey: ["/api/ai-systems", "telemetry-adapter"],
     refetchInterval: 30_000,
     staleTime: 10_000,
-    queryFn: async () => {
-      const response = await fetch(resolveApiUrl("/api/ai-systems"), { credentials: "include" });
-      captureCsrfTokenFromResponse(response, "include");
+    queryFn: async ({ signal }) => {
+      const response = await apiFetch("/api/ai-systems", { signal });
       if (!response.ok) {
         throw new Error("Failed to load AI systems");
       }

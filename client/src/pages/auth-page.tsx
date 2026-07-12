@@ -71,7 +71,14 @@ export default function AuthPage() {
   const [ssoLoading, setSsoLoading] = useState(false);
   const [ssoError, setSsoError] = useState<string | null>(null);
   const [, setLocation] = useLocation();
-  const { loginMutation, registerMutation } = useAuth();
+  const { isAuthTransitioning, loginMutation, registerMutation } = useAuth();
+  const sessionExpired = useMemo(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return new URLSearchParams(window.location.search).get("reason") === "session-expired";
+  }, []);
+  const authFormBusy = isAuthTransitioning || ssoLoading || resetRequestLoading;
 
   const loginForm = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
@@ -87,7 +94,11 @@ export default function AuthPage() {
     if (typeof window === "undefined") {
       return fallback;
     }
-    return new URLSearchParams(window.location.search).get("next") || fallback;
+    const nextPath = new URLSearchParams(window.location.search).get("next");
+    if (!nextPath || !nextPath.startsWith("/") || nextPath.startsWith("//")) {
+      return fallback;
+    }
+    return nextPath;
   };
 
   const switchMode = (nextMode: "login" | "register") => {
@@ -229,6 +240,7 @@ export default function AuthPage() {
                 <div className="inline-flex rounded-full border border-border bg-muted/30 p-1">
                   <button
                     type="button"
+                    disabled={authFormBusy}
                     className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${mode === "login" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                     onClick={() => switchMode("login")}
                   >
@@ -236,6 +248,7 @@ export default function AuthPage() {
                   </button>
                   <button
                     type="button"
+                    disabled={authFormBusy}
                     className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${mode === "register" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                     onClick={() => switchMode("register")}
                   >
@@ -270,6 +283,15 @@ export default function AuthPage() {
             <CardContent className="space-y-6">
               {mode === "login" ? (
                 <>
+                  {sessionExpired ? (
+                    <div
+                      className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-foreground"
+                      role="status"
+                      data-testid="notice-session-expired"
+                    >
+                      Your secure session is no longer active. Sign in again to continue where you left off.
+                    </div>
+                  ) : null}
                   <Form {...loginForm}>
                     <form onSubmit={loginForm.handleSubmit(onLogin)} className="space-y-4">
                       <div className="grid gap-4 sm:grid-cols-2">
@@ -372,7 +394,7 @@ export default function AuthPage() {
                         </div>
                       ) : null}
 
-                      <Button type="submit" className="w-full rounded-xl" disabled={loginMutation.isPending} data-testid="button-login">
+                      <Button type="submit" className="w-full rounded-xl" disabled={authFormBusy} data-testid="button-login">
                         {loginMutation.isPending ? "Signing in..." : submitLabel}
                       </Button>
 
@@ -412,7 +434,7 @@ export default function AuthPage() {
                             type="button"
                             variant="outline"
                             onClick={requestPasswordReset}
-                            disabled={resetRequestLoading}
+                            disabled={authFormBusy}
                             data-testid="button-forgot-password-submit"
                           >
                             {resetRequestLoading ? "Sending reset link..." : "Send reset link"}
@@ -465,10 +487,10 @@ export default function AuthPage() {
                           }
                         }}
                         placeholder="organization slug"
-                        disabled={ssoLoading}
+                        disabled={authFormBusy}
                         data-testid="input-sso-org-slug"
                       />
-                      <Button type="button" variant="outline" className="sm:min-w-[190px]" onClick={startSsoLogin} disabled={ssoLoading} data-testid="button-sso-login">
+                      <Button type="button" variant="outline" className="sm:min-w-[190px]" onClick={startSsoLogin} disabled={authFormBusy} data-testid="button-sso-login">
                         {ssoLoading ? "Redirecting..." : "Continue with SSO"}
                       </Button>
                     </div>
@@ -537,7 +559,7 @@ export default function AuthPage() {
                       Local registration is best suited for demos, internal evaluation, or test environments. Production tenant onboarding should use invites or SSO where possible.
                     </div>
 
-                    <Button type="submit" className="w-full rounded-xl" disabled={registerMutation.isPending} data-testid="button-register">
+                    <Button type="submit" className="w-full rounded-xl" disabled={authFormBusy} data-testid="button-register">
                       {registerMutation.isPending ? "Creating account..." : "Create account"}
                     </Button>
                   </form>

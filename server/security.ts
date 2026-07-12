@@ -9,6 +9,11 @@ const DEFAULT_CSRF_EXEMPT_PATHS = new Set([
   "/api/auth/reset-password",
   "/api/auth/sso/callback",
 ]);
+const CSRF_TOKEN_ISSUING_EXEMPT_PATHS = new Set([
+  "/api/auth/login",
+  "/api/auth/register",
+  "/api/auth/sso/callback",
+]);
 
 export function applySecurityHeaders(app: Express) {
   app.use((_req, res, next) => {
@@ -92,10 +97,10 @@ export function createCsrfMiddleware(options?: {
     const exemptPath = isExemptPath(req.path);
     const shouldIssueToken =
       !exemptPath ||
-      DEFAULT_CSRF_EXEMPT_PATHS.has(req.path);
+      CSRF_TOKEN_ISSUING_EXEMPT_PATHS.has(req.path);
 
-    // Public telemetry, gateway, monitoring, and lead endpoints authenticate
-    // independently of the browser session. Do not let their responses mint an
+    // Public telemetry, gateway, monitoring, lead, and password-recovery
+    // endpoints are session-independent. Do not let their responses mint an
     // anonymous token that a client could mistake for the signed-in CSRF token.
     if (req.session && shouldIssueToken) {
       if (!req.session.csrfToken) {

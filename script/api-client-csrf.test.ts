@@ -4,15 +4,21 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   apiFetch,
+  apiRequest,
   captureCsrfTokenFromResponse,
   clearCsrfToken,
   getCsrfToken,
+  setSessionUnauthorizedHandler,
+  type SessionUnauthorizedDetails,
 } from "../client/src/lib/api-client";
 
 const originalFetch = globalThis.fetch;
 const projectRoot = path.resolve(import.meta.dirname, "..");
+let removeSessionUnauthorizedHandler: (() => void) | null = null;
 
 test.afterEach(() => {
+  removeSessionUnauthorizedHandler?.();
+  removeSessionUnauthorizedHandler = null;
   clearCsrfToken();
   globalThis.fetch = originalFetch;
 });
@@ -54,6 +60,53 @@ test("mutation requests bootstrap CSRF and always include credentials", async ()
   assert.equal(calls[1].init?.credentials, "include");
   assert.equal(new Headers(calls[1].init?.headers).get("x-csrf-token"), "bootstrap-token");
   assert.equal(getCsrfToken(), "bootstrap-token");
+});
+
+test("apiRequest preserves caller cancellation for protected queries", async () => {
+  const controller = new AbortController();
+  let requestInit: RequestInit | undefined;
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    requestInit = init;
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  await apiRequest("GET", "/api/incidents", undefined, {
+    signal: controller.signal,
+    headers: { "X-Test-Request": "preserved" },
+  });
+
+  assert.equal(requestInit?.signal, controller.signal);
+  assert.equal(requestInit?.credentials, "include");
+  assert.equal(new Headers(requestInit?.headers).get("x-test-request"), "preserved");
+});
+
+test("password recovery mutations do not bootstrap or attach session CSRF state", async () => {
+  for (const [path, preloadToken] of [
+    ["/api/auth/forgot-password", false],
+    ["/api/auth/reset-password", true],
+  ] as const) {
+    clearCsrfToken();
+    if (preloadToken) {
+      captureCsrfTokenFromResponse(
+        new Response(null, { headers: { "X-CSRF-Token": "existing-session-token" } }),
+        "include",
+      );
+    }
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ input: input.toString(), init });
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+
+    await apiRequest("POST", path, { identifier: "user@example.test" });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].input, path);
+    assert.equal(new Headers(calls[0].init?.headers).get("x-csrf-token"), null);
+  }
 });
 
 test("an abort signal cancels a mutation CSRF bootstrap", async () => {
@@ -222,4 +275,90 @@ test("an exact CSRF failure is retried no more than once", async () => {
 
   assert.equal(response.status, 403);
   assert.equal(callCount, 2);
+});
+
+test("protected authentication failures clear CSRF state and identify the expired session", async () => {
+  captureCsrfTokenFromResponse(
+    new Response(null, { headers: { "X-CSRF-Token": "authenticated-token" } }),
+    "include",
+  );
+  const notifications: SessionUnauthorizedDetails[] = [];
+  removeSessionUnauthorizedHandler = setSessionUnauthorizedHandler((details) => {
+    notifications.push(details);
+  });
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const path = input.toString();
+    return new Response(JSON.stringify({ message: "Authentication required" }), {
+      status: 401,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Error-Code": path.includes("telemetry-adapter")
+          ? "AUTHENTICATION_REQUIRED"
+          : "SESSION_EXPIRED",
+      },
+    });
+  }) as typeof fetch;
+
+  await apiFetch("/api/organization/telemetry-adapter");
+  await apiFetch("/api/incidents/summary");
+  await apiFetch("/api/auth/switch-organization", { method: "POST" });
+
+  assert.equal(getCsrfToken(), null);
+  assert.deepEqual(notifications, [
+    {
+      requestPath: "/api/organization/telemetry-adapter",
+      reason: "authentication-required",
+    },
+    {
+      requestPath: "/api/incidents/summary",
+      reason: "session-expired",
+    },
+    {
+      requestPath: "/api/auth/switch-organization",
+      reason: "session-expired",
+    },
+  ]);
+});
+
+test("auth endpoints and telemetry-key failures do not expire the browser session", async () => {
+  const notifications: SessionUnauthorizedDetails[] = [];
+  removeSessionUnauthorizedHandler = setSessionUnauthorizedHandler((details) => {
+    notifications.push(details);
+  });
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const path = input.toString();
+    if (path.startsWith("/api/auth/")) {
+      return new Response(JSON.stringify({ message: "Not authenticated" }), {
+        status: 401,
+        headers: { "X-Error-Code": "AUTHENTICATION_REQUIRED" },
+      });
+    }
+    return new Response(JSON.stringify({ message: "Invalid telemetry ingest key" }), {
+      status: 401,
+    });
+  }) as typeof fetch;
+
+  await apiFetch("/api/auth/user");
+  await apiFetch("/api/auth/login");
+  await apiFetch("/api/telemetry/sdk-evaluate");
+
+  assert.deepEqual(notifications, []);
+});
+
+test("legacy protected authentication body still expires the stale client session", async () => {
+  const notifications: SessionUnauthorizedDetails[] = [];
+  removeSessionUnauthorizedHandler = setSessionUnauthorizedHandler((details) => {
+    notifications.push(details);
+  });
+  globalThis.fetch = (async () => new Response(
+    JSON.stringify({ message: "Authentication required" }),
+    { status: 401, headers: { "Content-Type": "application/json" } },
+  )) as typeof fetch;
+
+  await apiFetch("/api/organization/telemetry-adapter");
+
+  assert.deepEqual(notifications, [{
+    requestPath: "/api/organization/telemetry-adapter",
+    reason: "authentication-required",
+  }]);
 });

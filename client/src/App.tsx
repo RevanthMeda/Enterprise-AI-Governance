@@ -305,7 +305,7 @@ function PublicRouter() {
 }
 
 function AuthenticatedApp() {
-  const { user, isLoading, logout } = useAuth();
+  const { user, isLoading, isAuthTransitioning, logout } = useAuth();
   const [location] = useLocation();
   const isPublic = isPublicPath(location);
   const access = getAppAccess(user);
@@ -525,10 +525,11 @@ function AuthenticatedApp() {
               </div>
               <button
                 onClick={() => logout()}
+                disabled={isAuthTransitioning}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded"
                 data-testid="button-logout"
               >
-                Logout
+                {isAuthTransitioning ? "Please wait..." : "Logout"}
               </button>
               <ThemeToggle />
             </div>

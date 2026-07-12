@@ -1,6 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useMutation, type UseMutationResult } from "@tanstack/react-query";
-import { apiFetch, apiRequest, clearCsrfToken, queryClient } from "@/lib/queryClient";
+import {
+  apiFetch,
+  apiRequest,
+  clearCsrfToken,
+  queryClient,
+  setSessionUnauthorizedHandler,
+} from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type {
   AccessibilityPreferenceState,
@@ -47,6 +53,7 @@ export interface AuthUser {
 interface AuthContextType {
   user: AuthUser | null;
   isLoading: boolean;
+  isAuthTransitioning: boolean;
   login: (username: string, password: string) => Promise<void>;
   register: (data: { username: string; password: string; fullName: string; email?: string; role?: string }) => Promise<void>;
   logout: () => Promise<void>;
@@ -73,6 +80,8 @@ type RegisterInput = {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 type AuthMutationError = Error & { status?: number; mfaRequired?: boolean };
+type AuthTransitionKind = "login" | "register" | "logout" | "switch-organization";
+type AuthTransitionToken = { kind: AuthTransitionKind; id: symbol };
 const LOGOUT_MARKER_KEY = "ai-control-grid:last-logout-at";
 const PUBLIC_SESSION_PATHS = new Set([
   "/",
@@ -123,31 +132,94 @@ async function verifyAuthenticatedSession(): Promise<AuthUser> {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
-  const syncAuthState = useCallback(async (redirectIfLoggedOut: boolean) => {
-    if (typeof window === "undefined") {
+  const sessionSyncRef = useRef<Promise<void> | null>(null);
+  const authTransitionRef = useRef<AuthTransitionToken | null>(null);
+  const [isAuthTransitioning, setIsAuthTransitioning] = useState(false);
+
+  const acquireAuthTransition = useCallback((kind: AuthTransitionKind): AuthTransitionToken | null => {
+    if (authTransitionRef.current) {
+      return null;
+    }
+    const token = { kind, id: Symbol(kind) };
+    authTransitionRef.current = token;
+    setIsAuthTransitioning(true);
+    return token;
+  }, []);
+
+  const releaseAuthTransition = useCallback((token: AuthTransitionToken): void => {
+    if (authTransitionRef.current !== token) {
       return;
     }
-
-    try {
-      const nextUser = await fetchCurrentUser();
-      if (!nextUser) {
-        queryClient.setQueryData(["/api/auth/user"], null);
-        if (redirectIfLoggedOut && !PUBLIC_SESSION_PATHS.has(window.location.pathname)) {
-          window.location.replace("/auth/login");
-        }
-        return;
-      }
-
-      queryClient.setQueryData(["/api/auth/user"], nextUser);
-    } catch {
-      queryClient.setQueryData(["/api/auth/user"], null);
-      if (redirectIfLoggedOut && !PUBLIC_SESSION_PATHS.has(window.location.pathname)) {
-        window.location.replace("/auth/login");
-      }
-    } finally {
-      window.sessionStorage.removeItem(LOGOUT_MARKER_KEY);
-    }
+    authTransitionRef.current = null;
+    setIsAuthTransitioning(false);
   }, []);
+
+  const clearClientSession = useCallback((
+    redirectIfLoggedOut: boolean,
+    authenticatedAtRequest?: boolean,
+  ): boolean => {
+    const hadAuthenticatedUser = authenticatedAtRequest
+      ?? Boolean(queryClient.getQueryData<AuthUser>(["/api/auth/user"]));
+    clearCsrfToken();
+    queryClient.clear();
+    queryClient.setQueryData(["/api/auth/user"], null);
+
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    const { pathname, search } = window.location;
+    const shouldRedirect =
+      redirectIfLoggedOut &&
+      (!PUBLIC_SESSION_PATHS.has(pathname) || (pathname === "/" && hadAuthenticatedUser));
+    if (!shouldRedirect) {
+      return false;
+    }
+
+    const returnPath = `${pathname}${search}`;
+    window.location.replace(
+      `/auth/login?reason=session-expired&next=${encodeURIComponent(returnPath)}`,
+    );
+    return true;
+  }, []);
+
+  const syncAuthState = useCallback((redirectIfLoggedOut: boolean): Promise<void> => {
+    if (typeof window === "undefined") {
+      return Promise.resolve();
+    }
+    if (authTransitionRef.current) {
+      return Promise.resolve();
+    }
+    if (sessionSyncRef.current) {
+      return sessionSyncRef.current;
+    }
+
+    const hadAuthenticatedUser = Boolean(queryClient.getQueryData<AuthUser>(["/api/auth/user"]));
+    const syncPromise = queryClient.fetchQuery<AuthUser | null>({
+      queryKey: ["/api/auth/user"],
+      queryFn: ({ signal }) => fetchCurrentUser(signal),
+      staleTime: 0,
+    })
+      .then((nextUser) => {
+        if (!nextUser) {
+          clearClientSession(redirectIfLoggedOut, hadAuthenticatedUser);
+          return;
+        }
+        queryClient.setQueryData(["/api/auth/user"], nextUser);
+      })
+      .catch(() => {
+        // A transient network/backend failure must not erase a still-valid local session.
+      })
+      .finally(() => {
+        window.sessionStorage.removeItem(LOGOUT_MARKER_KEY);
+        if (sessionSyncRef.current === syncPromise) {
+          sessionSyncRef.current = null;
+        }
+      });
+
+    sessionSyncRef.current = syncPromise;
+    return syncPromise;
+  }, [clearClientSession]);
 
   const { data: user, isLoading } = useQuery<AuthUser | null>({
     queryKey: ["/api/auth/user"],
@@ -157,20 +229,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
+    let redirecting = false;
+    return setSessionUnauthorizedHandler(() => {
+      if (
+        authTransitionRef.current?.kind === "login"
+        || authTransitionRef.current?.kind === "register"
+        || authTransitionRef.current?.kind === "logout"
+      ) {
+        return;
+      }
+      if (redirecting) {
+        return;
+      }
+      redirecting = clearClientSession(true);
+    });
+  }, [clearClientSession]);
+
+  useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
 
-    const handlePageShow = (event: PageTransitionEvent) => {
-      const loggedOut = Boolean(window.sessionStorage.getItem(LOGOUT_MARKER_KEY));
-      if (event.persisted || loggedOut) {
-        void syncAuthState(true);
-      }
+    const handlePageShow = () => {
+      void syncAuthState(true);
     };
 
     const handleVisibilityChange = () => {
-      const loggedOut = Boolean(window.sessionStorage.getItem(LOGOUT_MARKER_KEY));
-      if (document.visibilityState === "visible" && loggedOut) {
+      if (document.visibilityState === "visible") {
         void syncAuthState(true);
       }
     };
@@ -186,36 +271,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginMutation = useMutation({
     mutationFn: async (data: LoginInput) => {
-      await queryClient.cancelQueries({ queryKey: ["/api/auth/user"] });
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 20000);
-      let res: Response;
+      const transition = acquireAuthTransition("login");
+      if (!transition) {
+        throw new Error("Another account action is already in progress. Please wait a moment.");
+      }
       try {
-        res = await apiFetch("/api/auth/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-          signal: controller.signal,
-        });
-      } catch (error) {
-        if ((error as Error).name === "AbortError") {
-          const timeoutError = new Error("Sign-in timed out. Wait a moment and try again.") as AuthMutationError;
-          timeoutError.status = 504;
-          throw timeoutError;
+        await queryClient.cancelQueries();
+        await sessionSyncRef.current?.catch(() => undefined);
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 20000);
+        let res: Response;
+        try {
+          res = await apiFetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data),
+            signal: controller.signal,
+          });
+        } catch (error) {
+          if ((error as Error).name === "AbortError") {
+            const timeoutError = new Error("Sign-in timed out. Wait a moment and try again.") as AuthMutationError;
+            timeoutError.status = 504;
+            throw timeoutError;
+          }
+          throw error;
+        } finally {
+          window.clearTimeout(timeout);
         }
-        throw error;
-      } finally {
-        window.clearTimeout(timeout);
-      }
 
-      const payload = await res.json().catch(() => null);
-      if (!res.ok) {
-        const error = new Error(payload?.message || "Login failed") as AuthMutationError;
-        error.status = res.status;
-        error.mfaRequired = Boolean(payload?.mfaRequired);
-        throw error;
+        const payload = await res.json().catch(() => null);
+        if (!res.ok) {
+          const error = new Error(payload?.message || "Login failed") as AuthMutationError;
+          error.status = res.status;
+          error.mfaRequired = Boolean(payload?.mfaRequired);
+          throw error;
+        }
+        return await verifyAuthenticatedSession();
+      } finally {
+        releaseAuthTransition(transition);
       }
-      return verifyAuthenticatedSession();
     },
     onSuccess: (user: AuthUser) => {
       queryClient.setQueryData(["/api/auth/user"], user);
@@ -225,9 +319,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const registerMutation = useMutation({
     mutationFn: async (data: RegisterInput) => {
-      await queryClient.cancelQueries({ queryKey: ["/api/auth/user"] });
-      await apiRequest("POST", "/api/auth/register", data);
-      return verifyAuthenticatedSession();
+      const transition = acquireAuthTransition("register");
+      if (!transition) {
+        throw new Error("Another account action is already in progress. Please wait a moment.");
+      }
+      try {
+        await queryClient.cancelQueries();
+        await sessionSyncRef.current?.catch(() => undefined);
+        await apiRequest("POST", "/api/auth/register", data);
+        return await verifyAuthenticatedSession();
+      } finally {
+        releaseAuthTransition(transition);
+      }
     },
     onSuccess: (user: AuthUser) => {
       queryClient.setQueryData(["/api/auth/user"], user);
@@ -240,8 +343,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const switchOrganizationMutation = useMutation({
     mutationFn: async (organizationId: string) => {
-      await apiRequest("POST", "/api/auth/switch-organization", { organizationId });
-      return verifyAuthenticatedSession();
+      const transition = acquireAuthTransition("switch-organization");
+      if (!transition) {
+        throw new Error("Another account action is already in progress. Please wait a moment.");
+      }
+      try {
+        await queryClient.cancelQueries();
+        await sessionSyncRef.current?.catch(() => undefined);
+        await apiRequest("POST", "/api/auth/switch-organization", { organizationId });
+        return await verifyAuthenticatedSession();
+      } finally {
+        releaseAuthTransition(transition);
+      }
     },
     onSuccess: async (nextUser: AuthUser) => {
       queryClient.setQueryData(["/api/auth/user"], nextUser);
@@ -262,16 +375,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    await apiRequest("POST", "/api/auth/logout");
-    clearCsrfToken();
-    queryClient.setQueryData(["/api/auth/user"], null);
-    queryClient.clear();
-    if (typeof window !== "undefined") {
-      window.sessionStorage.setItem(LOGOUT_MARKER_KEY, String(Date.now()));
-      window.location.replace("/auth/login");
+    const transition = acquireAuthTransition("logout");
+    if (!transition) {
+      toast({ title: "Please wait", description: "Another account action is already in progress." });
       return;
     }
-    toast({ title: "Logged out successfully" });
+    try {
+      let response: Response;
+      try {
+        await queryClient.cancelQueries();
+        await sessionSyncRef.current?.catch(() => undefined);
+        response = await apiFetch("/api/auth/logout", { method: "POST" });
+      } catch (error) {
+        toast({
+          title: "Logout failed",
+          description: error instanceof Error ? error.message : "Could not reach the server. Please try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (!response.ok && response.status !== 401) {
+        const detail = (await response.text()) || response.statusText;
+        toast({ title: "Logout failed", description: detail, variant: "destructive" });
+        return;
+      }
+
+      clearClientSession(false);
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(LOGOUT_MARKER_KEY, String(Date.now()));
+        window.location.replace("/auth/login");
+        return;
+      }
+      toast({ title: "Logged out successfully" });
+    } finally {
+      releaseAuthTransition(transition);
+    }
   };
 
   const switchOrganization = async (organizationId: string) => {
@@ -283,6 +421,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user: user ?? null,
         isLoading,
+        isAuthTransitioning,
         login,
         register,
         logout,

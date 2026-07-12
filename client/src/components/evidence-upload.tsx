@@ -112,8 +112,8 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
 
   const { data: files = [], isLoading } = useQuery<EvidenceFile[]>({
     queryKey,
-    queryFn: async () => {
-      const res = await apiFetch(`/api/evidence?${queryParams.toString()}`);
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch(`/api/evidence?${queryParams.toString()}`, { signal });
       if (!res.ok) throw new Error("Failed to fetch evidence");
       return res.json();
     },
@@ -460,8 +460,8 @@ function EvidenceContent({
 export function EvidenceCount({ systemId }: { systemId: string }) {
   const { data: files = [] } = useQuery<EvidenceFile[]>({
     queryKey: ["/api/evidence", `systemId=${systemId}`],
-    queryFn: async () => {
-      const res = await apiFetch(`/api/evidence?systemId=${encodeURIComponent(systemId)}`);
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch(`/api/evidence?systemId=${encodeURIComponent(systemId)}`, { signal });
       if (!res.ok) throw new Error("Failed to fetch evidence");
       return res.json();
     },

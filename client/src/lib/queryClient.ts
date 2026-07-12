@@ -7,6 +7,7 @@ export {
   captureCsrfTokenFromResponse,
   clearCsrfToken,
   getCsrfToken,
+  setSessionUnauthorizedHandler,
 } from "@/lib/api-client";
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -14,8 +15,8 @@ export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
-  async ({ queryKey }) => {
-    const res = await apiFetch(queryKey.join("/") as string);
+  async ({ queryKey, signal }) => {
+    const res = await apiFetch(queryKey.join("/") as string, { signal });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

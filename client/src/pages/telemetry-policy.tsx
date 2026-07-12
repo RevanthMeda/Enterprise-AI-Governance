@@ -244,8 +244,8 @@ export default function TelemetryPolicyPage() {
 
   const systemsQuery = useQuery<AiSystemOption[]>({
     queryKey: ["/api/ai-systems", "telemetry-policy-options"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/ai-systems");
+    queryFn: async ({ signal }) => {
+      const response = await apiRequest("GET", "/api/ai-systems", undefined, { signal });
       return response.json();
     },
   });
@@ -260,33 +260,33 @@ export default function TelemetryPolicyPage() {
     queryKey: selectedSystemId
       ? ["/api/ai-systems", selectedSystemId, "telemetry-policy"]
       : ["/api/organization/telemetry-policy"],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const endpoint = selectedSystemId
         ? `/api/ai-systems/${selectedSystemId}/telemetry-policy`
         : "/api/organization/telemetry-policy";
-      const response = await apiRequest("GET", endpoint);
+      const response = await apiRequest("GET", endpoint, undefined, { signal });
       return response.json();
     },
   });
 
   const recommendationsQuery = useQuery<TelemetryPolicyRecommendationResponse>({
     queryKey: ["/api/telemetry-policy/recommendations", selectedSystemId ?? ORG_SCOPE],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const endpoint = selectedSystemId
         ? `/api/telemetry-policy/recommendations?systemId=${encodeURIComponent(selectedSystemId)}`
         : "/api/telemetry-policy/recommendations";
-      const response = await apiRequest("GET", endpoint);
+      const response = await apiRequest("GET", endpoint, undefined, { signal });
       return response.json();
     },
   });
 
   const exceptionsQuery = useQuery<ReviewerException[]>({
     queryKey: ["/api/telemetry/reviewer-exceptions", selectedSystemId ?? ORG_SCOPE],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const endpoint = selectedSystemId
         ? `/api/telemetry/reviewer-exceptions?systemId=${encodeURIComponent(selectedSystemId)}`
         : "/api/telemetry/reviewer-exceptions";
-      const response = await apiRequest("GET", endpoint);
+      const response = await apiRequest("GET", endpoint, undefined, { signal });
       return response.json();
     },
   });

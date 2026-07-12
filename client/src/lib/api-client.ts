@@ -4,9 +4,51 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const CSRF_BOOTSTRAP_PATH = "/api/auth/user";
 const CSRF_ERROR_CODE = "CSRF_TOKEN_INVALID";
 const CSRF_ERROR_MESSAGE = "Invalid CSRF token";
+const AUTHENTICATION_REQUIRED_ERROR_CODE = "AUTHENTICATION_REQUIRED";
+const SESSION_EXPIRED_ERROR_CODE = "SESSION_EXPIRED";
+const AUTHENTICATION_REQUIRED_MESSAGE = "Authentication required";
+const SESSION_EXPIRED_MESSAGE = "Session expired. Please sign in again.";
+const SESSION_UNAUTHORIZED_EXEMPT_PATHS = new Set([
+  "/api/auth/user",
+  "/api/auth/login",
+  "/api/auth/register",
+  "/api/auth/logout",
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password",
+  "/api/auth/sso/metadata",
+  "/api/auth/sso/start",
+  "/api/auth/sso/callback",
+  "/api/auth/sso/mock-callback",
+  "/api/auth/oidc/start",
+  "/api/auth/oidc/callback",
+  "/api/auth/oidc/mock-callback",
+]);
+const CSRF_BOOTSTRAP_EXEMPT_MUTATION_PATHS = new Set([
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password",
+]);
 
 let csrfToken: string | null = null;
 let csrfBootstrapPromise: Promise<void> | null = null;
+let sessionUnauthorizedHandler: SessionUnauthorizedHandler | null = null;
+
+export type SessionUnauthorizedReason = "authentication-required" | "session-expired";
+
+export type SessionUnauthorizedDetails = {
+  requestPath: string;
+  reason: SessionUnauthorizedReason;
+};
+
+export type SessionUnauthorizedHandler = (details: SessionUnauthorizedDetails) => void;
+
+export function setSessionUnauthorizedHandler(handler: SessionUnauthorizedHandler): () => void {
+  sessionUnauthorizedHandler = handler;
+  return () => {
+    if (sessionUnauthorizedHandler === handler) {
+      sessionUnauthorizedHandler = null;
+    }
+  };
+}
 
 export function getCsrfToken(): string | null {
   return csrfToken;
@@ -97,9 +139,68 @@ async function isInvalidCsrfResponse(response: Response): Promise<boolean> {
   }
 }
 
-function buildCredentialedInit(method: string, init: RequestInit): RequestInit {
+function getRequestPath(input: string | URL): string {
+  const resolved = resolveApiUrl(input.toString());
+  try {
+    return new URL(resolved, "http://localhost").pathname;
+  } catch {
+    return input.toString();
+  }
+}
+
+async function getSessionUnauthorizedReason(
+  input: string | URL,
+  response: Response,
+): Promise<SessionUnauthorizedReason | null> {
+  if (response.status !== 401 || SESSION_UNAUTHORIZED_EXEMPT_PATHS.has(getRequestPath(input))) {
+    return null;
+  }
+
+  const errorCode = response.headers.get("x-error-code");
+  if (errorCode === SESSION_EXPIRED_ERROR_CODE) {
+    return "session-expired";
+  }
+  if (errorCode === AUTHENTICATION_REQUIRED_ERROR_CODE) {
+    return "authentication-required";
+  }
+  if (errorCode !== null) {
+    return null;
+  }
+
+  try {
+    const payload = (await response.clone().json()) as { message?: unknown };
+    if (payload?.message === SESSION_EXPIRED_MESSAGE) {
+      return "session-expired";
+    }
+    if (payload?.message === AUTHENTICATION_REQUIRED_MESSAGE) {
+      return "authentication-required";
+    }
+  } catch {
+    // A non-JSON 401 is not a trusted session-expiry signal.
+  }
+  return null;
+}
+
+async function notifySessionUnauthorized(input: string | URL, response: Response): Promise<void> {
+  const reason = await getSessionUnauthorizedReason(input, response);
+  if (!reason) {
+    return;
+  }
+
+  clearCsrfToken();
+  sessionUnauthorizedHandler?.({
+    requestPath: getRequestPath(input),
+    reason,
+  });
+}
+
+function buildCredentialedInit(
+  method: string,
+  init: RequestInit,
+  attachCsrfToken: boolean,
+): RequestInit {
   const headers = new Headers(init.headers);
-  if (!SAFE_METHODS.has(method) && csrfToken) {
+  if (attachCsrfToken && !SAFE_METHODS.has(method) && csrfToken) {
     headers.set("X-CSRF-Token", csrfToken);
   }
 
@@ -114,20 +215,30 @@ function buildCredentialedInit(method: string, init: RequestInit): RequestInit {
 export async function apiFetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
   const isMutation = !SAFE_METHODS.has(method);
+  const isCsrfBootstrapExemptMutation =
+    isMutation && CSRF_BOOTSTRAP_EXEMPT_MUTATION_PATHS.has(getRequestPath(input));
 
-  if (isMutation && !csrfToken) {
+  if (isMutation && !isCsrfBootstrapExemptMutation && !csrfToken) {
     await bootstrapCsrfToken(init.signal);
   }
 
   const send = async () => {
-    const tokenUsed = csrfToken;
-    const response = await fetch(resolveApiUrl(input.toString()), buildCredentialedInit(method, init));
+    const tokenUsed = isCsrfBootstrapExemptMutation ? null : csrfToken;
+    const response = await fetch(
+      resolveApiUrl(input.toString()),
+      buildCredentialedInit(method, init, !isCsrfBootstrapExemptMutation),
+    );
     captureCsrfTokenFromResponse(response, "include");
     return { response, tokenUsed };
   };
 
   const firstAttempt = await send();
-  if (!isMutation || !(await isInvalidCsrfResponse(firstAttempt.response))) {
+  if (
+    !isMutation
+    || isCsrfBootstrapExemptMutation
+    || !(await isInvalidCsrfResponse(firstAttempt.response))
+  ) {
+    await notifySessionUnauthorized(input, firstAttempt.response);
     return firstAttempt.response;
   }
 
@@ -138,7 +249,9 @@ export async function apiFetch(input: string | URL, init: RequestInit = {}): Pro
     await bootstrapCsrfToken(init.signal);
   }
 
-  return (await send()).response;
+  const retryResponse = (await send()).response;
+  await notifySessionUnauthorized(input, retryResponse);
+  return retryResponse;
 }
 
 export async function throwIfResponseNotOk(response: Response): Promise<void> {
@@ -148,12 +261,22 @@ export async function throwIfResponseNotOk(response: Response): Promise<void> {
   }
 }
 
-export async function apiRequest(method: string, url: string, data?: unknown): Promise<Response> {
+export async function apiRequest(
+  method: string,
+  url: string,
+  data?: unknown,
+  init: RequestInit = {},
+): Promise<Response> {
   const hasBody = data !== undefined;
+  const headers = new Headers(init.headers);
+  if (hasBody && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
   const response = await apiFetch(url, {
+    ...init,
     method,
-    headers: hasBody ? { "Content-Type": "application/json" } : undefined,
-    body: hasBody ? JSON.stringify(data) : undefined,
+    headers,
+    body: hasBody ? JSON.stringify(data) : init.body,
   });
 
   await throwIfResponseNotOk(response);

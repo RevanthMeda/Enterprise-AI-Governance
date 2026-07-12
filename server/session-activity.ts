@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { sendSessionExpired } from "./auth-errors";
 
 export function createSessionActivityMiddleware(options: {
   idleTimeoutMs: number;
@@ -28,7 +29,7 @@ export function createSessionActivityMiddleware(options: {
         req.session.destroy((destroyError) => {
           if (destroyError) return next(destroyError);
           options.clearCookie(res);
-          return res.status(401).json({ message: "Session expired. Please sign in again." });
+          return sendSessionExpired(res);
         });
       });
     }

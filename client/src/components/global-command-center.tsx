@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/command";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { resolveApiUrl } from "@/lib/api-url";
+import { apiFetch } from "@/lib/queryClient";
 import { getAppAccess } from "@/lib/permissions";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -61,10 +61,8 @@ export function GlobalCommandCenter() {
     queryKey: ["/api/workspace-search", query],
     enabled: open && query.trim().length >= 2,
     staleTime: 15_000,
-    queryFn: async () => {
-      const res = await fetch(resolveApiUrl(`/api/workspace-search?q=${encodeURIComponent(query.trim())}`), {
-        credentials: "include",
-      });
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch(`/api/workspace-search?q=${encodeURIComponent(query.trim())}`, { signal });
       if (!res.ok) {
         throw new Error("Failed to search workspace");
       }

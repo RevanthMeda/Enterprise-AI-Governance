@@ -107,11 +107,11 @@ export default function PortfolioControlPage() {
 
   const controlPlaneQuery = useQuery<PortfolioControlResponse>({
     queryKey: ["/api/portfolio-control", activePortfolioId ?? null],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const url = activePortfolioId
         ? `/api/portfolio-control?portfolioId=${encodeURIComponent(activePortfolioId)}`
         : "/api/portfolio-control";
-      const response = await apiRequest("GET", url);
+      const response = await apiRequest("GET", url, undefined, { signal });
       return response.json();
     },
   });

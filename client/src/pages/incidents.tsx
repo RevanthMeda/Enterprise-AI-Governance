@@ -141,8 +141,8 @@ export default function IncidentsPage() {
   const [assignmentDrafts, setAssignmentDrafts] = useState<Record<string, string>>({});
   const summaryQuery = useQuery<IncidentSummary>({
     queryKey: ["/api/incidents/summary"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/incidents/summary");
+    queryFn: async ({ signal }) => {
+      const response = await apiRequest("GET", "/api/incidents/summary", undefined, { signal });
       return response.json();
     },
     refetchInterval: 5_000,
@@ -151,8 +151,8 @@ export default function IncidentsPage() {
   });
   const listQuery = useQuery<Incident[]>({
     queryKey: ["/api/incidents"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/incidents");
+    queryFn: async ({ signal }) => {
+      const response = await apiRequest("GET", "/api/incidents", undefined, { signal });
       const payload = await response.json();
       return Array.isArray(payload)
         ? payload.map((entry) => normalizeIncident(entry)).filter((entry): entry is Incident => entry !== null)
@@ -170,8 +170,8 @@ export default function IncidentsPage() {
   });
   const assigneesQuery = useQuery<IncidentAssigneeCandidate[]>({
     queryKey: ["/api/incidents/assignees"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/incidents/assignees");
+    queryFn: async ({ signal }) => {
+      const response = await apiRequest("GET", "/api/incidents/assignees", undefined, { signal });
       const payload = await response.json();
       return Array.isArray(payload)
         ? payload
@@ -320,11 +320,11 @@ export default function IncidentsPage() {
     queryKey: ["/api/incidents/resolution-suggestion", selectedIncident?.id ?? "none"],
     enabled: Boolean(selectedIncident?.id),
     staleTime: 15_000,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!selectedIncident?.id) {
         return null;
       }
-      const response = await apiRequest("GET", `/api/incidents/${selectedIncident.id}/resolution-suggestion`);
+      const response = await apiRequest("GET", `/api/incidents/${selectedIncident.id}/resolution-suggestion`, undefined, { signal });
       return (await response.json()) as IncidentResolutionSuggestionResponse;
     },
   });

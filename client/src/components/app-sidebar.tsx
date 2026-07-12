@@ -112,7 +112,7 @@ function isNavItemActive(location: string, item: NavItem): boolean {
 
 export function AppSidebar() {
   const [location] = useLocation();
-  const { user, switchOrganization, switchOrganizationMutation } = useAuth();
+  const { user, isAuthTransitioning, switchOrganization, switchOrganizationMutation } = useAuth();
   const copy = useWorkspaceCopy();
   const access = getAppAccess(user);
   const displayRole = getDisplayRole(user);
@@ -158,7 +158,7 @@ export function AppSidebar() {
               onValueChange={(value) => {
                 void switchOrganization(value);
               }}
-              disabled={switchOrganizationMutation.isPending}
+              disabled={isAuthTransitioning || switchOrganizationMutation.isPending}
             >
               <SelectTrigger data-testid="select-active-organization">
                 <SelectValue placeholder="Select organization" />
