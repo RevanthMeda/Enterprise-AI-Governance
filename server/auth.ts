@@ -119,7 +119,10 @@ function normalizeUsername(username: string): string {
 async function consumeLoginRateLimits(
   clientAddress: string,
   username: string,
-): Promise<{ allowed: boolean; retryAfterMs: number }> {
+): Promise<
+  | { allowed: true; retryAfterMs: 0 }
+  | { allowed: false; retryAfterMs: number; unavailable?: boolean }
+> {
   const checks: Array<{ policy: RateLimitPolicy; identity: readonly string[] }> = [
     { policy: publicRateLimitPolicies.loginGlobal, identity: globalRateLimitIdentity() },
     { policy: publicRateLimitPolicies.loginIp, identity: [clientAddress] },
@@ -127,11 +130,18 @@ async function consumeLoginRateLimits(
     { policy: publicRateLimitPolicies.loginAccount, identity: [username] },
   ];
 
-  for (const check of checks) {
-    const decision = await sharedRateLimitService.consume(check.policy, check.identity);
-    if (!decision.allowed) {
-      return { allowed: false, retryAfterMs: decision.retryAfterMs };
+  try {
+    for (const check of checks) {
+      const decision = await sharedRateLimitService.consume(check.policy, check.identity);
+      if (!decision.allowed) {
+        return { allowed: false, retryAfterMs: decision.retryAfterMs };
+      }
     }
+  } catch (error) {
+    console.error("Login abuse protection is unavailable", {
+      error: error instanceof Error ? error.message : "Unknown rate-limit error",
+    });
+    return { allowed: false, retryAfterMs: 30_000, unavailable: true };
   }
   return { allowed: true, retryAfterMs: 0 };
 }
@@ -470,7 +480,7 @@ export function setupAuth(app: Express) {
         if (!rateLimit.allowed) {
           req.loginRateLimitRetryAfterMs = rateLimit.retryAfterMs;
           return done(null, false, {
-            message: "RATE_LIMITED",
+            message: rateLimit.unavailable ? "RATE_LIMIT_UNAVAILABLE" : "RATE_LIMITED",
           });
         }
 

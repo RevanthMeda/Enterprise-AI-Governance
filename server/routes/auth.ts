@@ -459,6 +459,14 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
     passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
       if (err) return next(err);
       if (!user) {
+        if (info?.message === "RATE_LIMIT_UNAVAILABLE") {
+          res.setHeader("Retry-After", "30");
+          res.setHeader("X-Error-Code", "ABUSE_PROTECTION_UNAVAILABLE");
+          return res.status(503).json({
+            message: "Request protection is temporarily unavailable. Try again shortly.",
+            code: "ABUSE_PROTECTION_UNAVAILABLE",
+          });
+        }
         if (info?.message === "RATE_LIMITED") {
           const retryAfterSeconds = Math.max(
             1,

@@ -39,6 +39,24 @@ export function registerHealthRoutes(app: Express): void {
     const release = getReleaseIdentity();
     try {
       await db.execute(sql`select 1`);
+      // Probe every database object required by the forward-compatible
+      // production migration. A generic `select 1` can report healthy while
+      // authentication and SSO are unusable after an out-of-order deploy.
+      await db.execute(sql`
+        select session_version, mfa_failed_attempts,
+               mfa_failure_window_started_at, mfa_locked_until
+        from users
+        limit 0
+      `);
+      await db.execute(sql`
+        select key_hash, scope, attempts, window_started_at, expires_at, updated_at
+        from rate_limit_buckets
+        limit 0
+      `);
+      await db.execute(sql`select request_id_hash from saml_authn_requests limit 0`);
+      await db.execute(sql`select state_hash from sso_login_attempts limit 0`);
+      await db.execute(sql`select code_hash from sso_login_exchanges limit 0`);
+      await db.execute(sql`select id from external_auth_identities limit 0`);
       const queue = await backgroundJobService.getGlobalSummary();
       const evidenceStorage = getEvidenceStorageReadiness();
       const backgroundJobsReady = queue.workerHealthy;
@@ -49,6 +67,7 @@ export function registerHealthRoutes(app: Express): void {
         release,
         checks: {
           database: { ready: true },
+          productionSchema: { ready: true },
           backgroundJobs: {
             ready: backgroundJobsReady,
             workerEnabled: queue.workerEnabled,

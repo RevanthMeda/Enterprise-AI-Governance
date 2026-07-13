@@ -99,6 +99,34 @@ test("production workflows gate frontend publication on the exact backend releas
   }
 });
 
+test("the release gate builds the local telemetry SDK before static type checks", () => {
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
+  ) as { scripts?: Record<string, string> };
+  const securityGate = packageJson.scripts?.["security:sast"] ?? "";
+
+  assert.match(securityGate, /^npm run build:sdk:telemetry && npm run check/);
+});
+
+test("readiness probes the schema required by authentication before reporting healthy", () => {
+  const healthSource = fs.readFileSync(
+    path.join(process.cwd(), "server", "routes", "health.ts"),
+    "utf8",
+  );
+
+  for (const requiredObject of [
+    "session_version",
+    "rate_limit_buckets",
+    "saml_authn_requests",
+    "sso_login_attempts",
+    "sso_login_exchanges",
+    "external_auth_identities",
+  ]) {
+    assert.match(healthSource, new RegExp(requiredObject));
+  }
+  assert.match(healthSource, /productionSchema: \{ ready: true \}/);
+});
+
 test("readiness fails closed when the background worker is disabled or not running", () => {
   const healthSource = fs.readFileSync(
     path.join(process.cwd(), "server", "routes", "health.ts"),
