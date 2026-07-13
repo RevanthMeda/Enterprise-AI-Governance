@@ -63,6 +63,34 @@ For production-safe evidence handling, move uploads and exports to durable stora
 - Build command: `npm run build:vercel`
 - Output directory: `dist/public`
 
+## Platform administrator rollout
+
+Platform-wide access is controlled by the explicit `users.is_platform_admin` entitlement. Tenant roles such as `owner`, `admin`, `cro`, or `ciso` do not grant platform access, and the application never infers it from a username or email address.
+
+Roll this change out in this order:
+
+1. Apply the schema change so `is_platform_admin` exists with its default of `false`.
+2. Identify the approved operator by immutable user ID.
+3. Grant the entitlement directly by that ID:
+
+   ```sql
+   UPDATE users
+   SET is_platform_admin = TRUE
+   WHERE id = '<approved-user-uuid>';
+   ```
+
+4. Verify the intended account before deploying the authorization change:
+
+   ```sql
+   SELECT id, username, email, is_platform_admin
+   FROM users
+   WHERE id = '<approved-user-uuid>';
+   ```
+
+5. Deploy the API and confirm the approved operator can access platform-only lead administration while tenant administrators receive `403`.
+
+Revoke the entitlement with the same immutable-ID process by setting `is_platform_admin = FALSE`. Never bulk-grant it from `role`, username, email, email domain, or organization membership. Existing users default to no platform access until explicitly granted.
+
 ## Cron security
 
 Set `CRON_SECRET` in Vercel.

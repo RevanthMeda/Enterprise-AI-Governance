@@ -4,6 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { usePageCopy } from "@/lib/page-copy";
 import type { GovernanceMaturityResponse } from "@shared/governance-maturity";
 
@@ -30,6 +32,23 @@ export default function GovernanceMaturityPage() {
   });
 
   const data = maturityQuery.data;
+
+  if (maturityQuery.isError) {
+    return (
+      <div className="page-shell">
+        <h1 className="text-2xl font-semibold tracking-tight">{pageCopy.governanceMaturity.title}</h1>
+        <Alert variant="destructive">
+          <AlertTitle>Governance maturity could not be loaded</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>No maturity score is shown because the assessment data is unavailable.</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => void maturityQuery.refetch()}>
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   if (maturityQuery.isLoading || !data) {
     return (

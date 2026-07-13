@@ -8,6 +8,7 @@ import { hashPassword, setupAuth } from "../server/auth";
 import { registerRoutes } from "../server/routes";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
+import { telemetryPolicyService } from "../server/services/telemetryPolicyService";
 import {
   memberships,
   organizationTelemetryPolicies,
@@ -147,9 +148,90 @@ test("portfolio telemetry policy inherits into orgs and org reset falls back cle
     const controlPlaneBody = controlPlane.body as {
       portfolios: Array<{ id: string }>;
     };
-    const portfolioId = controlPlaneBody.portfolios[0]?.id;
-    assert.ok(portfolioId, "Expected bootstrap portfolio");
+    assert.deepEqual(controlPlaneBody.portfolios, [], "GET must not provision a portfolio or grant access");
+
+    const provision = await apiRequest(baseUrl, "/api/portfolio-control/provision", {
+      method: "POST",
+      cookie,
+      body: {},
+    });
+    assert.equal(provision.status, 201);
+    const portfolioId = (provision.body as { portfolioId?: string }).portfolioId;
+    assert.ok(portfolioId, "Expected explicit portfolio provisioning to return an id");
     tracker.portfolioIds.push(portfolioId);
+
+    const repeatedProvision = await apiRequest(baseUrl, "/api/portfolio-control/provision", {
+      method: "POST",
+      cookie,
+      body: {},
+    });
+    assert.equal(repeatedProvision.status, 200);
+    assert.equal((repeatedProvision.body as { portfolioId: string }).portfolioId, portfolioId);
+
+    const unknownPortfolio = await apiRequest(
+      baseUrl,
+      "/api/portfolio-control?portfolioId=00000000-0000-0000-0000-000000000000",
+      { cookie },
+    );
+    assert.equal(unknownPortfolio.status, 404);
+    const unknownPortfolioPolicy = await apiRequest(
+      baseUrl,
+      "/api/portfolio-control/telemetry-policy?portfolioId=00000000-0000-0000-0000-000000000000",
+      { cookie },
+    );
+    assert.equal(unknownPortfolioPolicy.status, 404);
+
+    const reviewerUser = await storage.createUser({
+      username: `inherit_reviewer_${suffix}`,
+      password: await hashPassword(password),
+      fullName: `Inheritance Reviewer ${suffix}`,
+      email: `inherit-reviewer-${suffix}@example.com`,
+      role: "reviewer",
+    });
+    tracker.userIds.push(reviewerUser.id);
+    const reviewerMembership = await storage.createMembership({
+      userId: reviewerUser.id,
+      organizationId: org.id,
+      role: "reviewer",
+      membershipState: "active",
+      isDefault: true,
+      invitedBy: adminUser.id,
+    });
+    tracker.membershipIds.push(reviewerMembership.id);
+    await db.insert(portfolioMemberships).values({
+      portfolioId,
+      userId: reviewerUser.id,
+      role: "portfolio_admin",
+    });
+
+    const reviewerLogin = await apiRequest(baseUrl, "/api/auth/login", {
+      method: "POST",
+      body: { username: reviewerUser.username, password, organizationSlug: org.slug },
+    });
+    assert.equal(reviewerLogin.status, 200);
+    const reviewerCookie = cookieFromSetCookie(reviewerLogin.setCookie);
+    assert.ok(reviewerCookie);
+    const reviewerPatch = await apiRequest(
+      baseUrl,
+      `/api/portfolio-control/telemetry-policy?portfolioId=${encodeURIComponent(portfolioId)}`,
+      {
+        method: "PATCH",
+        cookie: reviewerCookie,
+        body: { driftAlertThreshold: 8 },
+      },
+    );
+    assert.equal(reviewerPatch.status, 403);
+
+    const unknownPatch = await apiRequest(
+      baseUrl,
+      "/api/portfolio-control/telemetry-policy?portfolioId=00000000-0000-0000-0000-000000000000",
+      {
+        method: "PATCH",
+        cookie,
+        body: { driftAlertThreshold: 8 },
+      },
+    );
+    assert.equal(unknownPatch.status, 404);
 
     const portfolioPatch = await apiRequest(
       baseUrl,
@@ -198,16 +280,39 @@ test("portfolio telemetry policy inherits into orgs and org reset falls back cle
     assert.equal(resetBody.source, "portfolio");
     assert.equal(resetBody.driftAlertThreshold, 9);
     assert.equal(resetBody.hasExplicitOverride, false);
+
+    const [secondPortfolio] = await db
+      .insert(portfolios)
+      .values({
+        slug: `ambiguous-portfolio-${suffix}`,
+        name: `Ambiguous Portfolio ${suffix}`,
+      })
+      .returning();
+    tracker.portfolioIds.push(secondPortfolio.id);
+    await db.insert(portfolioOrganizations).values({
+      portfolioId: secondPortfolio.id,
+      organizationId: org.id,
+      operatingStatus: "active",
+    });
+    await db.insert(portfolioTelemetryPolicies).values({ portfolioId: secondPortfolio.id });
+
+    await assert.rejects(
+      () => telemetryPolicyService.getEffectiveForOrg(org.id),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { status?: number }).status === 409 &&
+        error.message.includes("multiple parent portfolio policies"),
+    );
   } finally {
     await server?.close();
     if (tracker.organizationIds[0]) {
       await db.delete(organizationTelemetryPolicies).where(eq(organizationTelemetryPolicies.organizationId, tracker.organizationIds[0]));
     }
-    if (tracker.portfolioIds[0]) {
-      await db.delete(portfolioTelemetryPolicies).where(eq(portfolioTelemetryPolicies.portfolioId, tracker.portfolioIds[0]));
-      await db.delete(portfolioOrganizations).where(eq(portfolioOrganizations.portfolioId, tracker.portfolioIds[0]));
-      await db.delete(portfolioMemberships).where(eq(portfolioMemberships.portfolioId, tracker.portfolioIds[0]));
-      await db.delete(portfolios).where(eq(portfolios.id, tracker.portfolioIds[0]));
+    if (tracker.portfolioIds.length > 0) {
+      await db.delete(portfolioTelemetryPolicies).where(inArray(portfolioTelemetryPolicies.portfolioId, tracker.portfolioIds));
+      await db.delete(portfolioOrganizations).where(inArray(portfolioOrganizations.portfolioId, tracker.portfolioIds));
+      await db.delete(portfolioMemberships).where(inArray(portfolioMemberships.portfolioId, tracker.portfolioIds));
+      await db.delete(portfolios).where(inArray(portfolios.id, tracker.portfolioIds));
     }
     if (tracker.membershipIds.length > 0) {
       await db.delete(memberships).where(inArray(memberships.id, tracker.membershipIds));

@@ -131,6 +131,75 @@ async function assertUnauthorizedContract(apiBase: string, origin?: string): Pro
   }
 }
 
+function assertNonnegativeCounter(value: unknown, fieldName: string): asserts value is number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${fieldName} must be a finite nonnegative number`);
+  }
+}
+
+function assertSummaryContract(path: string, text: string): void {
+  const payload = JSON.parse(text) as Record<string, unknown>;
+
+  if (path === "/api/incidents/summary") {
+    assertNonnegativeCounter(payload.active, "incidents.active");
+    assertNonnegativeCounter(payload.open, "incidents.open");
+    if (payload.active < payload.open) {
+      throw new Error("incidents.active cannot be lower than incidents.open");
+    }
+  }
+
+  if (path === "/api/telemetry/summary") {
+    if (payload.windowDays !== 30) {
+      throw new Error("telemetry.windowDays must equal 30");
+    }
+    assertNonnegativeCounter(payload.escalatedEvents30d, "telemetry.escalatedEvents30d");
+    assertNonnegativeCounter(payload.escalatedIncidents, "telemetry.escalatedIncidents");
+    if (payload.escalatedEvents30d !== payload.escalatedIncidents) {
+      throw new Error("telemetry escalation compatibility fields do not match");
+    }
+  }
+}
+
+async function assertRuntimeFrontendContract(frontend: string): Promise<void> {
+  const cacheBuster = Date.now();
+  const { response: indexResponse, text: indexText } = await fetchText(
+    `${frontend}/index.html?smoke=${cacheBuster}`,
+    {
+      cache: "no-store",
+      headers: { "Cache-Control": "no-cache" },
+    },
+  );
+  if (!indexResponse.ok) {
+    throw new Error(`runtime page expected 200, received ${indexResponse.status}`);
+  }
+
+  const entryAsset = indexText.match(/\/assets\/(index-[A-Za-z0-9_-]+\.js)/)?.[1];
+  if (!entryAsset) {
+    throw new Error("frontend entry bundle could not be identified");
+  }
+
+  const { response: entryResponse, text: entryText } = await fetchText(`${frontend}/assets/${entryAsset}`);
+  if (!entryResponse.ok) {
+    throw new Error(`frontend entry bundle expected 200, received ${entryResponse.status}`);
+  }
+
+  const runtimeAsset = entryText.match(/runtime-monitoring-[A-Za-z0-9_-]+\.js/)?.[0];
+  if (!runtimeAsset) {
+    throw new Error("runtime monitoring bundle could not be identified");
+  }
+
+  const { response: runtimeResponse, text: runtimeText } = await fetchText(`${frontend}/assets/${runtimeAsset}`);
+  if (!runtimeResponse.ok) {
+    throw new Error(`runtime monitoring bundle expected 200, received ${runtimeResponse.status}`);
+  }
+
+  for (const expectedMarker of ["Organization counters", "Active incidents", "Evaluation target"]) {
+    if (!runtimeText.includes(expectedMarker)) {
+      throw new Error(`runtime monitoring bundle is missing the ${expectedMarker} release marker`);
+    }
+  }
+}
+
 async function assertFrontendSessionTopology(
   frontend: string,
   backend: string,
@@ -293,12 +362,13 @@ async function main() {
         checks.push(
           runCheckWithRetry(`authenticated ${path}`, async () => {
             const { cookie } = await loginAndGetSession(backend, adminUsername, adminPassword);
-            const { response } = await fetchText(`${backend}${path}`, {
+            const { response, text } = await fetchText(`${backend}${path}`, {
               headers: { Cookie: cookie },
             });
             if (!response.ok) {
               throw new Error(`expected 200, received ${response.status}`);
             }
+            assertSummaryContract(path, text);
           }),
         );
       }
@@ -340,6 +410,12 @@ async function main() {
         if (!text.includes("AI CONTROL GRID")) {
           throw new Error("landing response missing expected app marker");
         }
+      }),
+    );
+
+    checks.push(
+      runCheckWithRetry("frontend runtime summary contract", async () => {
+        await assertRuntimeFrontendContract(frontend);
       }),
     );
 
@@ -397,8 +473,8 @@ async function main() {
         if (!response.ok) {
           throw new Error(`expected 200, received ${response.status}`);
         }
-        if (!text.includes("Redoc.init")) {
-          throw new Error("identity redoc page missing init marker");
+        if (!text.includes('data-spec-url="/api-docs/identity.yaml"') || !text.includes("/api-docs/redoc-init.js")) {
+          throw new Error("identity redoc page missing external initializer contract");
         }
       }),
     );
@@ -409,8 +485,20 @@ async function main() {
         if (!response.ok) {
           throw new Error(`expected 200, received ${response.status}`);
         }
-        if (!text.includes("Redoc.init")) {
-          throw new Error("platform redoc page missing init marker");
+        if (!text.includes('data-spec-url="/api-docs/platform.yaml"') || !text.includes("/api-docs/redoc-init.js")) {
+          throw new Error("platform redoc page missing external initializer contract");
+        }
+      }),
+    );
+
+    checks.push(
+      runCheckWithRetry("frontend redoc initializer", async () => {
+        const { response, text } = await fetchText(`${frontend}/api-docs/redoc-init.js`);
+        if (!response.ok) {
+          throw new Error(`expected 200, received ${response.status}`);
+        }
+        if (!text.includes("window.Redoc.init")) {
+          throw new Error("redoc initializer is missing Redoc.init");
         }
       }),
     );

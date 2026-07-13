@@ -623,6 +623,7 @@ export class DatabaseStorage implements IStorage {
         emailVerified: users.emailVerified,
         lastLoginAt: users.lastLoginAt,
         role: users.role,
+        isPlatformAdmin: users.isPlatformAdmin,
       })
       .from(users)
       .innerJoin(memberships, eq(users.id, memberships.userId))
@@ -654,6 +655,7 @@ export class DatabaseStorage implements IStorage {
         emailVerified: users.emailVerified,
         lastLoginAt: users.lastLoginAt,
         role: users.role,
+        isPlatformAdmin: users.isPlatformAdmin,
       })
       .from(users)
       .innerJoin(memberships, eq(users.id, memberships.userId))

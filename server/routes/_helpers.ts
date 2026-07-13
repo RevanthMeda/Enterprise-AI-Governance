@@ -499,13 +499,15 @@ export async function enrichAuditLogsWithContext<
   }));
 }
 
-export function mapUserRoleToMembershipRole(username: string, userRole: string): string {
-  if (username === "admin") return "owner";
+export function mapUserRoleToMembershipRole(userRole: string): string {
   if (userRole === "admin") return "admin";
   return userRole;
 }
 
-export async function ensureUserDefaultMembership(user: { id: string; username: string; role: string }) {
+export async function ensureUserDefaultMembership(user: {
+  id: string;
+  role: string;
+}) {
   let defaultOrg = await storage.getOrganizationBySlug("default-org");
   if (!defaultOrg) {
     try {
@@ -530,7 +532,7 @@ export async function ensureUserDefaultMembership(user: { id: string; username: 
     await storage.createMembership({
       userId: user.id,
       organizationId: defaultOrg.id,
-      role: mapUserRoleToMembershipRole(user.username, user.role),
+      role: mapUserRoleToMembershipRole(user.role),
       membershipState: "active",
       isDefault: !memberships.some((m) => m.isDefault && m.membershipState === "active"),
       invitedBy: null,

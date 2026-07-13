@@ -1,10 +1,11 @@
 import { db } from "./db";
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   aiSystems,
   approvalWorkflows,
   auditLogs,
   complianceControls,
+  memberships,
   systemControls,
   users,
 } from "@shared/schema";
@@ -116,21 +117,39 @@ async function ensureBaselineTestUsers() {
 
 export async function seedDatabase() {
   const existingUsers = await db.select().from(users);
+  let createdPlatformAdminId: string | null = null;
   if (existingUsers.length === 0) {
     const hashed = await hashPassword("admin123");
-    await db.insert(users).values({
-      username: "admin",
-      password: hashed,
-      fullName: "Platform Administrator",
-      email: "admin@aicontrolgrid.com",
-      role: "admin",
-    });
+    const [createdPlatformAdmin] = await db
+      .insert(users)
+      .values({
+        username: "admin",
+        password: hashed,
+        fullName: "Platform Administrator",
+        email: "admin@aicontrolgrid.com",
+        role: "admin",
+        isPlatformAdmin: true,
+      })
+      .returning({ id: users.id });
+    createdPlatformAdminId = createdPlatformAdmin?.id ?? null;
     console.log("Default admin user created (admin / admin123)");
   }
 
   await ensureBaselineTestUsers();
 
   const { organizationId: defaultOrganizationId } = await ensureTenantBootstrap();
+
+  if (createdPlatformAdminId) {
+    await db
+      .update(memberships)
+      .set({ role: "owner", updatedAt: new Date() })
+      .where(
+        and(
+          eq(memberships.userId, createdPlatformAdminId),
+          eq(memberships.organizationId, defaultOrganizationId),
+        ),
+      );
+  }
 
   const existingSystems = await db.select().from(aiSystems);
   if (existingSystems.length > 0) return;

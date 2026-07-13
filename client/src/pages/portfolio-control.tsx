@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { usePageCopy } from "@/lib/page-copy";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 type PortfolioControlResponse = {
   portfolios: Array<{
@@ -90,6 +91,7 @@ type PortfolioControlResponse = {
 export default function PortfolioControlPage() {
   const pageCopy = usePageCopy();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [location, setLocation] = useLocation();
   const [draftPolicy, setDraftPolicy] = useState<PortfolioControlResponse["portfolioPolicy"]>(null);
   const currentPortfolioIdFromUrl = useMemo(() => {
@@ -118,7 +120,11 @@ export default function PortfolioControlPage() {
 
   const data = controlPlaneQuery.data;
   const selectedPortfolio = data?.selectedPortfolio ?? null;
-  const canManageSelectedPortfolio = selectedPortfolio?.role === "portfolio_admin";
+  const currentOrganizationRole = user?.organizations.find(
+    (organization) => organization.id === user.currentOrganizationId,
+  )?.role;
+  const canProvisionPortfolio = currentOrganizationRole === "owner" || currentOrganizationRole === "admin";
+  const canManageSelectedPortfolio = selectedPortfolio?.role === "portfolio_admin" && canProvisionPortfolio;
   const organizations = useMemo(() => data?.organizations ?? [], [data?.organizations]);
 
   useEffect(() => {
@@ -165,6 +171,26 @@ export default function PortfolioControlPage() {
     },
     onError: (error: Error) => {
       toast({ title: "Failed to update portfolio telemetry policy", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const provisionPortfolioMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/portfolio-control/provision", {});
+      return response.json() as Promise<{ portfolioId: string }>;
+    },
+    onSuccess: async ({ portfolioId }) => {
+      setActivePortfolioId(portfolioId);
+      setLocation(`/portfolio-control?portfolioId=${encodeURIComponent(portfolioId)}`);
+      await queryClient.invalidateQueries({ queryKey: ["/api/portfolio-control"] });
+      toast({ title: "Portfolio provisioned" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to provision portfolio",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -238,8 +264,24 @@ export default function PortfolioControlPage() {
                 </div>
               </div>
             ) : (
-              <div className="text-sm text-muted-foreground">
-                No portfolio memberships yet. The platform will bootstrap a default portfolio from your active organizations when available.
+              <div className="space-y-3">
+                <div className="text-sm text-muted-foreground">
+                  No portfolio membership is assigned. Portfolio access is created explicitly so viewing this page never grants administrative rights.
+                </div>
+                {canProvisionPortfolio ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => provisionPortfolioMutation.mutate()}
+                    disabled={provisionPortfolioMutation.isPending}
+                  >
+                    {provisionPortfolioMutation.isPending ? "Provisioning…" : "Provision portfolio"}
+                  </Button>
+                ) : (
+                  <div className="text-xs text-muted-foreground">
+                    Ask an organization owner or administrator to provision the portfolio.
+                  </div>
+                )}
               </div>
             )}
           </div>

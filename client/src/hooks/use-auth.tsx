@@ -7,6 +7,7 @@ import {
   queryClient,
   setSessionUnauthorizedHandler,
 } from "@/lib/queryClient";
+import { authUserQueryKey, clearOrganizationScopedQueries } from "@/lib/organization-query-cache";
 import { useToast } from "@/hooks/use-toast";
 import type {
   AccessibilityPreferenceState,
@@ -357,7 +358,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     },
     onSuccess: async (nextUser: AuthUser) => {
-      queryClient.setQueryData(["/api/auth/user"], nextUser);
+      clearOrganizationScopedQueries(queryClient);
+      queryClient.setQueryData(authUserQueryKey, nextUser);
       await queryClient.invalidateQueries();
       toast({ title: "Organization switched" });
     },

@@ -259,13 +259,13 @@ export default function ComplianceCalendar() {
                 {MONTHS[currentMonth]} {currentYear}
               </CardTitle>
               <div className="flex items-center gap-1">
-                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={goToToday} data-testid="button-today">
+                <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={goToToday} data-testid="button-today">
                   Today
                 </Button>
-                <Button variant="outline" size="icon" className="h-7 w-7" onClick={goToPrevMonth} data-testid="button-prev-month">
+                <Button type="button" variant="outline" size="icon" className="h-7 w-7" onClick={goToPrevMonth} aria-label="Previous month" data-testid="button-prev-month">
                   <ChevronLeft className="h-3.5 w-3.5" />
                 </Button>
-                <Button variant="outline" size="icon" className="h-7 w-7" onClick={goToNextMonth} data-testid="button-next-month">
+                <Button type="button" variant="outline" size="icon" className="h-7 w-7" onClick={goToNextMonth} aria-label="Next month" data-testid="button-next-month">
                   <ChevronRight className="h-3.5 w-3.5" />
                 </Button>
               </div>

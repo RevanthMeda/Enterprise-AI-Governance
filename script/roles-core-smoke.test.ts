@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import express from "express";
 import { createServer, type Server } from "http";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { hashPassword, setupAuth } from "../server/auth";
 import { registerRoutes } from "../server/routes";
 import { storage } from "../server/storage";
@@ -143,7 +143,7 @@ test("core API smoke across all role personas", async () => {
       path: "/api/leads",
       method: "GET",
       body: undefined,
-      allowedRoles: ["admin", "cro", "ciso", "compliance_lead"] as RoleName[],
+      allowedRoles: [] as RoleName[],
     },
     {
       path: "/api/auth/mfa/enroll",
@@ -196,6 +196,28 @@ test("core API smoke across all role personas", async () => {
       tracker.membershipIds.push(membership.id);
     }
 
+    const platformAdmin = await storage.createUser({
+      username: `smoke_platform_admin_${suffix}`,
+      password: await hashPassword(password),
+      fullName: `Smoke Platform Admin ${suffix}`,
+      email: `smoke-platform-admin-${suffix}@example.com`,
+      role: "reviewer",
+    });
+    tracker.userIds.push(platformAdmin.id);
+    await db
+      .update(users)
+      .set({ isPlatformAdmin: true })
+      .where(eq(users.id, platformAdmin.id));
+    const platformMembership = await storage.createMembership({
+      userId: platformAdmin.id,
+      organizationId: org.id,
+      role: "reviewer",
+      membershipState: "active",
+      isDefault: true,
+      invitedBy: null,
+    });
+    tracker.membershipIds.push(platformMembership.id);
+
     const appServer = await startTestServer();
     server = appServer.server;
     const baseUrl = appServer.baseUrl;
@@ -239,6 +261,26 @@ test("core API smoke across all role personas", async () => {
         }
       }
     }
+
+    const unauthenticatedLeads = await apiRequest(baseUrl, "/api/leads");
+    assert.equal(unauthenticatedLeads.status, 401);
+
+    const platformLogin = await apiRequest(baseUrl, "/api/auth/login", {
+      method: "POST",
+      body: { username: platformAdmin.username, password },
+    });
+    assert.equal(platformLogin.status, 200);
+    const platformCookie = cookieFromSetCookie(platformLogin.setCookie);
+    assert.ok(platformCookie);
+    const platformLeads = await apiRequest(baseUrl, "/api/leads", { cookie: platformCookie });
+    assert.equal(platformLeads.status, 200);
+
+    await db
+      .update(users)
+      .set({ isPlatformAdmin: false })
+      .where(eq(users.id, platformAdmin.id));
+    const revokedPlatformLeads = await apiRequest(baseUrl, "/api/leads", { cookie: platformCookie });
+    assert.equal(revokedPlatformLeads.status, 403);
   } finally {
     if (server) {
       await new Promise<void>((resolve, reject) => {

@@ -20,7 +20,7 @@ export function RouteHelpPanel() {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="icon" data-testid="button-route-help">
+        <Button type="button" variant="ghost" size="icon" aria-label="Open page help" data-testid="button-route-help">
           <LifeBuoy className="h-4 w-4" />
         </Button>
       </PopoverTrigger>

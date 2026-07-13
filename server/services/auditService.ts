@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { asc, desc, eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { AuditLogFilters } from "../storage";
 import { storage } from "../storage";
 import { auditLogs, type InsertAuditLog } from "@shared/schema";
@@ -27,29 +27,49 @@ export class AuditService {
     actor: Actor;
     input: Omit<InsertAuditLog, "organizationId">;
   }) {
-    const [latest] = await db
-      .select({ recordHash: auditLogs.recordHash })
-      .from(auditLogs)
-      .where(eq(auditLogs.organizationId, params.organizationId))
-      .orderBy(desc(auditLogs.createdAt))
-      .limit(1);
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${params.organizationId}, 0))`);
 
-    const previousHash = latest?.recordHash ?? null;
-    const payload = [
-      params.organizationId,
-      params.input.entityType,
-      params.input.entityId,
-      params.input.action,
-      params.input.performedBy,
-      params.input.details ?? "",
-      previousHash ?? "",
-    ].join("|");
-    const recordHash = createHash("sha256").update(payload).digest("hex");
+      const headResult = await tx.execute(sql`
+        select parent.record_hash as "recordHash"
+        from audit_logs parent
+        left join audit_logs child
+          on child.organization_id = parent.organization_id
+          and child.previous_hash = parent.record_hash
+        where parent.organization_id = ${params.organizationId}
+          and child.id is null
+        limit 2
+      `);
+      const heads = headResult.rows as Array<{ recordHash: string }>;
+      if (heads.length > 1) {
+        throw Object.assign(new Error("Audit chain has multiple heads and must be repaired before appending"), {
+          status: 409,
+        });
+      }
 
-    return storage.createAuditLogForOrg(params.organizationId, {
-      ...params.input,
-      previousHash,
-      recordHash,
+      const previousHash = heads[0]?.recordHash ?? null;
+      const payload = [
+        params.organizationId,
+        params.input.entityType,
+        params.input.entityId,
+        params.input.action,
+        params.input.performedBy,
+        params.input.details ?? "",
+        previousHash ?? "",
+      ].join("|");
+      const recordHash = createHash("sha256").update(payload).digest("hex");
+      const [created] = await tx
+        .insert(auditLogs)
+        .values({
+          ...params.input,
+          organizationId: params.organizationId,
+          previousHash,
+          recordHash,
+          createdAt: sql`clock_timestamp()`,
+        })
+        .returning();
+
+      return created;
     });
   }
 
@@ -57,10 +77,14 @@ export class AuditService {
     const rows = await db
       .select()
       .from(auditLogs)
-      .where(eq(auditLogs.organizationId, params.organizationId))
-      .orderBy(asc(auditLogs.createdAt));
+      .where(eq(auditLogs.organizationId, params.organizationId));
 
-    let previousHash: string | null = null;
+    if (rows.length === 0) {
+      return { ok: true, verified: true, total: 0, latestHash: null };
+    }
+
+    type AuditLogRow = (typeof rows)[number];
+    const childrenByPreviousHash = new Map<string | null, AuditLogRow[]>();
     for (const row of rows) {
       const expectedHash: string = createHash("sha256")
         .update(
@@ -71,11 +95,11 @@ export class AuditService {
             row.action,
             row.performedBy,
             row.details ?? "",
-            previousHash ?? "",
+            row.previousHash ?? "",
           ].join("|"),
         )
         .digest("hex");
-      if (row.previousHash !== previousHash || row.recordHash !== expectedHash) {
+      if (row.recordHash !== expectedHash) {
         return {
           ok: false,
           verified: false,
@@ -83,14 +107,53 @@ export class AuditService {
           total: rows.length,
         };
       }
+
+      const siblings = childrenByPreviousHash.get(row.previousHash) ?? [];
+      siblings.push(row);
+      childrenByPreviousHash.set(row.previousHash, siblings);
+    }
+
+    let previousHash: string | null = null;
+    let latestHash: string | null = null;
+    const visited = new Set<string>();
+    while (true) {
+      const children: AuditLogRow[] = childrenByPreviousHash.get(previousHash) ?? [];
+      if (children.length === 0) {
+        break;
+      }
+      if (children.length !== 1) {
+        return {
+          ok: false,
+          verified: false,
+          brokenAt: children[1]?.id ?? children[0].id,
+          total: rows.length,
+        };
+      }
+
+      const row: AuditLogRow = children[0];
+      if (visited.has(row.id)) {
+        return { ok: false, verified: false, brokenAt: row.id, total: rows.length };
+      }
+      visited.add(row.id);
+      latestHash = row.recordHash;
       previousHash = row.recordHash;
+    }
+
+    if (visited.size !== rows.length) {
+      const unvisited = rows.find((row) => !visited.has(row.id));
+      return {
+        ok: false,
+        verified: false,
+        brokenAt: unvisited?.id,
+        total: rows.length,
+      };
     }
 
     return {
       ok: true,
       verified: true,
       total: rows.length,
-      latestHash: previousHash,
+      latestHash,
     };
   }
 }

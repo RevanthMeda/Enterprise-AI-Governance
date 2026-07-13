@@ -13,8 +13,7 @@ import {
   users,
 } from "@shared/schema";
 
-export function mapLegacyUserRoleToMembershipRole(username: string, role: string): string {
-  if (username === "admin") return "owner";
+export function mapLegacyUserRoleToMembershipRole(role: string): string {
   if (role === "admin") return "admin";
   return role;
 }
@@ -59,7 +58,7 @@ export async function ensureTenantBootstrap(): Promise<{ organizationId: string 
     await db.insert(memberships).values({
       userId: user.id,
       organizationId: defaultOrg.id,
-      role: mapLegacyUserRoleToMembershipRole(user.username, user.role),
+      role: mapLegacyUserRoleToMembershipRole(user.role),
       membershipState: "active",
       isDefault: !existingDefaultMembership,
       invitedBy: null,

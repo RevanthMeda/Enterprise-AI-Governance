@@ -3,6 +3,8 @@ import { AlertTriangle, ArrowRight, Fingerprint, ShieldAlert, Signal } from "luc
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { usePageCopy } from "@/lib/page-copy";
 
 type ExitReadinessMetric = {
@@ -45,7 +47,8 @@ export default function ExitReadinessPage() {
   });
 
   const readiness = readinessQuery.data;
-  const isFreshProgram = (readiness?.summary.workflows ?? 0) === 0 && (readiness?.summary.traces ?? 0) === 0;
+  const isFreshProgram = Boolean(readiness) && readiness!.summary.workflows === 0 && readiness!.summary.traces === 0;
+  const summaryValue = (value: number | undefined) => readinessQuery.isError || !readiness ? "—" : (value ?? 0);
 
   return (
     <div className="space-y-6 p-6">
@@ -58,6 +61,18 @@ export default function ExitReadinessPage() {
         </div>
         <Badge variant="outline" className="w-fit">{pageCopy.exitReadiness.badges?.diligenceMode}</Badge>
       </div>
+
+      {readinessQuery.isError ? (
+        <Alert variant="destructive">
+          <AlertTitle>Exit readiness could not be loaded</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>Readiness values are shown as unavailable so a request failure is not mistaken for an unstarted program.</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => void readinessQuery.refetch()}>
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {readinessQuery.isLoading
@@ -97,12 +112,12 @@ export default function ExitReadinessPage() {
             <CardTitle className="text-sm font-semibold">Evidence coverage snapshot</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <SummaryMetric label="Approval workflows" value={readiness?.summary.workflows ?? 0} icon={Fingerprint} />
-            <SummaryMetric label="Decision traces" value={readiness?.summary.traces ?? 0} icon={Signal} />
-            <SummaryMetric label="Linked workflow traces" value={readiness?.summary.tracedWorkflows ?? 0} icon={ArrowRight} />
-            <SummaryMetric label="Open incidents" value={readiness?.summary.openIncidents ?? 0} icon={AlertTriangle} />
-            <SummaryMetric label="High severity incidents" value={readiness?.summary.highSeverityIncidents ?? 0} icon={ShieldAlert} />
-            <SummaryMetric label="Telemetry alerts" value={readiness?.summary.telemetryAlerts ?? 0} icon={Signal} />
+            <SummaryMetric label="Approval workflows" value={summaryValue(readiness?.summary.workflows)} icon={Fingerprint} />
+            <SummaryMetric label="Decision traces" value={summaryValue(readiness?.summary.traces)} icon={Signal} />
+            <SummaryMetric label="Linked workflow traces" value={summaryValue(readiness?.summary.tracedWorkflows)} icon={ArrowRight} />
+            <SummaryMetric label="Open incidents" value={summaryValue(readiness?.summary.openIncidents)} icon={AlertTriangle} />
+            <SummaryMetric label="High severity incidents" value={summaryValue(readiness?.summary.highSeverityIncidents)} icon={ShieldAlert} />
+            <SummaryMetric label="Telemetry alerts" value={summaryValue(readiness?.summary.telemetryAlerts)} icon={Signal} />
           </CardContent>
         </Card>
 
@@ -111,9 +126,9 @@ export default function ExitReadinessPage() {
             <CardTitle className="text-sm font-semibold">Routing posture</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <TierRow label="Tier 1" value={readiness?.summary.tierBreakdown.tier1 ?? 0} detail="Auto-logged technical-team decisions with low reversibility risk." />
-            <TierRow label="Tier 2" value={readiness?.summary.tierBreakdown.tier2 ?? 0} detail="Operations Committee workflow coverage for customer, PII, or mid-impact decisions." />
-            <TierRow label="Tier 3" value={readiness?.summary.tierBreakdown.tier3 ?? 0} detail="Governance Committee + CEO gated decisions for strategic, irreversible, or high-impact workflows." />
+            <TierRow label="Tier 1" value={summaryValue(readiness?.summary.tierBreakdown.tier1)} detail="Auto-logged technical-team decisions with low reversibility risk." />
+            <TierRow label="Tier 2" value={summaryValue(readiness?.summary.tierBreakdown.tier2)} detail="Operations Committee workflow coverage for customer, PII, or mid-impact decisions." />
+            <TierRow label="Tier 3" value={summaryValue(readiness?.summary.tierBreakdown.tier3)} detail="Governance Committee + CEO gated decisions for strategic, irreversible, or high-impact workflows." />
           </CardContent>
         </Card>
       </div>
@@ -159,7 +174,7 @@ function SummaryMetric({
   icon: Icon,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   icon: typeof Fingerprint;
 }) {
   return (
@@ -173,7 +188,7 @@ function SummaryMetric({
   );
 }
 
-function TierRow({ label, value, detail }: { label: string; value: number; detail: string }) {
+function TierRow({ label, value, detail }: { label: string; value: number | string; detail: string }) {
   return (
     <div className="rounded-md border bg-muted/20 p-4">
       <div className="flex items-center justify-between gap-3">

@@ -431,7 +431,7 @@ function EvidenceContent({
                   );
                 })()}
               </div>
-              <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex items-center gap-0.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 <button
                   type="button"
                   onClick={() => onDownload(file)}
@@ -442,8 +442,10 @@ function EvidenceContent({
                   <Download className="h-3 w-3 text-muted-foreground" />
                 </button>
                 <button
+                  type="button"
                   className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-background"
                   onClick={() => onDelete(file.id)}
+                  aria-label={`Delete ${file.fileName}`}
                   data-testid={`button-delete-evidence-${file.id}`}
                 >
                   <Trash2 className="h-3 w-3 text-destructive" />

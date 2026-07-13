@@ -100,7 +100,7 @@ export class TelemetryPolicyService {
     portfolioId: string;
     portfolioName: string;
   } | null> {
-    const [row] = await db
+    const rows = await db
       .select({
         policy: portfolioTelemetryPolicies,
         portfolioId: portfolios.id,
@@ -111,9 +111,16 @@ export class TelemetryPolicyService {
       .innerJoin(portfolioTelemetryPolicies, eq(portfolios.id, portfolioTelemetryPolicies.portfolioId))
       .where(eq(portfolioOrganizations.organizationId, organizationId))
       .orderBy(asc(portfolios.createdAt))
-      .limit(1);
+      .limit(2);
 
-    return row ?? null;
+    if (rows.length > 1) {
+      throw Object.assign(
+        new Error("Organization has multiple parent portfolio policies; resolve the assignments before evaluation"),
+        { status: 409 },
+      );
+    }
+
+    return rows[0] ?? null;
   }
 
   async getEffectiveForOrg(organizationId: string): Promise<EffectiveTelemetryPolicy> {

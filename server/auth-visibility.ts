@@ -1,4 +1,5 @@
 type UserLike = {
+  isPlatformAdmin?: boolean | null;
   role?: string | null;
   username?: string | null;
 };
@@ -12,12 +13,8 @@ type MembershipLike = {
   role?: string;
 };
 
-function normalizeUsername(username: string | null | undefined) {
-  return (username ?? "").trim().toLowerCase();
-}
-
 export function isPlatformAdminUser(user: UserLike) {
-  return user.role === "admin" || normalizeUsername(user.username) === "admin";
+  return user.isPlatformAdmin === true;
 }
 
 export function pickCurrentOrganizationId(

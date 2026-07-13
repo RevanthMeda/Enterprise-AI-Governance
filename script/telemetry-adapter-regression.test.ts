@@ -205,9 +205,60 @@ test("telemetry adapter rotates ingest keys and accepts SDK ingestion with gatew
     assert.equal(events.length, 1, "Expected one telemetry event to be stored");
     const metadata = events[0].metadata as Record<string, unknown>;
     assert.equal(metadata.ingestSource, "sdk");
+    await db
+      .update(aiTelemetryEvents)
+      .set({ metadata: { ...metadata, escalatedIncidentId: `incident-${suffix}` } })
+      .where(eq(aiTelemetryEvents.id, events[0].id));
+
+    const otherOrg = await storage.createOrganization({
+      slug: `telemetry-other-org-${suffix}`,
+      name: `Telemetry Other Org ${suffix}`,
+      status: "active",
+      plan: "starter",
+      settings: {},
+    });
+    tracker.organizationIds.push(otherOrg.id);
+    await db.insert(aiTelemetryEvents).values({
+      organizationId: otherOrg.id,
+      eventType: "drift_alert",
+      severity: "critical",
+      summary: "A recent event belonging to a different organization",
+      blocked: true,
+    });
+
+    const recentSummary = await apiRequest(baseUrl, "/api/telemetry/summary", { cookie });
+    assert.equal(recentSummary.status, 200);
+    const recentSummaryBody = recentSummary.body as {
+      total: number;
+      windowDays: number;
+      escalatedEvents30d: number;
+      escalatedIncidents: number;
+    };
+    assert.equal(recentSummaryBody.total, 1, "Expected summary to exclude another organization's event");
+    assert.equal(recentSummaryBody.windowDays, 30);
+    assert.equal(recentSummaryBody.escalatedEvents30d, 1);
+    assert.equal(recentSummaryBody.escalatedIncidents, 1);
+
+    await db
+      .update(aiTelemetryEvents)
+      .set({ detectedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000) })
+      .where(eq(aiTelemetryEvents.id, events[0].id));
+
+    const agedSummary = await apiRequest(baseUrl, "/api/telemetry/summary", { cookie });
+    assert.equal(agedSummary.status, 200);
+    const agedSummaryBody = agedSummary.body as {
+      total: number;
+      escalatedEvents30d: number;
+      escalatedIncidents: number;
+    };
+    assert.equal(agedSummaryBody.total, 0, "Expected telemetry older than 30 days to be excluded");
+    assert.equal(agedSummaryBody.escalatedEvents30d, 0);
+    assert.equal(agedSummaryBody.escalatedIncidents, 0);
   } finally {
     await server?.close();
-    await db.delete(aiTelemetryEvents).where(eq(aiTelemetryEvents.organizationId, tracker.organizationIds[0] ?? ""));
+    if (tracker.organizationIds.length > 0) {
+      await db.delete(aiTelemetryEvents).where(inArray(aiTelemetryEvents.organizationId, tracker.organizationIds));
+    }
     await db.delete(organizationTelemetryAdapters).where(eq(organizationTelemetryAdapters.organizationId, tracker.organizationIds[0] ?? ""));
     if (tracker.membershipIds.length > 0) {
       await db.delete(memberships).where(inArray(memberships.id, tracker.membershipIds));

@@ -3,6 +3,7 @@ import { requireAuth } from "../auth";
 import { db } from "../db";
 import { leads, marketingEvents } from "@shared/schema";
 import { fetchWithTimeout } from "../http";
+import { isPlatformAdminUser } from "../auth-visibility";
 import { desc } from "drizzle-orm";
 import { z } from "zod";
 
@@ -102,8 +103,7 @@ export function registerMarketingRoutes(app: Express): void {
   });
 
   app.get("/api/leads", requireAuth, async (req, res) => {
-    const allowedRoles = new Set(["admin", "cro", "ciso", "compliance_lead"]);
-    if (!allowedRoles.has(req.user!.role)) {
+    if (!isPlatformAdminUser(req.user!)) {
       return res.status(403).json({ message: "Forbidden" });
     }
 

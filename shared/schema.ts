@@ -29,6 +29,7 @@ export const users = pgTable("users", {
   emailVerified: boolean("email_verified").notNull().default(false),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   role: text("role").notNull().default("reviewer"),
+  isPlatformAdmin: boolean("is_platform_admin").notNull().default(false),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

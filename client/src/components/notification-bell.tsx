@@ -13,6 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatDateTime } from "@/lib/date-format";
 import { formatLawPackLabel, formatLegalProfileLabel } from "@/lib/governance-display";
+import { buildIncidentHref } from "@/lib/incident-navigation";
 import { useAuth, type AuthUser } from "@/hooks/use-auth";
 import type { Notification } from "@shared/schema";
 import type { NotificationDigest } from "@shared/notification-digest";
@@ -116,22 +117,26 @@ export function NotificationBell() {
   const priorityOnly = notificationPreferences?.priorityOnly ?? false;
   const mutedTypes = new Set(notificationPreferences?.mutedTypes ?? []);
 
-  const { data: notifications = [] } = useQuery<Notification[]>({
+  const notificationsQuery = useQuery<Notification[]>({
     queryKey: ["/api/notifications"],
     refetchInterval: 30000,
   });
 
-  const { data: unreadData } = useQuery<{ count: number }>({
+  const unreadQuery = useQuery<{ count: number }>({
     queryKey: ["/api/notifications/unread-count"],
     refetchInterval: 30000,
   });
 
-  const { data: digest } = useQuery<NotificationDigest>({
+  const digestQuery = useQuery<NotificationDigest>({
     queryKey: ["/api/notifications/digest"],
     refetchInterval: 30000,
   });
 
-  const unreadCount = unreadData?.count ?? 0;
+  const notifications = notificationsQuery.data ?? [];
+  const digest = digestQuery.data;
+  const unreadCount = unreadQuery.isSuccess ? unreadQuery.data.count : null;
+  const notificationsUnavailable = notificationsQuery.isError || unreadQuery.isError || digestQuery.isError;
+  const digestUnavailable = digestQuery.isLoading || digestQuery.isError;
 
   const markReadMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -184,7 +189,7 @@ export function NotificationBell() {
       navigate("/approvals");
       setOpen(false);
     } else if ((notif.entityType === "ai_incident" || notif.entityType === "incident") && notif.entityId) {
-      navigate("/incidents");
+      navigate(buildIncidentHref(notif.entityId));
       setOpen(false);
     } else if (notif.entityType === "telemetry_event") {
       navigate("/runtime-monitoring");
@@ -211,16 +216,31 @@ export function NotificationBell() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative" data-testid="button-notifications">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="relative"
+          aria-label={notificationsUnavailable ? "Open notifications; notification data unavailable" : "Open notifications"}
+          data-testid="button-notifications"
+        >
           <Bell className="h-4 w-4" />
-          {unreadCount > 0 && (
+          {notificationsUnavailable ? (
+            <span
+              className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white"
+              aria-hidden="true"
+              data-testid="badge-notifications-unavailable"
+            >
+              !
+            </span>
+          ) : unreadCount !== null && unreadCount > 0 ? (
             <span
               className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white"
               data-testid="badge-unread-count"
             >
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
-          )}
+          ) : null}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-80 p-0" align="end">
@@ -260,7 +280,7 @@ export function NotificationBell() {
             >
               Priority only
             </Button>
-            {unreadCount > 0 && (
+            {unreadCount !== null && unreadCount > 0 && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -274,6 +294,26 @@ export function NotificationBell() {
             )}
           </div>
         </div>
+        {notificationsUnavailable ? (
+          <div className="border-b bg-amber-50 px-3 py-2 text-[11px] text-amber-900 dark:bg-amber-950/30 dark:text-amber-200" role="alert">
+            <div className="flex items-center justify-between gap-3">
+              <span>Notification data is unavailable. Counts and empty states are hidden until it reloads.</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 shrink-0 text-[11px]"
+                onClick={() => void Promise.all([
+                  notificationsQuery.refetch(),
+                  unreadQuery.refetch(),
+                  digestQuery.refetch(),
+                ])}
+              >
+                Retry
+              </Button>
+            </div>
+          </div>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
           {(["all", "priority", "unread"] as NotificationFeedFilter[]).map((filter) => (
             <Button
@@ -301,15 +341,15 @@ export function NotificationBell() {
             <div className="grid grid-cols-3 gap-2">
               <div className="rounded-md border bg-muted/20 p-2">
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Needs action</div>
-                <div className="mt-1 text-lg font-semibold">{digest?.priorityUnreadCount ?? 0}</div>
+                <div className="mt-1 text-lg font-semibold">{digestUnavailable ? "—" : digest?.priorityUnreadCount ?? 0}</div>
               </div>
               <div className="rounded-md border bg-muted/20 p-2">
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Urgent incidents</div>
-                <div className="mt-1 text-lg font-semibold">{digest?.urgentIncidentCount ?? 0}</div>
+                <div className="mt-1 text-lg font-semibold">{digestUnavailable ? "—" : digest?.urgentIncidentCount ?? 0}</div>
               </div>
               <div className="rounded-md border bg-muted/20 p-2">
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Unassigned</div>
-                <div className="mt-1 text-lg font-semibold">{digest?.unassignedIncidentCount ?? 0}</div>
+                <div className="mt-1 text-lg font-semibold">{digestUnavailable ? "—" : digest?.unassignedIncidentCount ?? 0}</div>
               </div>
             </div>
             {digest?.groups?.length ? (
@@ -333,7 +373,7 @@ export function NotificationBell() {
                     type="button"
                     className="w-full rounded-md border px-2.5 py-2 text-left hover:bg-muted/40"
                     onClick={() => {
-                      navigate("/incidents");
+                      navigate(buildIncidentHref(incident.id));
                       setOpen(false);
                     }}
                   >
@@ -362,7 +402,15 @@ export function NotificationBell() {
           </div>
         ) : null}
         <ScrollArea className="max-h-80">
-          {visibleNotifications.length === 0 ? (
+          {notificationsQuery.isLoading ? (
+            <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
+              Loading notifications…
+            </div>
+          ) : notificationsQuery.isError ? (
+            <div className="flex items-center justify-center px-4 py-8 text-center text-xs text-muted-foreground">
+              Notifications are unavailable. Retry from the warning above.
+            </div>
+          ) : visibleNotifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8">
               <Bell className="h-8 w-8 text-muted-foreground/30 mb-2" />
               <p className="text-xs text-muted-foreground">

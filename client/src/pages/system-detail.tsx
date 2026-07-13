@@ -1530,11 +1530,11 @@ export default function SystemDetail() {
   if (!system) {
     return (
       <div className="mx-auto w-full max-w-[1360px] p-5 md:p-6">
-        <Link href="/registry">
-          <Button variant="ghost" size="sm" data-testid="button-back-registry">
+        <Button asChild variant="ghost" size="sm" data-testid="button-back-registry">
+          <Link href="/registry">
             <ArrowLeft className="h-4 w-4 mr-1" /> Back to Registry
-          </Button>
-        </Link>
+          </Link>
+        </Button>
         <Card className="mt-4">
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Server className="h-12 w-12 text-muted-foreground/30 mb-3" />
@@ -1549,11 +1549,11 @@ export default function SystemDetail() {
     <div className="mx-auto w-full max-w-[1360px] space-y-5 p-5 md:p-6" data-testid="page-system-detail">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link href="/registry">
-            <Button variant="ghost" size="icon" className="h-8 w-8" data-testid="button-back">
+          <Button asChild variant="ghost" size="icon" className="h-8 w-8" data-testid="button-back">
+            <Link href="/registry" aria-label="Back to Registry">
               <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
+            </Link>
+          </Button>
           <div>
             <h1 className="text-xl font-bold tracking-tight" data-testid="text-system-name">{system.name}</h1>
             <div className="flex items-center gap-2 mt-1">

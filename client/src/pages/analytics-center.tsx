@@ -17,6 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   exportAnalyticsReportPlanCsv,
   exportAnalyticsReportPlanPdf,
@@ -67,7 +68,7 @@ export default function AnalyticsCenterPage() {
   const pageCopy = usePageCopy();
   const [selectedPlanId, setSelectedPlanId] = useState<string>("");
   const [plansDraft, setPlansDraft] = useState<AnalyticsReportPlan[]>([]);
-  const { data, isLoading } = useQuery<AnalyticsOverviewResponse>({
+  const { data, isLoading, isError, refetch } = useQuery<AnalyticsOverviewResponse>({
     queryKey: ["/api/analytics/overview"],
   });
   const reportBuilderQuery = useQuery<AnalyticsReportBuilderConfig>({
@@ -157,6 +158,23 @@ export default function AnalyticsCenterPage() {
     }
     await exportAnalyticsReportPlanPdf(data, selectedPlan);
   };
+
+  if (isError || reportBuilderQuery.isError) {
+    return (
+      <div className="page-shell">
+        <h1 className="text-2xl font-semibold tracking-tight">{pageCopy.analytics.title}</h1>
+        <Alert variant="destructive">
+          <AlertTitle>Analytics could not be loaded</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>Reports and exports are unavailable until both live metrics and saved report plans load successfully.</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => void Promise.all([refetch(), reportBuilderQuery.refetch()])}>
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   if (isLoading || !data || reportBuilderQuery.isLoading) {
     return (

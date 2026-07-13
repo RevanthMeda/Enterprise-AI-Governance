@@ -23,6 +23,7 @@ export type IncidentPriorityInput = {
 };
 
 export type IncidentPrioritySummary = {
+  active: number;
   urgent: number;
   highPriority: number;
   normalPriority: number;
@@ -157,6 +158,7 @@ export function summarizeIncidentPriorities(
   return incidents.reduce<IncidentPrioritySummary>(
     (summary, incident) => {
       const priority = evaluateIncidentPriority(incident, now);
+      if (priority.active) summary.active += 1;
       if (priority.level === "urgent") summary.urgent += 1;
       if (priority.level === "high") summary.highPriority += 1;
       if (priority.level === "normal") summary.normalPriority += 1;
@@ -165,6 +167,7 @@ export function summarizeIncidentPriorities(
       return summary;
     },
     {
+      active: 0,
       urgent: 0,
       highPriority: 0,
       normalPriority: 0,

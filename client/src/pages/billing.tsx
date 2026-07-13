@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { usePageCopy } from "@/lib/page-copy";
 
@@ -46,6 +47,9 @@ export default function BillingPage() {
 
   const updateMutation = useMutation({
     mutationFn: async () => {
+      if (!subscriptionQuery.data) {
+        throw new Error("Subscription details must be loaded before they can be updated.");
+      }
       const res = await apiRequest("PATCH", "/api/organization/subscription", {
         tier: form.tier,
         status: form.status,
@@ -60,6 +64,9 @@ export default function BillingPage() {
   });
 
   const usage = subscriptionQuery.data?.usageSummary ?? {};
+  const subscriptionUnavailable = subscriptionQuery.isLoading || subscriptionQuery.isError || !subscriptionQuery.data;
+  const metricValue = (value: string | number | null | undefined) =>
+    subscriptionUnavailable ? "—" : String(value ?? "Not set");
 
   return (
     <div className="space-y-6 p-6">
@@ -74,10 +81,10 @@ export default function BillingPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Metric title="Plan tier" value={subscriptionQuery.data?.tier ?? "pilot"} icon={Rocket} />
-        <Metric title="Status" value={subscriptionQuery.data?.status ?? "trialing"} icon={CreditCard} />
-        <Metric title="Seat limit" value={String(subscriptionQuery.data?.seatLimit ?? 25)} icon={Users} />
-        <Metric title="Active members" value={String(usage.activeMembers ?? 0)} icon={Building2} />
+        <Metric title="Plan tier" value={metricValue(subscriptionQuery.data?.tier)} icon={Rocket} />
+        <Metric title="Status" value={metricValue(subscriptionQuery.data?.status)} icon={CreditCard} />
+        <Metric title="Seat limit" value={metricValue(subscriptionQuery.data?.seatLimit)} icon={Users} />
+        <Metric title="Active members" value={metricValue(usage.activeMembers)} icon={Building2} />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
@@ -88,6 +95,16 @@ export default function BillingPage() {
           <CardContent>
             {subscriptionQuery.isLoading ? (
               <Skeleton className="h-52 w-full" />
+            ) : subscriptionQuery.isError || !subscriptionQuery.data ? (
+              <Alert variant="destructive">
+                <AlertTitle>Subscription details could not be loaded</AlertTitle>
+                <AlertDescription className="space-y-3">
+                  <p>Editing is disabled so unavailable data cannot be replaced with assumed defaults.</p>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void subscriptionQuery.refetch()}>
+                    Retry
+                  </Button>
+                </AlertDescription>
+              </Alert>
             ) : (
               <div className="space-y-3">
                 <Field label="Plan tier">
@@ -112,8 +129,13 @@ export default function BillingPage() {
                   <input type="number" min={1} className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.seatLimit} onChange={(event) => setForm((current) => ({ ...current, seatLimit: Number(event.target.value) }))} />
                 </Field>
                 <div className="flex justify-end">
-                  <Button onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending}>{updateMutation.isPending ? "Saving..." : "Save subscription"}</Button>
+                  <Button onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending || !subscriptionQuery.data}>{updateMutation.isPending ? "Saving..." : "Save subscription"}</Button>
                 </div>
+                {updateMutation.isError ? (
+                  <p className="text-sm text-destructive" role="alert">
+                    {updateMutation.error instanceof Error ? updateMutation.error.message : "Subscription update failed."}
+                  </p>
+                ) : null}
               </div>
             )}
           </CardContent>
@@ -124,12 +146,12 @@ export default function BillingPage() {
             <CardTitle className="text-sm font-semibold">Usage and contract posture</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-2">
-            <UsageBox label="Active members" value={usage.activeMembers ?? 0} />
-            <UsageBox label="Registered systems" value={usage.systems ?? 0} />
-            <UsageBox label="Approval workflows" value={usage.workflows ?? 0} />
-            <UsageBox label="AI incidents" value={usage.incidents ?? 0} />
-            <UsageBox label="Trial ends" value={subscriptionQuery.data?.trialEndsAt ? new Date(subscriptionQuery.data.trialEndsAt).toLocaleDateString() : "Not set"} />
-            <UsageBox label="Renewal" value={subscriptionQuery.data?.renewalAt ? new Date(subscriptionQuery.data.renewalAt).toLocaleDateString() : "Not set"} />
+            <UsageBox label="Active members" value={metricValue(usage.activeMembers)} />
+            <UsageBox label="Registered systems" value={metricValue(usage.systems)} />
+            <UsageBox label="Approval workflows" value={metricValue(usage.workflows)} />
+            <UsageBox label="AI incidents" value={metricValue(usage.incidents)} />
+            <UsageBox label="Trial ends" value={subscriptionUnavailable ? "—" : subscriptionQuery.data?.trialEndsAt ? new Date(subscriptionQuery.data.trialEndsAt).toLocaleDateString() : "Not set"} />
+            <UsageBox label="Renewal" value={subscriptionUnavailable ? "—" : subscriptionQuery.data?.renewalAt ? new Date(subscriptionQuery.data.renewalAt).toLocaleDateString() : "Not set"} />
           </CardContent>
         </Card>
       </div>

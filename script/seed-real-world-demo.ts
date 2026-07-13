@@ -47,6 +47,7 @@ type BaselineUserSpec = {
   email: string;
   role: string;
   membershipRole: string;
+  isPlatformAdmin?: boolean;
 };
 
 type DemoOrgSpec = {
@@ -210,7 +211,7 @@ export type DemoSeedSummary = {
 };
 
 const baselineUsers: BaselineUserSpec[] = [
-  { username: "olivia.grant", fullName: "Olivia Grant", email: "olivia.grant@pilotwaveholdings.example", role: "admin", membershipRole: "owner" },
+  { username: "olivia.grant", fullName: "Olivia Grant", email: "olivia.grant@pilotwaveholdings.example", role: "admin", membershipRole: "owner", isPlatformAdmin: true },
   { username: "marcus.reed", fullName: "Marcus Reed", email: "marcus.reed@pilotwaveholdings.example", role: "cro", membershipRole: "cro" },
   { username: "irene.cho", fullName: "Irene Cho", email: "irene.cho@pilotwaveholdings.example", role: "ciso", membershipRole: "ciso" },
   { username: "sophia.malik", fullName: "Sophia Malik", email: "sophia.malik@pilotwaveholdings.example", role: "compliance_lead", membershipRole: "compliance_lead" },
@@ -1698,6 +1699,7 @@ async function ensureBaselineUsers() {
       fullName: user.fullName,
       email: user.email,
       role: user.role,
+      isPlatformAdmin: user.isPlatformAdmin ?? false,
     }));
 
   if (missing.length > 0) {
@@ -1705,7 +1707,21 @@ async function ensureBaselineUsers() {
   }
 
   const refreshed = await db.select().from(users).where(inArray(users.username, baselineUsers.map((user) => user.username)));
-  return new Map(refreshed.map((user) => [user.username, user]));
+  const refreshedByUsername = new Map(refreshed.map((user) => [user.username, user]));
+  for (const user of baselineUsers) {
+    const persistedUser = refreshedByUsername.get(user.username);
+    if (!persistedUser) continue;
+    await db
+      .update(users)
+      .set({ isPlatformAdmin: user.isPlatformAdmin === true })
+      .where(eq(users.id, persistedUser.id));
+  }
+
+  const finalRows = await db
+    .select()
+    .from(users)
+    .where(inArray(users.username, baselineUsers.map((user) => user.username)));
+  return new Map(finalRows.map((user) => [user.username, user]));
 }
 
 async function ensureOrganizations() {

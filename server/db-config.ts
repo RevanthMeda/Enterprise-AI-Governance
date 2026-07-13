@@ -42,7 +42,11 @@ function getConfiguredRejectUnauthorized(): boolean {
 function buildSslConfig(connectionString: string): PgSslConfig | undefined {
   const sslMode = getConfiguredSslMode(connectionString);
 
-  if (!sslMode || sslMode === "disable" || sslMode === "allow") {
+  if (!sslMode) {
+    return process.env.NODE_ENV === "production" ? { rejectUnauthorized: true } : undefined;
+  }
+
+  if (sslMode === "disable" || sslMode === "allow") {
     return undefined;
   }
 

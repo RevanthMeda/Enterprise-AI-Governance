@@ -196,6 +196,7 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         fullName: user.fullName,
         email: user.email,
         role: user.role,
+        isPlatformAdmin: user.isPlatformAdmin,
       };
       try {
         await regenerateSessionForUser(req, loginUser);
@@ -459,6 +460,7 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         fullName: updated.fullName,
         email: updated.email,
         role: updated.role,
+        isPlatformAdmin: updated.isPlatformAdmin,
       });
 
       const authPayload = await buildAndPersistAuthPayload(req);

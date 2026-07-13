@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -1312,36 +1313,37 @@ export default function Dashboard() {
     user?.organizations.find((organization) => organization.id === user.currentOrganizationId)?.role ??
     user?.role ??
     null;
-  const { data: systems = [], isLoading: loadingSystems } = useQuery<AiSystem[]>({
+  const { data: systems = [], isLoading: loadingSystems, isError: systemsError, refetch: refetchSystems } = useQuery<AiSystem[]>({
     queryKey: ["/api/ai-systems"],
     refetchInterval: 30_000,
     staleTime: 10_000,
   });
 
-  const { data: workflows = [], isLoading: loadingWorkflows } = useQuery<ApprovalWorkflow[]>({
+  const { data: workflows = [], isLoading: loadingWorkflows, isError: workflowsError, refetch: refetchWorkflows } = useQuery<ApprovalWorkflow[]>({
     queryKey: ["/api/approval-workflows"],
     refetchInterval: 15_000,
     staleTime: 5_000,
   });
 
-  const { data: systemControls = [], isLoading: loadingControls } = useQuery<SystemControl[]>({
+  const { data: systemControls = [], isLoading: loadingControls, isError: controlsError, refetch: refetchControls } = useQuery<SystemControl[]>({
     queryKey: ["/api/system-controls"],
     refetchInterval: 30_000,
     staleTime: 10_000,
   });
 
-  const { data: trends } = useQuery<TrendData>({
+  const { data: trends, isLoading: loadingTrends, isError: trendsError, refetch: refetchTrends } = useQuery<TrendData>({
     queryKey: ["/api/dashboard/trends"],
     refetchInterval: 30_000,
     staleTime: 10_000,
   });
 
-  const { data: ready } = useQuery<ReadyStatus>({
+  const { data: ready, isLoading: loadingReady, isError: readyError, refetch: refetchReady } = useQuery<ReadyStatus>({
     queryKey: ["/api/ready"],
     staleTime: 30_000,
   });
 
-  const isLoading = loadingSystems || loadingWorkflows || loadingControls;
+  const isLoading = loadingSystems || loadingWorkflows || loadingControls || loadingTrends || loadingReady;
+  const hasCoreError = systemsError || workflowsError || controlsError || trendsError || readyError;
 
   const defaultDashboardView = resolveDefaultDashboardView(currentOrgRole);
   const activeDashboardView = user?.currentOrganizationOnboarding?.dashboardView ?? defaultDashboardView;
@@ -1359,6 +1361,37 @@ export default function Dashboard() {
       <DashboardSkeleton />
     </div>
   );
+
+  if (hasCoreError) {
+    return (
+      <div className="page-shell" data-testid="page-dashboard-error">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Governance operations</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Organization metrics are temporarily unavailable.</p>
+        </div>
+        <Alert variant="destructive">
+          <AlertTitle>Dashboard data could not be fully loaded</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>The dashboard is withheld so missing systems, controls, approvals, or queue health are not reported as healthy zero values.</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void Promise.all([
+                refetchSystems(),
+                refetchWorkflows(),
+                refetchControls(),
+                refetchTrends(),
+                refetchReady(),
+              ])}
+            >
+              Retry dashboard
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   const activeSystems = systems.filter((s) => s.status === "active").length;
   const pendingApprovals = workflows.filter((w) => w.status === "pending" || w.status === "in_review").length;

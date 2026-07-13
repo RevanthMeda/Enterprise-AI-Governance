@@ -83,7 +83,7 @@ export function parseSameSitePolicy(
 
 export function areMockAuthRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const isProduction = isProductionEnvironment(env);
-  return !isProduction || parseBooleanEnv(env.ENABLE_TEST_AUTH_ROUTES, false);
+  return !isProduction;
 }
 
 function normalizeOrigin(input: string): string | null {
@@ -370,6 +370,22 @@ export function validateRuntimeEnvironment(env: NodeJS.ProcessEnv = process.env)
 
     if (!config.csrfEnforced) {
       errors.push("CSRF_ENFORCED must not be false in production");
+    }
+
+    if (parseBooleanEnv(env.AUTO_SEED_ON_STARTUP, false)) {
+      errors.push("AUTO_SEED_ON_STARTUP must not be enabled in production");
+    }
+    if (parseBooleanEnv(env.SEED_TEST_USERS, false)) {
+      errors.push("SEED_TEST_USERS must not be enabled in production");
+    }
+    if (parseBooleanEnv(env.RESET_TEST_USER_PASSWORDS, false)) {
+      errors.push("RESET_TEST_USER_PASSWORDS must not be enabled in production");
+    }
+    if (parseBooleanEnv(env.ENABLE_TEST_AUTH_ROUTES, false)) {
+      errors.push("ENABLE_TEST_AUTH_ROUTES must not be enabled in production");
+    }
+    if (parseBooleanEnv(env.EXPOSE_INVITE_TOKENS, false)) {
+      errors.push("EXPOSE_INVITE_TOKENS must not be enabled in production");
     }
 
     if (

@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { JiraTicketLink } from "@/components/jira-ticket-link";
 import { useAuth } from "@/hooks/use-auth";
 import { usePageCopy } from "@/lib/page-copy";
@@ -135,9 +136,26 @@ export default function MyActivity() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
 
-  const { data, isLoading } = useQuery<ActivityData>({
+  const { data, isLoading, isError, refetch } = useQuery<ActivityData>({
     queryKey: ["/api/activity-dashboard"],
   });
+
+  if (isError) {
+    return (
+      <div className="page-shell">
+        <h1 className="text-xl font-bold tracking-tight">{pageCopy.myActivity.title}</h1>
+        <Alert variant="destructive">
+          <AlertTitle>Activity data could not be loaded</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>Assignments and alerts are unavailable; they are not being reported as zero.</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   if (isLoading || !data) {
     return (

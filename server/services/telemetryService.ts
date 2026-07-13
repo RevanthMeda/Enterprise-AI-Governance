@@ -639,8 +639,10 @@ export class TelemetryService {
       driftAlerts: totals?.driftAlerts ?? 0,
       biasAlerts: totals?.biasAlerts ?? 0,
       thresholdBreaches: totals?.thresholdBreaches ?? 0,
+      escalatedEvents30d: totals?.escalatedIncidents ?? 0,
       escalatedIncidents: totals?.escalatedIncidents ?? 0,
       blocked: totals?.blocked ?? 0,
+      windowDays: 30,
       targetDetectionDays: 7,
     };
   }

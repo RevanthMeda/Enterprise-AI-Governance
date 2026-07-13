@@ -125,17 +125,15 @@
         </nav>
       </div>
     </header>
-    <div id="redoc-root"></div>
+    <div id="redoc-root" data-spec-url="/api-docs/platform.yaml"></div>
     <div id="redoc-error" class="redoc-error">
       API docs failed to load. Check that the Redoc bundle and YAML spec are reachable.
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/redoc@2/bundles/redoc.standalone.js"></script>
-    <script>
-      if (window.Redoc) {
-        window.Redoc.init("/api-docs/platform.yaml", { scrollYOffset: 16 }, document.getElementById("redoc-root"));
-      } else {
-        document.getElementById("redoc-error").style.display = "block";
-      }
-    </script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/redoc@2.5.3/bundles/redoc.standalone.js"
+      integrity="sha384-xiEssMQFSpSfLbzRZCGfxxIM5QDb2DTrU6vyoZdp2sV1L6pmOMy6MpTtUoLbpC96"
+      crossorigin="anonymous"
+    ></script>
+    <script src="/api-docs/redoc-init.js"></script>
   </body>
 </html>

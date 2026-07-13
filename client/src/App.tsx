@@ -495,7 +495,7 @@ function AuthenticatedApp() {
   };
 
   return (
-    <SidebarProvider style={style as React.CSSProperties}>
+    <SidebarProvider key={user.currentOrganizationId ?? "no-organization"} style={style as React.CSSProperties}>
       <div className="flex h-screen w-full">
         <a
           href="#app-main-content"

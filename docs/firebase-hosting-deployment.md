@@ -57,6 +57,8 @@ SESSION_COOKIE_NAME=__Host-aict.sid.v2
 TRUST_PROXY=true
 ```
 
+Production database connections now default to certificate-verified TLS when the database URL does not specify an SSL mode. Set `DB_SSL_MODE=disable` only for a deliberately private, non-TLS database network; public database endpoints must keep verified TLS.
+
 The shared backend has one canonical `PUBLIC_APP_URL`. Keep that exact canonical origin plus every enabled Netlify/Firebase preview origin in `CORS_ALLOWED_ORIGINS`; production validation requires the public origin to be present in that union.
 
 ## Why these backend settings are required
@@ -106,6 +108,23 @@ Or use the combined script:
 ```bash
 npm run deploy:firebase
 ```
+
+## GitHub Actions deployment
+
+The production workflows build the Firebase-specific frontend, deploy the Render backend first, deploy Firebase Hosting with a pinned CLI version, and then run the authenticated cross-site smoke checks.
+
+Configure these production secrets and variables before enabling the workflows:
+
+- `secrets.FIREBASE_SERVICE_ACCOUNT`: a Firebase service-account JSON credential with Hosting deployment access
+- `secrets.DATABASE_URL`: the production database used for the pre-deploy schema synchronization
+- `secrets.RENDER_DEPLOY_HOOK_URL`
+- `secrets.SMOKE_ADMIN_USERNAME`
+- `secrets.SMOKE_ADMIN_PASSWORD`
+- `vars.PRODUCTION_FRONTEND_URL=https://ai-control-tower-d9854.web.app`
+- `vars.PRODUCTION_BACKEND_URL=https://enterprise-ai-governance.onrender.com`
+- `vars.PRODUCTION_FRONTEND_TOPOLOGY=cross-site`
+
+The workflow fails instead of silently skipping the primary backend, Firebase, or authenticated smoke stages when required configuration is missing.
 
 ## 5. Verify
 

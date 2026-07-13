@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { apiFetch, apiRequest, queryClient } from "@/lib/queryClient";
+import { invalidateRuntimeEvaluationQueries } from "@/lib/runtime-query-cache";
 import { useToast } from "@/hooks/use-toast";
 import { resolveApiUrl } from "@/lib/api-url";
 import { usePageCopy } from "@/lib/page-copy";
@@ -324,6 +325,9 @@ export default function TelemetryAdapterPage() {
     },
     onSuccess: (result) => {
       setTesterResult(result);
+      if (result.ok) {
+        void invalidateRuntimeEvaluationQueries(queryClient);
+      }
       const decision =
         result.body &&
         typeof result.body === "object" &&

@@ -14,7 +14,7 @@ test("platform admins retain visibility across all active organizations", () => 
   ];
 
   const visible = getVisibleActiveMemberships(
-    { role: "admin", username: "platform-admin" },
+    { isPlatformAdmin: true },
     memberships,
     "org-b",
   );
@@ -23,7 +23,13 @@ test("platform admins retain visibility across all active organizations", () => 
     visible.map((membership) => membership.organizationId),
     ["org-a", "org-b"],
   );
-  assert.equal(isPlatformAdminUser({ role: "admin", username: "platform-admin" }), true);
+  assert.equal(isPlatformAdminUser({ isPlatformAdmin: true }), true);
+  assert.equal(isPlatformAdminUser({ isPlatformAdmin: false }), false);
+});
+
+test("legacy admin role and username do not grant platform administration", () => {
+  assert.equal(isPlatformAdminUser({ role: "admin" }), false);
+  assert.equal(isPlatformAdminUser({ username: "admin" }), false);
 });
 
 test("non-platform users are scoped to their current organization", () => {
@@ -34,7 +40,7 @@ test("non-platform users are scoped to their current organization", () => {
   ];
 
   const visible = getVisibleActiveMemberships(
-    { role: "reviewer", username: "mia.foster" },
+    { isPlatformAdmin: false },
     memberships,
     "org-b",
   );
@@ -51,7 +57,7 @@ test("current organization falls back to default active membership for non-admin
   assert.equal(pickCurrentOrganizationId(undefined, memberships), "org-b");
 
   const visible = getVisibleActiveMemberships(
-    { role: "reviewer", username: "olivia.grant" },
+    { isPlatformAdmin: false },
     memberships,
   );
 

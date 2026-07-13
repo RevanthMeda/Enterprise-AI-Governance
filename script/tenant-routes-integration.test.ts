@@ -142,6 +142,10 @@ test("tenant route integration: org switch, session cookie, denial matrix", asyn
       role: "admin",
     });
     tracker.userIds.push(multiUser.id);
+    await db
+      .update(users)
+      .set({ isPlatformAdmin: true })
+      .where(eq(users.id, multiUser.id));
 
     const singleOrgUser = await storage.createUser({
       username: `route_single_${suffix}`,

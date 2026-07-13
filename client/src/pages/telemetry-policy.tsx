@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -516,6 +517,28 @@ export default function TelemetryPolicyPage() {
       };
     });
   };
+
+  if (policyQuery.isError || systemsQuery.isError || exceptionsQuery.isError) {
+    return (
+      <div className="page-shell">
+        <h1 className="text-3xl font-semibold tracking-tight">{pageCopy.telemetryPolicy.title}</h1>
+        <Alert variant="destructive">
+          <AlertTitle>Telemetry policy could not be loaded</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>Policy editing is disabled until the policy, systems, and reviewer exceptions are all available.</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void Promise.all([policyQuery.refetch(), systemsQuery.refetch(), exceptionsQuery.refetch()])}
+            >
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   if (policyQuery.isLoading || systemsQuery.isLoading || exceptionsQuery.isLoading || !draft) {
     return (

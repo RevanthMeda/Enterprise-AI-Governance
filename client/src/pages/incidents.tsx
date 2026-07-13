@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import { AlertTriangle, ShieldAlert, Siren, Clock3, Brain } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,11 @@ import {
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatDateTime } from "@/lib/date-format";
 import { usePageCopy } from "@/lib/page-copy";
+import {
+  resolveIncidentDeepLink,
+  resolveVisibleIncidentId,
+  type IncidentQueueScope,
+} from "@/lib/incident-navigation";
 import type { AiSystem } from "@shared/schema";
 import type { IncidentResolutionSuggestionResponse } from "@shared/incident-resolution-suggestions";
 
@@ -98,6 +104,7 @@ type Incident = {
 type IncidentSummary = {
   total: number;
   open: number;
+  active?: number;
   highSeverity: number;
   breached: number;
   postmortemPending: number;
@@ -126,16 +133,35 @@ const initialForm = {
   escalatedTo: "",
 };
 
+function replaceIncidentIdInCurrentUrl(incidentId: string | null): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  if (incidentId) {
+    url.searchParams.set("incidentId", incidentId);
+  } else {
+    url.searchParams.delete("incidentId");
+  }
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 export default function IncidentsPage() {
   const pageCopy = usePageCopy();
+  const locationSearch = useSearch();
+  const requestedIncidentId = useMemo(() => {
+    return new URLSearchParams(locationSearch).get("incidentId") ?? "";
+  }, [locationSearch]);
   const [form, setForm] = useState(initialForm);
-  const [queueScope, setQueueScope] = useState<"active" | "all" | "resolved">("active");
+  const [queueScope, setQueueScope] = useState<IncidentQueueScope>("active");
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [assignmentFilter, setAssignmentFilter] = useState("all");
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [handledIncidentRequest, setHandledIncidentRequest] = useState("");
   const [reviews, setReviews] = useState<Record<string, { rootCause: string; reviewSummary: string; affectedDecisionTraceIds: string; regulatoryNotifications: string }>>({});
   const [releaseDrafts, setReleaseDrafts] = useState<Record<string, { reviewerNote: string; actionName: string; toolName: string; receiptId: string; details: string }>>({});
   const [assignmentDrafts, setAssignmentDrafts] = useState<Record<string, string>>({});
@@ -181,6 +207,33 @@ export default function IncidentsPage() {
     },
     staleTime: 30_000,
   });
+
+  useEffect(() => {
+    if (!requestedIncidentId) {
+      if (handledIncidentRequest) {
+        setHandledIncidentRequest("");
+      }
+      return;
+    }
+    if (!listQuery.isSuccess) {
+      return;
+    }
+    if (handledIncidentRequest === requestedIncidentId) {
+      if (!listQuery.data.some((incident) => incident.id === requestedIncidentId)) {
+        replaceIncidentIdInCurrentUrl(null);
+      }
+      return;
+    }
+
+    const resolvedDeepLink = resolveIncidentDeepLink(requestedIncidentId, listQuery.data);
+    if (resolvedDeepLink) {
+      setQueueScope(resolvedDeepLink.queueScope);
+      setSelectedIncidentId(resolvedDeepLink.incidentId);
+    } else {
+      replaceIncidentIdInCurrentUrl(null);
+    }
+    setHandledIncidentRequest(requestedIncidentId);
+  }, [handledIncidentRequest, listQuery.data, listQuery.isSuccess, requestedIncidentId]);
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -298,12 +351,22 @@ export default function IncidentsPage() {
 
   const incidentCategories = Array.from(new Set(incidents.map((incident) => incident.category))).sort();
 
+  const incidentDeepLinkPending = Boolean(
+    requestedIncidentId && handledIncidentRequest !== requestedIncidentId,
+  );
+  const visibleSelectedIncidentId = !incidentDeepLinkPending
+    ? resolveVisibleIncidentId(selectedIncidentId, filteredIncidents.map((incident) => incident.id))
+    : null;
   const selectedIncident =
-    filteredIncidents.find((incident) => incident.id === selectedIncidentId) ??
-    incidents.find((incident) => incident.id === selectedIncidentId) ??
-    filteredIncidents[0] ??
-    incidents[0] ??
-    null;
+    filteredIncidents.find((incident) => incident.id === visibleSelectedIncidentId) ?? null;
+
+  useEffect(() => {
+    if (incidentDeepLinkPending || selectedIncidentId === visibleSelectedIncidentId) {
+      return;
+    }
+
+    setSelectedIncidentId(visibleSelectedIncidentId);
+  }, [incidentDeepLinkPending, selectedIncidentId, visibleSelectedIncidentId]);
   const selectedIncidentEvidence = getIncidentGovernanceEvidence(selectedIncident?.playbook);
   const selectedReleaseDraft = selectedIncident ? releaseDrafts[selectedIncident.id] ?? {
     reviewerNote: "",
@@ -352,7 +415,7 @@ export default function IncidentsPage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <Metric title="Total incidents" value={summaryQuery.data?.total ?? 0} icon={AlertTriangle} />
-        <Metric title="Open" value={summaryQuery.data?.open ?? 0} icon={Siren} />
+        <Metric title="Active" value={summaryQuery.data?.active ?? summaryQuery.data?.open ?? 0} icon={Siren} />
         <Metric title="Urgent queue" value={summaryQuery.data?.urgent ?? 0} icon={ShieldAlert} />
         <Metric title="SLA breached" value={summaryQuery.data?.breached ?? 0} icon={Clock3} />
         <Metric title="Needs assignment" value={summaryQuery.data?.unassignedActive ?? 0} icon={Clock3} />
@@ -427,7 +490,9 @@ export default function IncidentsPage() {
         <Card>
           <CardHeader>
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <CardTitle className="text-sm font-semibold">Active incident queue</CardTitle>
+              <CardTitle className="text-sm font-semibold">
+                {queueScope === "active" ? "Active incident queue" : queueScope === "resolved" ? "Resolved incident queue" : "Incident queue"}
+              </CardTitle>
               <div className="flex flex-wrap gap-2">
                 <Button variant={queueScope === "active" ? "default" : "outline"} size="sm" onClick={() => setQueueScope("active")}>
                   Active

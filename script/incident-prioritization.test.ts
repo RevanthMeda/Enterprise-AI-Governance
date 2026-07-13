@@ -76,5 +76,6 @@ test("summarizes incident queues into urgent and unassigned buckets", () => {
   );
 
   assert.equal(summary.unassignedActive, 1);
+  assert.equal(summary.active, 2);
   assert.ok(summary.urgent + summary.highPriority + summary.normalPriority + summary.monitor === 3);
 });

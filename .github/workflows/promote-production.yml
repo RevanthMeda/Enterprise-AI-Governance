@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       run_db_push:
-        description: Run production schema sync before deploy
+        description: Run production schema sync before deploy (disable only if already synchronized)
         required: true
-        default: false
+        default: true
         type: boolean
 
 jobs:
@@ -35,10 +35,40 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: npm run db:push -- --force
 
+      - name: Build Firebase Hosting release
+        run: npm run build:firebase
+
+      - name: Validate production deployment configuration
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          PRODUCTION_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
+          PRODUCTION_BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_URL }}
+          PRODUCTION_FRONTEND_TOPOLOGY: ${{ vars.PRODUCTION_FRONTEND_TOPOLOGY }}
+          SMOKE_ADMIN_USERNAME: ${{ secrets.SMOKE_ADMIN_USERNAME }}
+          SMOKE_ADMIN_PASSWORD: ${{ secrets.SMOKE_ADMIN_PASSWORD }}
+        run: |
+          test -n "$RENDER_DEPLOY_HOOK_URL"
+          test -n "$FIREBASE_SERVICE_ACCOUNT"
+          test -n "$PRODUCTION_FRONTEND_URL"
+          test -n "$PRODUCTION_BACKEND_URL"
+          test -n "$PRODUCTION_FRONTEND_TOPOLOGY"
+          test -n "$SMOKE_ADMIN_USERNAME"
+          test -n "$SMOKE_ADMIN_PASSWORD"
+
       - name: Trigger Render deploy hook
         run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
 
+      - name: Authenticate to Firebase
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Deploy Firebase Hosting
+        run: npx --yes firebase-tools@15.23.0 deploy --only hosting --project ai-control-tower-d9854 --non-interactive
+
       - name: Trigger Netlify build hook
+        if: ${{ secrets.NETLIFY_BUILD_HOOK_URL != '' }}
         run: curl -fsSL -X POST "${{ secrets.NETLIFY_BUILD_HOOK_URL }}"
 
       - name: Wait for deploy propagation

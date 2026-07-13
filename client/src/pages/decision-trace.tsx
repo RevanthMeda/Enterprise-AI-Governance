@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatDateTime } from "@/lib/date-format";
 import {
@@ -194,7 +195,11 @@ export default function DecisionTracePage() {
     recentTraces.find((trace) => trace.id === selectedTraceId) ??
     recentTraces[0] ??
     null;
-  const hasNoTraces = (summaryQuery.data?.total ?? 0) === 0;
+  const hasNoTraces = Boolean(summaryQuery.data) && summaryQuery.data!.total === 0;
+  const summaryUnavailable = summaryQuery.isLoading || summaryQuery.isError || !summaryQuery.data;
+  const telemetryValue = (value: number | undefined) =>
+    telemetryQuery.isLoading || telemetryQuery.isError || !telemetryQuery.data ? "—" : (value ?? 0);
+  const coreQueryError = summaryQuery.isError || telemetryQuery.isError || chainQuery.isError || listQuery.isError || systemsQuery.isError;
 
   return (
     <div className="page-shell">
@@ -206,23 +211,58 @@ export default function DecisionTracePage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge variant="outline" className="w-fit">{pageCopy.decisionTrace.badges?.traces} {summaryQuery.data?.total ?? 0}</Badge>
-          <Badge variant={hasNoTraces ? "outline" : chainQuery.data?.verified ? "default" : "destructive"} className="w-fit">
-            {hasNoTraces ? "Chain pending" : chainQuery.data?.verified ? "Chain verified" : "Chain attention"}
+          <Badge variant="outline" className="w-fit">{pageCopy.decisionTrace.badges?.traces} {summaryUnavailable ? "—" : summaryQuery.data.total}</Badge>
+          <Badge variant={hasNoTraces || summaryUnavailable || chainQuery.isLoading ? "outline" : chainQuery.data?.verified ? "default" : "destructive"} className="w-fit">
+            {summaryUnavailable
+              ? "Trace summary unavailable"
+              : hasNoTraces
+                ? "Chain pending"
+                : chainQuery.isLoading
+                  ? "Checking chain"
+                  : chainQuery.isError
+                    ? "Chain unavailable"
+                    : chainQuery.data?.verified
+                      ? "Chain verified"
+                      : "Chain attention"}
           </Badge>
         </div>
       </div>
 
+      {coreQueryError ? (
+        <Alert variant="destructive">
+          <AlertTitle>Decision trace data could not be fully loaded</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>Unavailable metrics are shown as a dash so an API failure is not mistaken for an empty organization or a healthy audit chain.</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void Promise.all([
+                summaryQuery.refetch(),
+                telemetryQuery.refetch(),
+                chainQuery.refetch(),
+                listQuery.refetch(),
+                systemsQuery.refetch(),
+              ])}
+            >
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <MetricCard title="Traced decisions" value={summaryQuery.data?.total} icon={ShieldCheck} />
-        <MetricCard title="Human override rate" value={`${summaryQuery.data?.overrideRate ?? 0}%`} icon={GitBranch} />
-        <MetricCard title="Rationale capture" value={`${summaryQuery.data?.rationaleCaptureRate ?? 0}%`} icon={Brain} />
-        <MetricCard title="Documentation rate" value={`${summaryQuery.data?.documentationRate ?? 0}%`} icon={Database} />
+        <MetricCard title="Human override rate" value={summaryQuery.data ? `${summaryQuery.data.overrideRate}%` : undefined} icon={GitBranch} />
+        <MetricCard title="Rationale capture" value={summaryQuery.data ? `${summaryQuery.data.rationaleCaptureRate}%` : undefined} icon={Brain} />
+        <MetricCard title="Documentation rate" value={summaryQuery.data ? `${summaryQuery.data.documentationRate}%` : undefined} icon={Database} />
         <MetricCard title="Outcome windows tracked" value={summaryQuery.data?.outcomesTracked} icon={Radar} />
         <MetricCard
           title="Audit chain"
           value={
-            hasNoTraces
+            summaryUnavailable
+              ? "Unavailable"
+              : hasNoTraces
               ? "Awaiting first trace"
               : chainQuery.data?.verified
                 ? "Verified"
@@ -539,12 +579,12 @@ export default function DecisionTracePage() {
                   <CardTitle className="text-sm font-semibold">Runtime context summary</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  <MiniMetric label="Telemetry events (30d)" value={telemetryQuery.data?.total ?? 0} />
-                  <MiniMetric label="Critical alerts" value={telemetryQuery.data?.critical ?? 0} />
-                  <MiniMetric label="Drift alerts" value={telemetryQuery.data?.driftAlerts ?? 0} />
-                  <MiniMetric label="Bias flags" value={telemetryQuery.data?.biasAlerts ?? 0} />
-                  <MiniMetric label="Threshold breaches" value={telemetryQuery.data?.thresholdBreaches ?? 0} />
-                  <MiniMetric label="Escalated runtime events" value={telemetryQuery.data?.escalatedIncidents ?? 0} />
+                  <MiniMetric label="Telemetry events (30d)" value={telemetryValue(telemetryQuery.data?.total)} />
+                  <MiniMetric label="Critical alerts" value={telemetryValue(telemetryQuery.data?.critical)} />
+                  <MiniMetric label="Drift alerts" value={telemetryValue(telemetryQuery.data?.driftAlerts)} />
+                  <MiniMetric label="Bias flags" value={telemetryValue(telemetryQuery.data?.biasAlerts)} />
+                  <MiniMetric label="Threshold breaches" value={telemetryValue(telemetryQuery.data?.thresholdBreaches)} />
+                  <MiniMetric label="Escalated runtime events" value={telemetryValue(telemetryQuery.data?.escalatedIncidents)} />
                 </CardContent>
               </Card>
 
@@ -560,7 +600,9 @@ export default function DecisionTracePage() {
                       <div className="rounded-md border bg-muted/30 p-3">
                         <div className="font-medium">Status</div>
                         <div className="text-muted-foreground">
-                          {hasNoTraces
+                          {chainQuery.isError
+                            ? "Audit chain status is unavailable. Retry before relying on verification state."
+                            : hasNoTraces
                             ? "Hash chain verification begins after your first traced decision is recorded."
                             : chainQuery.data?.verified
                               ? "Hash chain verified across current organization audit records."
@@ -569,7 +611,9 @@ export default function DecisionTracePage() {
                       </div>
                       <div className="rounded-md border bg-muted/30 p-3">
                         <div className="font-medium">Latest hash</div>
-                        <div className="break-all font-mono text-xs text-muted-foreground">{chainQuery.data?.latestHash ?? "No chain yet"}</div>
+                        <div className="break-all font-mono text-xs text-muted-foreground">
+                          {chainQuery.isError ? "Unavailable" : chainQuery.data?.latestHash ?? "No chain yet"}
+                        </div>
                       </div>
                     </>
                   )}
@@ -674,7 +718,7 @@ function MetricCard({ title, value, icon: Icon }: { title: string; value: string
       <CardContent className="flex items-center justify-between p-5">
         <div>
           <div className="text-xs font-medium text-muted-foreground">{title}</div>
-          <div className="mt-1 text-2xl font-semibold tracking-tight">{value ?? 0}</div>
+          <div className="mt-1 text-2xl font-semibold tracking-tight">{value ?? "—"}</div>
         </div>
         <div className="rounded-md bg-primary/10 p-2 text-primary">
           <Icon className="h-4 w-4" />

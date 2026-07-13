@@ -65,10 +65,12 @@ GitHub Actions production promotion uses:
 - `vars.PRODUCTION_FRONTEND_URL`
 - `vars.PRODUCTION_BACKEND_URL`
 - `vars.PRODUCTION_FRONTEND_TOPOLOGY`
+- `secrets.FIREBASE_SERVICE_ACCOUNT`
+- `secrets.RENDER_DEPLOY_HOOK_URL`
 - `secrets.SMOKE_ADMIN_USERNAME`
 - `secrets.SMOKE_ADMIN_PASSWORD`
 
-and runs the same smoke script after triggering the Render and Netlify deploy hooks.
+and runs the same smoke script after deploying Render and Firebase Hosting. The optional Netlify hook remains available for the proxied secondary frontend.
 
 Manual spot checks after the script passes:
 

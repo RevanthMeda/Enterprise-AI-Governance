@@ -51,8 +51,8 @@ export default function TrustCenterPage() {
             {pageCopy.trustCenter.description}
           </p>
           <div className="flex flex-wrap gap-3">
-            <Link href="/security"><Button>Review security practices</Button></Link>
-            <Link href="/api-docs"><Button variant="outline">Review the API</Button></Link>
+            <Button asChild><Link href="/security">Review security practices</Link></Button>
+            <Button asChild variant="outline"><Link href="/api-docs">Review the API</Link></Button>
           </div>
         </div>
 

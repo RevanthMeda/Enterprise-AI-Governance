@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
@@ -31,8 +31,20 @@ import {
   formatLegalProfileLabel,
   formatStrictnessLabel,
 } from "@/lib/governance-display";
-import { apiFetch } from "@/lib/queryClient";
+import { apiFetch, queryClient } from "@/lib/queryClient";
 import { usePageCopy } from "@/lib/page-copy";
+import { buildIncidentHref } from "@/lib/incident-navigation";
+import {
+  isRuntimeEvaluationTargetAvailable,
+  normalizeRuntimeStringArray,
+  normalizeRuntimeThresholdLabels,
+  resolveRuntimeEvaluationTarget,
+  resolveRuntimeMonitoringCounters,
+} from "@/lib/runtime-monitoring-summary";
+import {
+  invalidateRuntimeEvaluationQueries,
+  runtimeSystemsQueryKey,
+} from "@/lib/runtime-query-cache";
 import { resolveSystemLawPackIds } from "@shared/law-packs";
 import type { AiSystem } from "@shared/schema";
 
@@ -255,30 +267,6 @@ function formatThresholdLabel(value: string) {
   return value.replace(/_/g, " ");
 }
 
-function extractThresholdLabels(response: RuntimeResponse | null) {
-  if (!response?.thresholdBreaches || !Array.isArray(response.thresholdBreaches)) {
-    return [];
-  }
-
-  return response.thresholdBreaches
-    .map((breach) => {
-      if (typeof breach === "string") {
-        return breach;
-      }
-
-      if (breach?.type) {
-        return breach.type;
-      }
-
-      if (breach?.message) {
-        return breach.message;
-      }
-
-      return null;
-    })
-    .filter((value): value is string => Boolean(value));
-}
-
 export default function RuntimeMonitoringPage() {
   const pageCopy = usePageCopy();
   const initialSystemId = useMemo(() => {
@@ -290,7 +278,7 @@ export default function RuntimeMonitoringPage() {
   }, []);
 
   const systemsQuery = useQuery<AiSystem[]>({
-    queryKey: ["runtime-monitoring-systems"],
+    queryKey: runtimeSystemsQueryKey,
     refetchInterval: 30_000,
     staleTime: 10_000,
     queryFn: async ({ signal }) => {
@@ -303,7 +291,7 @@ export default function RuntimeMonitoringPage() {
   });
 
   const telemetrySummaryQuery = useQuery<any>({
-    queryKey: ["runtime-monitoring-summary"],
+    queryKey: ["/api/telemetry/summary"],
     refetchInterval: 10_000,
     refetchIntervalInBackground: true,
     staleTime: 5_000,
@@ -317,7 +305,7 @@ export default function RuntimeMonitoringPage() {
   });
 
   const incidentSummaryQuery = useQuery<any>({
-    queryKey: ["runtime-monitoring-incidents"],
+    queryKey: ["/api/incidents/summary"],
     refetchInterval: 10_000,
     refetchIntervalInBackground: true,
     staleTime: 5_000,
@@ -331,7 +319,7 @@ export default function RuntimeMonitoringPage() {
   });
 
   const adapterQuery = useQuery<any>({
-    queryKey: ["runtime-monitoring-adapter"],
+    queryKey: ["/api/organization/telemetry-adapter"],
     refetchInterval: 30_000,
     refetchIntervalInBackground: true,
     staleTime: 10_000,
@@ -352,39 +340,59 @@ export default function RuntimeMonitoringPage() {
   const [statusCode, setStatusCode] = useState<number | null>(null);
   const [runtimeResponse, setRuntimeResponse] = useState<RuntimeResponse | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const hasResolvedInitialSystem = useRef(false);
+  const hasUserSelectedSystem = useRef(false);
 
   useEffect(() => {
-    if (!systemsQuery.data?.length) {
+    if (!systemsQuery.isSuccess || !adapterQuery.isSuccess) {
       return;
     }
 
-    if (selectedSystemId) {
+    const availableSystemIds = systemsQuery.data.map((system) => system.id);
+    if (!hasResolvedInitialSystem.current && !hasUserSelectedSystem.current) {
+      hasResolvedInitialSystem.current = true;
+
+      const defaultAdapterSystemId =
+        typeof adapterQuery.data?.defaultSystemId === "string" ? adapterQuery.data.defaultSystemId : "";
+      const fallbackSystemId = resolveRuntimeEvaluationTarget(
+        initialSystemId,
+        defaultAdapterSystemId,
+        availableSystemIds,
+      );
+
+      if (selectedSystemId === fallbackSystemId) {
+        return;
+      }
+
+      setSelectedSystemId(fallbackSystemId);
+      setPayloadText((current) => {
+        try {
+          const parsed = JSON.parse(current);
+          return JSON.stringify({ ...parsed, systemId: fallbackSystemId || undefined }, null, 2);
+        } catch {
+          return JSON.stringify(buildAllowSample(fallbackSystemId || undefined), null, 2);
+        }
+      });
       return;
     }
 
-    const defaultAdapterSystemId =
-      typeof adapterQuery.data?.defaultSystemId === "string" ? adapterQuery.data.defaultSystemId : "";
-    const fallbackSystemId =
-      initialSystemId && systemsQuery.data.some((system) => system.id === initialSystemId)
-        ? initialSystemId
-        : defaultAdapterSystemId && systemsQuery.data.some((system) => system.id === defaultAdapterSystemId)
-          ? defaultAdapterSystemId
-          : systemsQuery.data[0]?.id;
-
-    if (!fallbackSystemId) {
+    if (isRuntimeEvaluationTargetAvailable(selectedSystemId, availableSystemIds)) {
       return;
     }
 
-    setSelectedSystemId(fallbackSystemId);
+    setSelectedSystemId("");
     setPayloadText((current) => {
       try {
         const parsed = JSON.parse(current);
-        return JSON.stringify({ ...parsed, systemId: fallbackSystemId }, null, 2);
+        return JSON.stringify({ ...parsed, systemId: undefined }, null, 2);
       } catch {
-        return JSON.stringify(buildAllowSample(fallbackSystemId), null, 2);
+        return JSON.stringify(buildAllowSample(), null, 2);
       }
     });
-  }, [adapterQuery.data?.defaultSystemId, initialSystemId, selectedSystemId, systemsQuery.data]);
+    setRuntimeResponse(null);
+    setStatusCode(null);
+    setRuntimeError("The selected evaluation target is no longer available. Choose another system before running a scoped evaluation.");
+  }, [adapterQuery.data?.defaultSystemId, adapterQuery.isSuccess, initialSystemId, selectedSystemId, systemsQuery.data, systemsQuery.isSuccess]);
 
   const selectedSystem = systemsQuery.data?.find((system) => system.id === selectedSystemId) ?? null;
   const telemetrySummary = telemetrySummaryQuery.data ?? {};
@@ -403,85 +411,51 @@ export default function RuntimeMonitoringPage() {
     adapterQuery.error instanceof Error
       ? adapterQuery.error.message
       : "Telemetry adapter details are unavailable right now.";
-  const responseBreaches = extractThresholdLabels(runtimeResponse);
-  const responseRestrictedMatches = Array.isArray(runtimeResponse?.restrictedPromptMatches)
-    ? runtimeResponse.restrictedPromptMatches
-    : [];
-  const responseReasonCodes = Array.isArray(runtimeResponse?.reasonCodes)
-    ? runtimeResponse.reasonCodes
-    : [];
-  const responseLawPackIds = Array.isArray(runtimeResponse?.lawPackIdsApplied)
-    ? runtimeResponse.lawPackIdsApplied
-    : [];
-  const responseAllowedCapabilities = Array.isArray(runtimeResponse?.allowedCapabilitiesApplied)
-    ? runtimeResponse.allowedCapabilitiesApplied
-    : [];
-  const responsePolicyCategories = Array.isArray(runtimeResponse?.policyCategories)
-    ? runtimeResponse.policyCategories
-    : [];
-  const responsePolicyLayers = Array.isArray(runtimeResponse?.policyLayers)
-    ? runtimeResponse.policyLayers
-    : [];
-  const responseAlwaysLogCategories = Array.isArray(runtimeResponse?.alwaysLogPolicyCategories)
-    ? runtimeResponse.alwaysLogPolicyCategories
-    : [];
-  const responseRequestedCapabilities = Array.isArray(runtimeResponse?.requestedCapabilities)
-    ? runtimeResponse.requestedCapabilities
-    : [];
-  const responseOutOfScopeCapabilities = Array.isArray(runtimeResponse?.outOfScopeCapabilities)
-    ? runtimeResponse.outOfScopeCapabilities
-    : [];
+  const escalatedIncidentHref = buildIncidentHref(runtimeResponse?.escalatedIncidentId);
+  const responseBreaches = normalizeRuntimeThresholdLabels(runtimeResponse?.thresholdBreaches);
+  const responseRestrictedMatches = normalizeRuntimeStringArray(runtimeResponse?.restrictedPromptMatches);
+  const responseReasonCodes = normalizeRuntimeStringArray(runtimeResponse?.reasonCodes);
+  const responseLawPackIds = normalizeRuntimeStringArray(runtimeResponse?.lawPackIdsApplied);
+  const responseAllowedCapabilities = normalizeRuntimeStringArray(runtimeResponse?.allowedCapabilitiesApplied);
+  const responsePolicyCategories = normalizeRuntimeStringArray(runtimeResponse?.policyCategories);
+  const responsePolicyLayers = normalizeRuntimeStringArray(runtimeResponse?.policyLayers);
+  const responseAlwaysLogCategories = normalizeRuntimeStringArray(runtimeResponse?.alwaysLogPolicyCategories);
+  const responseRequestedCapabilities = normalizeRuntimeStringArray(runtimeResponse?.requestedCapabilities);
+  const responseOutOfScopeCapabilities = normalizeRuntimeStringArray(runtimeResponse?.outOfScopeCapabilities);
   const rulesEngine = runtimeResponse?.rulesEngine ?? null;
   const critic = runtimeResponse?.governanceCritic ?? null;
-  const rulesEngineReasonCodes = Array.isArray(rulesEngine?.reasonCodes) ? rulesEngine.reasonCodes : [];
-  const rulesEngineThresholds = Array.isArray(rulesEngine?.thresholdBreaches) ? rulesEngine.thresholdBreaches : [];
-  const criticReasonCodes = Array.isArray(critic?.reasonCodes) ? critic.reasonCodes : [];
-  const criticFabricationFlags = Array.isArray(critic?.fabricationFlags) ? critic.fabricationFlags : [];
-  const criticGroundingConcerns = Array.isArray(critic?.groundingConcerns) ? critic.groundingConcerns : [];
-  const criticPromotedThresholds = Array.isArray(critic?.promotedThresholdBreaches) ? critic.promotedThresholdBreaches : [];
+  const rulesEngineReasonCodes = normalizeRuntimeStringArray(rulesEngine?.reasonCodes);
+  const rulesEngineThresholds = normalizeRuntimeStringArray(rulesEngine?.thresholdBreaches);
+  const criticReasonCodes = normalizeRuntimeStringArray(critic?.reasonCodes);
+  const criticFabricationFlags = normalizeRuntimeStringArray(critic?.fabricationFlags);
+  const criticGroundingConcerns = normalizeRuntimeStringArray(critic?.groundingConcerns);
+  const criticPromotedThresholds = normalizeRuntimeStringArray(critic?.promotedThresholdBreaches);
   const sourceVerifier = runtimeResponse?.sourceAttributionVerifier ?? null;
   const factVerifier = runtimeResponse?.factProvenanceVerifier ?? null;
   const actionVerifier = runtimeResponse?.actionConfirmationVerifier ?? null;
   const reviewRelease = runtimeResponse?.reviewRelease ?? null;
   const governanceCatalog = runtimeResponse?.governanceCatalog ?? null;
   const shadowPolicy = runtimeResponse?.shadowPolicy ?? null;
-  const sourceVerificationMatchedAuthorities = Array.isArray(sourceVerifier?.matchedAuthorities)
-    ? sourceVerifier.matchedAuthorities
-    : [];
-  const sourceVerificationMissingAuthorities = Array.isArray(sourceVerifier?.missingAuthorities)
-    ? sourceVerifier.missingAuthorities
-    : [];
-  const sourceVerificationSources = Array.isArray(sourceVerifier?.supportingSources)
-    ? sourceVerifier.supportingSources
-    : [];
-  const factVerificationRequestedKeys = Array.isArray(factVerifier?.requestedFactKeys)
-    ? factVerifier.requestedFactKeys
-    : [];
-  const factVerificationMissingKeys = Array.isArray(factVerifier?.missingFactKeys)
-    ? factVerifier.missingFactKeys
-    : [];
-  const factVerificationAvailableKeys = Array.isArray(factVerifier?.availableFactKeys)
-    ? factVerifier.availableFactKeys
-    : [];
-  const factVerificationSources = Array.isArray(factVerifier?.supportingSources)
-    ? factVerifier.supportingSources
-    : [];
-  const actionClaimed = Array.isArray(actionVerifier?.claimedActions)
-    ? actionVerifier.claimedActions
-    : [];
-  const actionConfirmed = Array.isArray(actionVerifier?.confirmedActions)
-    ? actionVerifier.confirmedActions
-    : [];
-  const actionMissing = Array.isArray(actionVerifier?.missingConfirmedActions)
-    ? actionVerifier.missingConfirmedActions
-    : [];
-  const shadowThresholds = Array.isArray(shadowPolicy?.thresholdBreaches) ? shadowPolicy.thresholdBreaches : [];
-  const shadowReasonCodes = Array.isArray(shadowPolicy?.reasonCodes) ? shadowPolicy.reasonCodes : [];
+  const sourceVerificationMatchedAuthorities = normalizeRuntimeStringArray(sourceVerifier?.matchedAuthorities);
+  const sourceVerificationMissingAuthorities = normalizeRuntimeStringArray(sourceVerifier?.missingAuthorities);
+  const sourceVerificationSources = normalizeRuntimeStringArray(sourceVerifier?.supportingSources);
+  const factVerificationRequestedKeys = normalizeRuntimeStringArray(factVerifier?.requestedFactKeys);
+  const factVerificationMissingKeys = normalizeRuntimeStringArray(factVerifier?.missingFactKeys);
+  const factVerificationAvailableKeys = normalizeRuntimeStringArray(factVerifier?.availableFactKeys);
+  const factVerificationSources = normalizeRuntimeStringArray(factVerifier?.supportingSources);
+  const actionClaimed = normalizeRuntimeStringArray(actionVerifier?.claimedActions);
+  const actionConfirmed = normalizeRuntimeStringArray(actionVerifier?.confirmedActions);
+  const actionMissing = normalizeRuntimeStringArray(actionVerifier?.missingConfirmedActions);
+  const shadowThresholds = normalizeRuntimeStringArray(shadowPolicy?.thresholdBreaches);
+  const shadowReasonCodes = normalizeRuntimeStringArray(shadowPolicy?.reasonCodes);
 
-  const totalEvents = telemetrySummary.total ?? telemetrySummary.events ?? 0;
-  const thresholdBreaches = telemetrySummary.thresholdBreaches ?? telemetrySummary.breaches ?? 0;
-  const blockedEvents = telemetrySummary.blocked ?? 0;
-  const escalatedIncidents = telemetrySummary.escalatedIncidents ?? incidentSummary.open ?? 0;
+  const {
+    totalEvents,
+    thresholdBreaches,
+    blockedEvents,
+    activeIncidents,
+    telemetryWindowDays,
+  } = resolveRuntimeMonitoringCounters(telemetrySummary, incidentSummary);
 
   function applySample(sample: Record<string, unknown>) {
     const nextPayload = {
@@ -532,6 +506,8 @@ export default function RuntimeMonitoringPage() {
       setRuntimeResponse(data);
       if (!response.ok) {
         setRuntimeError(data.message ? String(data.message) : "Runtime evaluation failed.");
+      } else {
+        void invalidateRuntimeEvaluationQueries(queryClient);
       }
     } catch (error) {
       setRuntimeError(error instanceof Error ? error.message : "Runtime evaluation failed.");
@@ -563,32 +539,38 @@ export default function RuntimeMonitoringPage() {
                       {adapterEnabled ? pageCopy.runtimeMonitoring.badges?.adapterEnabled : pageCopy.runtimeMonitoring.badges?.adapterDisabled}
                     </Badge>
                     <Badge variant={selectedSystem ? "outline" : "secondary"}>
-                      {selectedSystem ? `${pageCopy.runtimeMonitoring.badges?.system}: ${selectedSystem.name}` : pageCopy.runtimeMonitoring.badges?.noSystemOverride}
+                      {selectedSystem ? `Evaluation target: ${selectedSystem.name}` : pageCopy.runtimeMonitoring.badges?.noSystemOverride}
                     </Badge>
-                    <Badge variant="outline">{pageCopy.runtimeMonitoring.badges?.blockedEvents} {blockedEvents}</Badge>
+                    <Badge variant="outline">
+                      {pageCopy.runtimeMonitoring.badges?.blockedEvents} ({telemetryWindowDays}d){" "}
+                      {telemetrySummaryQuery.isLoading || telemetrySummaryQuery.isError ? "—" : blockedEvents}
+                    </Badge>
                   </div>
                 </div>
 
                 <div className="w-full max-w-[340px] rounded-xl border border-border/70 bg-muted/20 p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Live counters</p>
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Organization counters</p>
                   <div className="mt-3 grid grid-cols-2 gap-3">
                     <div>
                       <p className="text-[11px] text-muted-foreground">Events</p>
-                      <p className="text-2xl font-semibold tracking-tight">{totalEvents}</p>
+                      <p className="text-2xl font-semibold tracking-tight">{telemetrySummaryQuery.isLoading || telemetrySummaryQuery.isError ? "—" : totalEvents}</p>
                     </div>
                     <div>
                       <p className="text-[11px] text-muted-foreground">Breaches</p>
-                      <p className="text-2xl font-semibold tracking-tight">{thresholdBreaches}</p>
+                      <p className="text-2xl font-semibold tracking-tight">{telemetrySummaryQuery.isLoading || telemetrySummaryQuery.isError ? "—" : thresholdBreaches}</p>
                     </div>
                     <div>
                       <p className="text-[11px] text-muted-foreground">Blocks</p>
-                      <p className="text-2xl font-semibold tracking-tight">{blockedEvents}</p>
+                      <p className="text-2xl font-semibold tracking-tight">{telemetrySummaryQuery.isLoading || telemetrySummaryQuery.isError ? "—" : blockedEvents}</p>
                     </div>
                     <div>
-                      <p className="text-[11px] text-muted-foreground">Incidents</p>
-                      <p className="text-2xl font-semibold tracking-tight">{escalatedIncidents}</p>
+                      <p className="text-[11px] text-muted-foreground">Active incidents</p>
+                      <p className="text-2xl font-semibold tracking-tight">{incidentSummaryQuery.isLoading || incidentSummaryQuery.isError ? "—" : activeIncidents}</p>
                     </div>
                   </div>
+                  <p className="mt-3 text-[11px] leading-4 text-muted-foreground">
+                    Events, breaches, and blocks cover the last {telemetryWindowDays} days. Active incidents match the organization incident queue across all dates.
+                  </p>
                 </div>
               </div>
 
@@ -609,7 +591,7 @@ export default function RuntimeMonitoringPage() {
                       </Link>
                     </Button>
                     <Button asChild>
-                      <Link href="/incidents">
+                      <Link href={escalatedIncidentHref}>
                         <AlertTriangle className="mr-2 h-4 w-4" />
                         Incidents
                       </Link>
@@ -660,7 +642,7 @@ export default function RuntimeMonitoringPage() {
               <div className="mt-3 grid gap-2 text-xs text-muted-foreground">
                 <div>Key prefix: <span className="font-medium text-foreground">{adapter.keyPrefix ?? "Not rotated"}</span></div>
                 <div>Allowed gateways: <span className="font-medium text-foreground">{adapterGateways}</span></div>
-                <div>System scope: <span className="font-medium text-foreground">{selectedSystem ? selectedSystem.name : "Organization defaults"}</span></div>
+                <div>Evaluation target: <span className="font-medium text-foreground">{selectedSystem ? selectedSystem.name : "Organization defaults"}</span></div>
                 <div>Legal profile: <span className="font-medium text-foreground">{selectedSystem ? formatLegalProfileLabel(selectedSystem.legalProfile) : "Global"}</span></div>
                 <div>Law packs: <span className="font-medium text-foreground">{selectedSystemLawPackIds.length > 0 ? selectedSystemLawPackIds.map((packId) => formatLawPackLabel(packId)).join(", ") : "Global Baseline"}</span></div>
                 <div>Capability profile: <span className="font-medium text-foreground">{selectedSystem ? formatCapabilityProfileLabel(selectedSystem.capabilityProfile) : "General Assistant"}</span></div>
@@ -691,6 +673,25 @@ export default function RuntimeMonitoringPage() {
           </CardContent>
         </Card>
       </div>
+
+      {telemetrySummaryQuery.isError || incidentSummaryQuery.isError ? (
+        <Alert variant="destructive">
+          <AlertTitle>Organization runtime counters could not be loaded</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>
+              Unavailable counters are shown as a dash so a backend or session error is not mistaken for zero activity.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void Promise.all([telemetrySummaryQuery.refetch(), incidentSummaryQuery.refetch()])}
+            >
+              Retry counters
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {adapterQuery.isError ? (
         <Alert variant="destructive">
@@ -746,11 +747,13 @@ export default function RuntimeMonitoringPage() {
                 </p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="runtime-monitoring-system">AI system scope</Label>
+                <Label htmlFor="runtime-monitoring-system">Evaluation target</Label>
                 <Select
                   value={selectedSystemId || "__none__"}
                   onValueChange={(value) => {
                     const nextValue = value === "__none__" ? "" : value;
+                    hasUserSelectedSystem.current = true;
+                    hasResolvedInitialSystem.current = true;
                     setSelectedSystemId(nextValue);
                     setPayloadText((current) => {
                       try {
@@ -835,7 +838,7 @@ export default function RuntimeMonitoringPage() {
                   </div>
                   {runtimeResponse.escalatedIncidentId ? (
                     <Button asChild variant="ghost" size="sm">
-                      <Link href="/incidents">
+                      <Link href={escalatedIncidentHref}>
                         Open incidents
                         <ExternalLink className="ml-2 h-3.5 w-3.5" />
                       </Link>

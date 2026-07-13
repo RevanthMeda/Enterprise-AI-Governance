@@ -77,6 +77,13 @@ jobs:
       - name: Validate Firebase preview build
         run: npm run build:firebase
 
+      - name: Upload Firebase hosting artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firebase-public
+          path: dist/public
+          retention-days: 1
+
       - name: Build application
         run: npm run build
 
@@ -91,18 +98,84 @@ jobs:
     needs: test-and-build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: production
     permissions:
       contents: read
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deployment dependencies
+        run: npm ci
+
+      - name: Download Firebase hosting artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: firebase-public
+          path: dist/public
+
+      - name: Validate production deployment configuration
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          PRODUCTION_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
+          PRODUCTION_BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_URL }}
+          PRODUCTION_FRONTEND_TOPOLOGY: ${{ vars.PRODUCTION_FRONTEND_TOPOLOGY }}
+          SMOKE_ADMIN_USERNAME: ${{ secrets.SMOKE_ADMIN_USERNAME }}
+          SMOKE_ADMIN_PASSWORD: ${{ secrets.SMOKE_ADMIN_PASSWORD }}
+        run: |
+          test -n "$RENDER_DEPLOY_HOOK_URL"
+          test -n "$DATABASE_URL"
+          test -n "$FIREBASE_SERVICE_ACCOUNT"
+          test -n "$PRODUCTION_FRONTEND_URL"
+          test -n "$PRODUCTION_BACKEND_URL"
+          test -n "$PRODUCTION_FRONTEND_TOPOLOGY"
+          test -n "$SMOKE_ADMIN_USERNAME"
+          test -n "$SMOKE_ADMIN_PASSWORD"
+
+      - name: Apply production schema
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run db:push -- --force
+
       - name: Trigger Render deploy hook
-        if: ${{ secrets.RENDER_DEPLOY_HOOK_URL != '' }}
         run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+
+      - name: Authenticate to Firebase
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Deploy Firebase Hosting
+        run: npx --yes firebase-tools@15.23.0 deploy --only hosting --project ai-control-tower-d9854 --non-interactive
 
       - name: Trigger Netlify build hook
         if: ${{ secrets.NETLIFY_BUILD_HOOK_URL != '' }}
         run: curl -fsSL -X POST "${{ secrets.NETLIFY_BUILD_HOOK_URL }}"
 
+      - name: Wait for deploy propagation
+        run: sleep 90
+
+      - name: Run production smoke checks
+        env:
+          SMOKE_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
+          SMOKE_BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_URL }}
+          SMOKE_ADMIN_USERNAME: ${{ secrets.SMOKE_ADMIN_USERNAME }}
+          SMOKE_ADMIN_PASSWORD: ${{ secrets.SMOKE_ADMIN_PASSWORD }}
+          SMOKE_FRONTEND_TOPOLOGY: ${{ vars.PRODUCTION_FRONTEND_TOPOLOGY }}
+          SMOKE_RETRIES: "18"
+          SMOKE_DELAY_MS: "10000"
+        run: npm run smoke:deploy
+
       - name: Deployment hook summary
         run: |
-          echo "Render deploy hook configured: ${{ secrets.RENDER_DEPLOY_HOOK_URL != '' }}"
+          echo "Render deploy triggered: true"
+          echo "Firebase Hosting deployed: true"
           echo "Netlify build hook configured: ${{ secrets.NETLIFY_BUILD_HOOK_URL != '' }}"

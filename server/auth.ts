@@ -38,6 +38,7 @@ declare global {
       fullName: string;
       email: string | null;
       role: string;
+      isPlatformAdmin: boolean;
     }
   }
 }
@@ -527,6 +528,7 @@ export function setupAuth(app: Express) {
           fullName: user.fullName,
           email: user.email,
           role: user.role,
+          isPlatformAdmin: user.isPlatformAdmin,
         });
       } catch (err) {
         return done(err);
@@ -550,6 +552,7 @@ export function setupAuth(app: Express) {
         fullName: user.fullName,
         email: user.email,
         role: user.role,
+        isPlatformAdmin: user.isPlatformAdmin,
       });
     } catch (err) {
       done(err);

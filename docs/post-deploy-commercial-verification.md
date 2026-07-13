@@ -147,6 +147,7 @@ Expected:
 ### GitHub Actions
 - `RENDER_DEPLOY_HOOK_URL`
 - `NETLIFY_BUILD_HOOK_URL`
+- `FIREBASE_SERVICE_ACCOUNT`
 - `PRODUCTION_FRONTEND_URL`
 - `PRODUCTION_BACKEND_URL`
 - optional admin smoke credentials:
