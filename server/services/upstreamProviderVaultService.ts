@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
+import { validateOutboundUrlPolicy } from "../safe-outbound-http";
 
 export type UpstreamProviderName = "openai" | "anthropic" | "gemini" | "azureOpenAi" | "vertexAi" | "bedrock";
 export type UpstreamProviderProtocol =
@@ -12,10 +13,16 @@ export type UpstreamProviderProtocol =
 type StoredProviderConfig = {
   enabled?: boolean;
   encryptedApiKey?: string | null;
+  apiKeyOrigin?: string | null;
   encryptedAccessKeyId?: string | null;
   encryptedSecretAccessKey?: string | null;
   encryptedSessionToken?: string | null;
+  awsCredentialOrigin?: string | null;
   baseUrl?: string | null;
+  encryptedHeaders?: string | null;
+  headerNames?: string[];
+  headersOrigin?: string | null;
+  /** Legacy releases stored custom headers in plaintext. */
   headers?: Record<string, string>;
   modelAllowlist?: string[];
   apiVersion?: string | null;
@@ -32,6 +39,7 @@ export type ProviderPatchInput = {
   clearStoredAwsCredentials?: boolean;
   baseUrl?: string | null;
   headers?: Record<string, string>;
+  clearStoredHeaders?: boolean;
   modelAllowlist?: string[];
   apiVersion?: string | null;
   region?: string | null;
@@ -50,6 +58,8 @@ export type ResolvedProviderConfig = {
   accessKeyId: string | null;
   secretAccessKey: string | null;
   sessionToken: string | null;
+  credentialSource: "request" | "stored" | "environment";
+  baseUrlSource: "request" | "stored" | "environment" | "canonical";
 };
 
 const DEFAULT_BASE_URLS: Record<UpstreamProviderName, string> = {
@@ -188,14 +198,131 @@ function envRegion(protocol: UpstreamProviderProtocol) {
   return "";
 }
 
+function normalizeCustomHeaders(value: unknown) {
+  const normalized: Record<string, string> = {};
+  for (const [rawName, rawValue] of Object.entries(getStringRecord(value))) {
+    const name = rawName.trim().toLowerCase();
+    const headerValue = rawValue.trim();
+    if (!name || !/^[!#$%&'*+.^_`|~0-9a-z-]+$/.test(name)) {
+      throw new Error("Provider header name is invalid");
+    }
+    if (/\r|\n|\0/.test(headerValue)) {
+      throw new Error("Provider header value is invalid");
+    }
+    if (["host", "content-length", "connection", "transfer-encoding", "upgrade"].includes(name)) {
+      throw new Error(`Provider header ${name} cannot be overridden`);
+    }
+    normalized[name] = headerValue;
+  }
+  return normalized;
+}
+
+function envAwsCredentials() {
+  return {
+    accessKeyId: getString(process.env.AWS_ACCESS_KEY_ID),
+    secretAccessKey: getString(process.env.AWS_SECRET_ACCESS_KEY),
+    sessionToken: getString(process.env.AWS_SESSION_TOKEN),
+  };
+}
+
+function normalizeProviderBaseUrl(value: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("Provider base URL is invalid");
+  }
+  if (parsed.search || parsed.hash) {
+    throw new Error("Provider base URL must not include a query string or fragment");
+  }
+  const validated = validateOutboundUrlPolicy(parsed, true);
+  return validated.toString().replace(/\/$/, "");
+}
+
+function assertValidAwsRegion(region: string | null) {
+  if (region && !/^[a-z]{2}(?:-[a-z0-9]+)+-\d+$/.test(region)) {
+    throw new Error("Bedrock region is invalid");
+  }
+}
+
+function canonicalBedrockBaseUrl(region: string) {
+  const dnsSuffix = region.startsWith("cn-") ? "amazonaws.com.cn" : "amazonaws.com";
+  return `https://bedrock-runtime.${region}.${dnsSuffix}`;
+}
+
+function canonicalBaseUrl(protocol: UpstreamProviderProtocol, region: string | null) {
+  if (protocol === "openai") return DEFAULT_BASE_URLS.openai;
+  if (protocol === "anthropic") return DEFAULT_BASE_URLS.anthropic;
+  if (protocol === "gemini") return DEFAULT_BASE_URLS.gemini;
+  if (protocol === "bedrock" && region) return canonicalBedrockBaseUrl(region);
+  return null;
+}
+
+function normalizedOrigin(value: string) {
+  return new URL(normalizeProviderBaseUrl(value)).origin;
+}
+
+function credentialBindingOrigin(
+  provider: string,
+  baseUrl: string | null,
+  region: string | null,
+) {
+  const protocol = inferProtocol(provider);
+  const candidate = baseUrl ?? getString(envBaseUrl(protocol)) ?? canonicalBaseUrl(protocol, region);
+  if (!candidate) {
+    throw new Error("A provider base URL is required when storing credentials or custom headers");
+  }
+  return normalizedOrigin(candidate);
+}
+
+function decryptStoredHeaders(config: StoredProviderConfig) {
+  const encrypted = getString(config.encryptedHeaders);
+  if (encrypted) {
+    try {
+      return normalizeCustomHeaders(JSON.parse(decryptSecret(encrypted)));
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        throw new Error("Stored provider headers are malformed");
+      }
+      throw error;
+    }
+  }
+  return normalizeCustomHeaders(config.headers);
+}
+
+function assertBoundSecretOrigin(params: {
+  label: string;
+  boundOrigin: string | null;
+  baseUrl: string;
+  canonicalUrl: string | null;
+}) {
+  const actualOrigin = normalizedOrigin(params.baseUrl);
+  if (params.boundOrigin) {
+    if (actualOrigin !== params.boundOrigin) {
+      throw new Error(`${params.label} is bound to a different provider origin; re-enter it after changing the base URL`);
+    }
+    return;
+  }
+
+  // Backward compatibility is intentionally limited to a built-in provider's
+  // canonical origin. Legacy secrets for custom destinations must be re-entered
+  // once so the new origin binding can be established.
+  if (!params.canonicalUrl || actualOrigin !== normalizedOrigin(params.canonicalUrl)) {
+    throw new Error(`${params.label} must be re-entered to bind it to this provider origin`);
+  }
+}
+
 function sanitizeProviderConfig(config: StoredProviderConfig) {
+  const headerNames = getStringArray(config.headerNames);
+  const legacyHeaderNames = Object.keys(getStringRecord(config.headers));
   return {
     enabled: config.enabled !== false,
     hasStoredApiKey: Boolean(config.encryptedApiKey),
     hasStoredAwsCredentials: Boolean(config.encryptedAccessKeyId || config.encryptedSecretAccessKey),
     hasStoredSessionToken: Boolean(config.encryptedSessionToken),
     baseUrl: getString(config.baseUrl) ?? null,
-    headers: getStringRecord(config.headers),
+    hasStoredHeaders: Boolean(getString(config.encryptedHeaders) || legacyHeaderNames.length > 0),
+    storedHeaderNames: headerNames.length > 0 ? headerNames : legacyHeaderNames,
     modelAllowlist: getStringArray(config.modelAllowlist),
     apiVersion: getString(config.apiVersion) ?? null,
     region: getString(config.region) ?? null,
@@ -203,17 +330,49 @@ function sanitizeProviderConfig(config: StoredProviderConfig) {
 }
 
 function mergeProviderPatch(
+  provider: string,
   currentValue: Record<string, unknown>,
   patchValue: ProviderPatchInput & Record<string, unknown>,
 ): StoredProviderConfig {
+  const nextBaseUrl =
+    patchValue.baseUrl === null
+      ? null
+      : getString(patchValue.baseUrl) ?? getString(currentValue.baseUrl);
+  if (nextBaseUrl) {
+    normalizeProviderBaseUrl(nextBaseUrl);
+  }
+  const nextRegion =
+    patchValue.region === null
+      ? null
+      : getString(patchValue.region) ?? getString(currentValue.region);
+  const newApiKey = getString(patchValue.apiKey);
+  const newAwsCredential = Boolean(
+    getString(patchValue.accessKeyId) ||
+    getString(patchValue.secretAccessKey) ||
+    getString(patchValue.sessionToken),
+  );
+  const hasHeadersPatch = Object.prototype.hasOwnProperty.call(patchValue, "headers");
+  const nextHeaders = hasHeadersPatch ? normalizeCustomHeaders(patchValue.headers) : null;
+  const headersAreCleared = patchValue.clearStoredHeaders || (hasHeadersPatch && Object.keys(nextHeaders ?? {}).length === 0);
+  const newSecretOrigin =
+    newApiKey || newAwsCredential || (nextHeaders && Object.keys(nextHeaders).length > 0)
+      ? credentialBindingOrigin(provider, nextBaseUrl, nextRegion)
+      : null;
+
   return {
     enabled: typeof patchValue.enabled === "boolean" ? patchValue.enabled : (currentValue.enabled as boolean | undefined),
     encryptedApiKey:
       patchValue.clearStoredApiKey
         ? null
         : getString(patchValue.apiKey)
-          ? encryptSecret(getString(patchValue.apiKey)!)
+          ? encryptSecret(newApiKey!)
           : getString(currentValue.encryptedApiKey),
+    apiKeyOrigin:
+      patchValue.clearStoredApiKey
+        ? null
+        : newApiKey
+          ? newSecretOrigin
+          : getString(currentValue.apiKeyOrigin),
     encryptedAccessKeyId:
       patchValue.clearStoredAwsCredentials
         ? null
@@ -232,13 +391,34 @@ function mergeProviderPatch(
         : getString(patchValue.sessionToken)
           ? encryptSecret(getString(patchValue.sessionToken)!)
           : getString(currentValue.encryptedSessionToken),
-    baseUrl:
-      patchValue.baseUrl === null
+    awsCredentialOrigin:
+      patchValue.clearStoredAwsCredentials
         ? null
-        : getString(patchValue.baseUrl) ?? getString(currentValue.baseUrl),
+        : newAwsCredential
+          ? newSecretOrigin
+          : getString(currentValue.awsCredentialOrigin),
+    baseUrl: nextBaseUrl,
+    encryptedHeaders:
+      headersAreCleared
+        ? null
+        : nextHeaders && Object.keys(nextHeaders).length > 0
+          ? encryptSecret(JSON.stringify(nextHeaders))
+          : getString(currentValue.encryptedHeaders),
+    headerNames:
+      headersAreCleared
+        ? []
+        : nextHeaders && Object.keys(nextHeaders).length > 0
+          ? Object.keys(nextHeaders)
+          : getStringArray(currentValue.headerNames),
+    headersOrigin:
+      headersAreCleared
+        ? null
+        : nextHeaders && Object.keys(nextHeaders).length > 0
+          ? newSecretOrigin
+          : getString(currentValue.headersOrigin),
     headers:
-      Object.keys(getStringRecord(patchValue.headers)).length > 0
-        ? getStringRecord(patchValue.headers)
+      headersAreCleared || (nextHeaders && Object.keys(nextHeaders).length > 0)
+        ? {}
         : getStringRecord(currentValue.headers),
     modelAllowlist:
       Array.isArray(patchValue.modelAllowlist)
@@ -248,16 +428,20 @@ function mergeProviderPatch(
       patchValue.apiVersion === null
         ? null
         : getString(patchValue.apiVersion) ?? getString(currentValue.apiVersion),
-    region:
-      patchValue.region === null
-        ? null
-        : getString(patchValue.region) ?? getString(currentValue.region),
+    region: nextRegion,
   };
 }
 
 function getStoredProviderConfig(rawVault: unknown, provider: string) {
   const vault = getStoredVault(rawVault);
-  if (provider === "openai" || provider === "anthropic" || provider === "gemini") {
+  if (
+    provider === "openai" ||
+    provider === "anthropic" ||
+    provider === "gemini" ||
+    provider === "azureOpenAi" ||
+    provider === "vertexAi" ||
+    provider === "bedrock"
+  ) {
     return getRecord(vault[provider] ?? {});
   }
   const compatibleProviders = getRecord(vault.compatibleProviders);
@@ -294,7 +478,7 @@ export class UpstreamProviderVaultService {
         for (const [customProviderName, rawCustomPatch] of Object.entries(getRecord(rawPatch))) {
           const current = getRecord(nextCompatible[customProviderName] ?? {});
           const patch = getRecord(rawCustomPatch) as ProviderPatchInput & Record<string, unknown>;
-          nextCompatible[customProviderName] = mergeProviderPatch(current, patch);
+          nextCompatible[customProviderName] = mergeProviderPatch(customProviderName, current, patch);
         }
         merged.compatibleProviders = nextCompatible;
         continue;
@@ -302,7 +486,7 @@ export class UpstreamProviderVaultService {
 
       const current = getRecord(merged[providerName] ?? {});
       const patch = getRecord(rawPatch) as ProviderPatchInput & Record<string, unknown>;
-      merged[normalizeProviderKey(providerName)] = mergeProviderPatch(current, patch);
+      merged[normalizeProviderKey(providerName)] = mergeProviderPatch(providerName, current, patch);
     }
 
     return merged;
@@ -327,67 +511,136 @@ export class UpstreamProviderVaultService {
       options?.protocol ?? inferProtocol(provider);
     const stored = getStoredProviderConfig(rawVault, provider);
     const requestApiKey = getString(options?.requestApiKey);
-    const storedApiKey = getString(stored.encryptedApiKey);
-    const apiKey =
-      requestApiKey ??
-      (storedApiKey ? decryptSecret(storedApiKey) : null) ??
-      getString(envApiKey(protocol));
-
+    const requestBaseUrl = getString(options?.requestBaseUrl);
     const requestAccessKeyId = getString(options?.requestAccessKeyId);
     const requestSecretAccessKey = getString(options?.requestSecretAccessKey);
     const requestSessionToken = getString(options?.requestSessionToken);
-    const accessKeyId =
-      requestAccessKeyId ??
-      (getString(stored.encryptedAccessKeyId) ? decryptSecret(getString(stored.encryptedAccessKeyId)!) : null);
-    const secretAccessKey =
-      requestSecretAccessKey ??
-      (getString(stored.encryptedSecretAccessKey) ? decryptSecret(getString(stored.encryptedSecretAccessKey)!) : null);
-    const sessionToken =
-      requestSessionToken ??
-      (getString(stored.encryptedSessionToken) ? decryptSecret(getString(stored.encryptedSessionToken)!) : null);
+    const anyRequestAwsCredential = Boolean(
+      requestAccessKeyId || requestSecretAccessKey || requestSessionToken,
+    );
+    const completeRequestAwsCredentials = Boolean(requestAccessKeyId && requestSecretAccessKey);
 
-    if (protocol !== "bedrock" && !apiKey) {
-      throw new Error(`${provider} provider key is required`);
+    if (protocol === "bedrock" && anyRequestAwsCredential && !completeRequestAwsCredentials) {
+      throw new Error("Bedrock request credentials must include both access key ID and secret access key");
+    }
+    if (requestBaseUrl) {
+      const hasExplicitCredential =
+        protocol === "bedrock" ? completeRequestAwsCredentials : Boolean(requestApiKey);
+      if (!hasExplicitCredential) {
+        throw new Error("A request-supplied provider base URL requires request-supplied credentials");
+      }
     }
 
-    const baseUrl =
-      getString(options?.requestBaseUrl) ??
-      getString(stored.baseUrl) ??
-      getString(envBaseUrl(protocol)) ??
-      (protocol === "openai"
-        ? DEFAULT_BASE_URLS.openai
-        : protocol === "anthropic"
-          ? DEFAULT_BASE_URLS.anthropic
-          : protocol === "gemini"
-            ? DEFAULT_BASE_URLS.gemini
-            : protocol === "bedrock"
-              ? (() => {
-                  const region = getString(options?.requestRegion) ?? getString(stored.region) ?? getString(envRegion(protocol));
-                  return region ? `https://bedrock-runtime.${region}.amazonaws.com` : null;
-                })()
-              : null);
+    let apiKey: string | null = null;
+    let accessKeyId: string | null = null;
+    let secretAccessKey: string | null = null;
+    let sessionToken: string | null = null;
+    let credentialSource: ResolvedProviderConfig["credentialSource"];
 
-    if (!baseUrl) {
+    if (protocol === "bedrock") {
+      const storedAccessKeyId = getString(stored.encryptedAccessKeyId);
+      const storedSecretAccessKey = getString(stored.encryptedSecretAccessKey);
+      const storedSessionToken = getString(stored.encryptedSessionToken);
+      const anyStoredAwsCredential = Boolean(storedAccessKeyId || storedSecretAccessKey || storedSessionToken);
+      if (completeRequestAwsCredentials) {
+        accessKeyId = requestAccessKeyId;
+        secretAccessKey = requestSecretAccessKey;
+        sessionToken = requestSessionToken;
+        credentialSource = "request";
+      } else if (anyStoredAwsCredential) {
+        if (!storedAccessKeyId || !storedSecretAccessKey) {
+          throw new Error("Stored Bedrock credentials are incomplete");
+        }
+        accessKeyId = decryptSecret(storedAccessKeyId);
+        secretAccessKey = decryptSecret(storedSecretAccessKey);
+        sessionToken = storedSessionToken ? decryptSecret(storedSessionToken) : null;
+        credentialSource = "stored";
+      } else {
+        const environmentCredentials = envAwsCredentials();
+        if (!environmentCredentials.accessKeyId || !environmentCredentials.secretAccessKey) {
+          throw new Error("bedrock credentials are required");
+        }
+        accessKeyId = environmentCredentials.accessKeyId;
+        secretAccessKey = environmentCredentials.secretAccessKey;
+        sessionToken = environmentCredentials.sessionToken;
+        credentialSource = "environment";
+      }
+    } else {
+      const storedApiKey = getString(stored.encryptedApiKey);
+      if (requestApiKey) {
+        apiKey = requestApiKey;
+        credentialSource = "request";
+      } else if (storedApiKey) {
+        apiKey = decryptSecret(storedApiKey);
+        credentialSource = "stored";
+      } else {
+        apiKey = getString(envApiKey(protocol));
+        credentialSource = "environment";
+      }
+      if (!apiKey) {
+        throw new Error(`${provider} provider key is required`);
+      }
+    }
+
+    const region =
+      getString(options?.requestRegion) ??
+      getString(stored.region) ??
+      getString(envRegion(protocol));
+    if (protocol === "bedrock") {
+      assertValidAwsRegion(region);
+    }
+
+    const storedBaseUrl = getString(stored.baseUrl);
+    const environmentBaseUrl = getString(envBaseUrl(protocol));
+    const providerCanonicalBaseUrl = canonicalBaseUrl(protocol, region);
+    const rawBaseUrl = requestBaseUrl ?? (
+      credentialSource === "environment"
+        ? environmentBaseUrl ?? providerCanonicalBaseUrl
+        : storedBaseUrl ?? environmentBaseUrl ?? providerCanonicalBaseUrl
+    );
+    const baseUrlSource: ResolvedProviderConfig["baseUrlSource"] = requestBaseUrl
+      ? "request"
+      : credentialSource !== "environment" && storedBaseUrl
+        ? "stored"
+        : environmentBaseUrl
+          ? "environment"
+          : "canonical";
+
+    if (!rawBaseUrl) {
       throw new Error(`${provider} base URL is required`);
+    }
+    const baseUrl = normalizeProviderBaseUrl(rawBaseUrl);
+
+    if (baseUrlSource === "request" && credentialSource !== "request") {
+      throw new Error("Request-supplied provider destinations cannot use stored credentials");
+    }
+
+    if (credentialSource === "stored") {
+      assertBoundSecretOrigin({
+        label: protocol === "bedrock" ? "Stored Bedrock credentials" : "Stored provider credential",
+        boundOrigin: getString(protocol === "bedrock" ? stored.awsCredentialOrigin : stored.apiKeyOrigin),
+        baseUrl,
+        canonicalUrl: providerCanonicalBaseUrl,
+      });
     }
 
     const apiVersion =
       getString(options?.requestApiVersion) ??
       getString(stored.apiVersion) ??
       (protocol === "azure_openai" ? process.env.AZURE_OPENAI_API_VERSION ?? "2024-10-21" : null);
-    const region =
-      getString(options?.requestRegion) ??
-      getString(stored.region) ??
-      getString(envRegion(protocol));
-
-    if (protocol === "bedrock" && (!accessKeyId || !secretAccessKey)) {
-      throw new Error("bedrock credentials are required");
+    const storedHeaders = baseUrlSource === "request" ? {} : decryptStoredHeaders(stored);
+    if (Object.keys(storedHeaders).length > 0) {
+      assertBoundSecretOrigin({
+        label: "Stored provider headers",
+        boundOrigin: getString(stored.headersOrigin),
+        baseUrl,
+        canonicalUrl: providerCanonicalBaseUrl,
+      });
     }
-
     const headers = {
       ...defaultHeaders(protocol),
-      ...getStringRecord(stored.headers),
-      ...getStringRecord(options?.requestHeaders),
+      ...storedHeaders,
+      ...normalizeCustomHeaders(options?.requestHeaders),
     };
 
     return {
@@ -403,6 +656,8 @@ export class UpstreamProviderVaultService {
       accessKeyId,
       secretAccessKey,
       sessionToken,
+      credentialSource,
+      baseUrlSource,
     };
   }
 

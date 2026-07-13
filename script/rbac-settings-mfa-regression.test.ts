@@ -11,6 +11,8 @@ import { storage } from "../server/storage";
 import { db } from "../server/db";
 import { memberships, organizations, users } from "../shared/schema";
 
+process.env.CONTROL_TOWER_VAULT_SECRET ||= "mfa-rbac-test-vault-secret-with-stable-entropy";
+
 type ApiResponse = {
   status: number;
   body: unknown;

@@ -140,7 +140,10 @@ export default function DecisionTracePage() {
     refetchIntervalInBackground: true,
     staleTime: 5_000,
   });
-  const recentTraces = useMemo(() => listQuery.data ?? [], [listQuery.data]);
+  const recentTraces = useMemo(
+    () => (listQuery.isError ? [] : listQuery.data ?? []),
+    [listQuery.data, listQuery.isError],
+  );
   const activeTraceId = editingTraceId ?? selectedTraceId ?? recentTraces[0]?.id ?? null;
   const systemsQuery = useQuery<AiSystem[]>({
     queryKey: ["/api/ai-systems"],
@@ -195,11 +198,18 @@ export default function DecisionTracePage() {
     recentTraces.find((trace) => trace.id === selectedTraceId) ??
     recentTraces[0] ??
     null;
-  const hasNoTraces = Boolean(summaryQuery.data) && summaryQuery.data!.total === 0;
-  const summaryUnavailable = summaryQuery.isLoading || summaryQuery.isError || !summaryQuery.data;
+  const summaryData = summaryQuery.isError ? undefined : summaryQuery.data;
+  const hasNoTraces = Boolean(summaryData) && !listQuery.isError && summaryData!.total === 0;
+  const summaryUnavailable = summaryQuery.isLoading || !summaryData;
   const telemetryValue = (value: number | undefined) =>
     telemetryQuery.isLoading || telemetryQuery.isError || !telemetryQuery.data ? "—" : (value ?? 0);
-  const coreQueryError = summaryQuery.isError || telemetryQuery.isError || chainQuery.isError || listQuery.isError || systemsQuery.isError;
+  const coreQueryError =
+    summaryQuery.isError ||
+    telemetryQuery.isError ||
+    chainQuery.isError ||
+    listQuery.isError ||
+    systemsQuery.isError ||
+    versionsQuery.isError;
 
   return (
     <div className="page-shell">
@@ -211,7 +221,7 @@ export default function DecisionTracePage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge variant="outline" className="w-fit">{pageCopy.decisionTrace.badges?.traces} {summaryUnavailable ? "—" : summaryQuery.data.total}</Badge>
+          <Badge variant="outline" className="w-fit">{pageCopy.decisionTrace.badges?.traces} {summaryUnavailable ? "—" : summaryData.total}</Badge>
           <Badge variant={hasNoTraces || summaryUnavailable || chainQuery.isLoading ? "outline" : chainQuery.data?.verified ? "default" : "destructive"} className="w-fit">
             {summaryUnavailable
               ? "Trace summary unavailable"
@@ -232,7 +242,7 @@ export default function DecisionTracePage() {
         <Alert variant="destructive">
           <AlertTitle>Decision trace data could not be fully loaded</AlertTitle>
           <AlertDescription className="space-y-3">
-            <p>Unavailable metrics are shown as a dash so an API failure is not mistaken for an empty organization or a healthy audit chain.</p>
+            <p>Unavailable metrics and records are clearly marked so an API failure is not mistaken for an empty organization or a healthy audit chain.</p>
             <Button
               type="button"
               variant="outline"
@@ -243,6 +253,7 @@ export default function DecisionTracePage() {
                 chainQuery.refetch(),
                 listQuery.refetch(),
                 systemsQuery.refetch(),
+                ...(activeTraceId ? [versionsQuery.refetch()] : []),
               ])}
             >
               Retry
@@ -252,11 +263,11 @@ export default function DecisionTracePage() {
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <MetricCard title="Traced decisions" value={summaryQuery.data?.total} icon={ShieldCheck} />
-        <MetricCard title="Human override rate" value={summaryQuery.data ? `${summaryQuery.data.overrideRate}%` : undefined} icon={GitBranch} />
-        <MetricCard title="Rationale capture" value={summaryQuery.data ? `${summaryQuery.data.rationaleCaptureRate}%` : undefined} icon={Brain} />
-        <MetricCard title="Documentation rate" value={summaryQuery.data ? `${summaryQuery.data.documentationRate}%` : undefined} icon={Database} />
-        <MetricCard title="Outcome windows tracked" value={summaryQuery.data?.outcomesTracked} icon={Radar} />
+        <MetricCard title="Traced decisions" value={summaryData?.total} icon={ShieldCheck} />
+        <MetricCard title="Human override rate" value={summaryData ? `${summaryData.overrideRate}%` : undefined} icon={GitBranch} />
+        <MetricCard title="Rationale capture" value={summaryData ? `${summaryData.rationaleCaptureRate}%` : undefined} icon={Brain} />
+        <MetricCard title="Documentation rate" value={summaryData ? `${summaryData.documentationRate}%` : undefined} icon={Database} />
+        <MetricCard title="Outcome windows tracked" value={summaryData?.outcomesTracked} icon={Radar} />
         <MetricCard
           title="Audit chain"
           value={
@@ -435,6 +446,16 @@ export default function DecisionTracePage() {
               <Skeleton className="h-16 w-full" />
               <Skeleton className="h-16 w-full" />
             </div>
+          ) : listQuery.isError ? (
+            <Alert variant="destructive">
+              <AlertTitle>Decision trace list could not be loaded</AlertTitle>
+              <AlertDescription className="space-y-3">
+                <p>Saved traces are unavailable. Retry before treating this organization as having no recorded decisions.</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => void listQuery.refetch()}>
+                  Retry list
+                </Button>
+              </AlertDescription>
+            </Alert>
           ) : recentTraces.length === 0 ? (
             <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">No traced decisions recorded yet.</div>
           ) : (
@@ -628,6 +649,16 @@ export default function DecisionTracePage() {
               <CardContent className="space-y-3 text-sm">
                 {versionsQuery.isLoading ? (
                   <Skeleton className="h-24 w-full" />
+                ) : versionsQuery.isError ? (
+                  <Alert variant="destructive">
+                    <AlertTitle>Version history could not be loaded</AlertTitle>
+                    <AlertDescription className="space-y-3">
+                      <p>Prior snapshots are unavailable. Retry before concluding that this trace has no earlier versions.</p>
+                      <Button type="button" variant="outline" size="sm" onClick={() => void versionsQuery.refetch()}>
+                        Retry versions
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
                 ) : (versionsQuery.data?.length ?? 0) === 0 ? (
                   <div className="rounded-md border border-dashed p-4 text-muted-foreground">
                     No prior versions captured for this trace.

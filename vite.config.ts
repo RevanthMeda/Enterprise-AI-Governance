@@ -101,14 +101,6 @@ export default defineConfig({
           ) {
             return "form-vendor";
           }
-          if (
-            id.includes("@radix-ui") ||
-            id.includes("lucide-react") ||
-            id.includes("react-day-picker") ||
-            id.includes("embla-carousel-react")
-          ) {
-            return "ui-vendor";
-          }
           if (isPackage("react") || isPackage("react-dom") || isPackage("scheduler")) {
             return "react-vendor";
           }

@@ -215,11 +215,54 @@ test("sealed decision traces create version snapshots on edit", async () => {
     assert.equal(versionsBody[0].versionNumber, 1);
     assert.equal(versionsBody[0].reason, "Manual diligence update after finance committee review.");
 
+    const concurrentUpdates = await Promise.all([
+      apiRequest(baseUrl, `/api/decision-audits/${createdBody.id}`, {
+        method: "PATCH",
+        cookie,
+        body: {
+          humanOutput: "Approve with amended pricing, guarantees, and quarterly review.",
+          versionReason: "Concurrent quarterly-review update.",
+        },
+      }),
+      apiRequest(baseUrl, `/api/decision-audits/${createdBody.id}`, {
+        method: "PATCH",
+        cookie,
+        body: {
+          humanOutput: "Approve with amended pricing, guarantees, and monthly review.",
+          versionReason: "Concurrent monthly-review update.",
+        },
+      }),
+    ]);
+    assert.deepEqual(
+      concurrentUpdates.map((response) => response.status),
+      [200, 200],
+    );
+    assert.deepEqual(
+      concurrentUpdates
+        .map((response) => (response.body as { currentVersionNumber: number }).currentVersionNumber)
+        .sort((a, b) => a - b),
+      [3, 4],
+      "concurrent edits must receive distinct serialized version numbers",
+    );
+
+    const concurrentVersions = await apiRequest(
+      baseUrl,
+      `/api/decision-audits/${createdBody.id}/versions`,
+      { cookie },
+    );
+    assert.equal(concurrentVersions.status, 200);
+    const concurrentVersionsBody = concurrentVersions.body as Array<{ versionNumber: number }>;
+    assert.deepEqual(
+      concurrentVersionsBody.map((version) => version.versionNumber),
+      [3, 2, 1],
+      "the version history must remain contiguous after simultaneous edits",
+    );
+
     const [storedAudit] = await db
       .select()
       .from(decisionAudits)
       .where(eq(decisionAudits.id, createdBody.id));
-    assert.equal(storedAudit.currentVersionNumber, 2);
+    assert.equal(storedAudit.currentVersionNumber, 4);
     assert.ok(
       Array.isArray(storedAudit.explainabilityFactors) &&
         storedAudit.explainabilityFactors.includes("law_pack:eu_finance"),

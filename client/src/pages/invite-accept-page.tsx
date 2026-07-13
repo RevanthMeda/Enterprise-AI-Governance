@@ -25,7 +25,11 @@ export default function InviteAcceptPage() {
   const { toast } = useToast();
   const token = useMemo(() => {
     if (typeof window === "undefined") return "";
-    return new URLSearchParams(window.location.search).get("token")?.trim() ?? "";
+    const queryToken = new URLSearchParams(window.location.search).get("token")?.trim();
+    const fragmentToken = new URLSearchParams(window.location.hash.slice(1))
+      .get("token")
+      ?.trim();
+    return queryToken || fragmentToken || "";
   }, []);
 
   const [loadingPreview, setLoadingPreview] = useState(true);
@@ -37,6 +41,23 @@ export default function InviteAcceptPage() {
   const [password, setPassword] = useState("");
 
   useEffect(() => {
+    if (!token || typeof window === "undefined") return;
+    const sanitizedUrl = new URL(window.location.href);
+    const fragmentParams = new URLSearchParams(sanitizedUrl.hash.slice(1));
+    const hasToken =
+      sanitizedUrl.searchParams.has("token") || fragmentParams.has("token");
+    if (!hasToken) return;
+    sanitizedUrl.searchParams.delete("token");
+    fragmentParams.delete("token");
+    sanitizedUrl.hash = fragmentParams.size > 0 ? fragmentParams.toString() : "";
+    window.history.replaceState(
+      null,
+      "",
+      `${sanitizedUrl.pathname}${sanitizedUrl.search}${sanitizedUrl.hash}`,
+    );
+  }, [token]);
+
+  useEffect(() => {
     let cancelled = false;
     const loadPreview = async () => {
       if (!token) {
@@ -45,7 +66,12 @@ export default function InviteAcceptPage() {
         return;
       }
       try {
-        const res = await apiRequest("GET", `/api/organization/invites/preview?token=${encodeURIComponent(token)}`);
+        const res = await apiRequest(
+          "GET",
+          "/api/organization/invites/preview",
+          undefined,
+          { headers: { Authorization: `Invite ${token}` } },
+        );
         const body = (await res.json()) as InvitePreview;
         if (!cancelled) {
           setPreview(body);

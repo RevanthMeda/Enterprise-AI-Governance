@@ -62,7 +62,11 @@ Authorization: Bearer sk-...
 
 AI CONTROL GRID forwards this upstream to OpenAI.
 
-If you do not want to pass the provider key on each request, store it in the telemetry adapter upstream provider vault. Stored provider keys are encrypted at rest with `CONTROL_TOWER_VAULT_SECRET`.
+If you do not want to pass the provider key on each request, store it in the telemetry adapter upstream provider vault. Stored provider keys and custom header values are encrypted at rest with `CONTROL_TOWER_VAULT_SECRET`; API responses expose only whether credentials exist and the custom header names.
+
+Stored credentials and stored custom headers are bound to the exact origin that was configured when they were entered. Changing that origin requires re-entering or clearing the credentials. Environment credentials always use the provider's canonical environment-configured endpoint and ignore tenant destination overrides. If a caller overrides a provider base URL with an `x-*-base-url` header, that same request must supply its own provider credential. For Bedrock, both the access-key ID and secret access key must be supplied together. Stored credentials and stored custom headers are never combined with a request-level destination override.
+
+All provider endpoints must use HTTPS. Before dispatch, AI CONTROL GRID rejects local and metadata hosts, private or reserved DNS answers, cross-origin path overrides, redirects, oversized responses, and requests that exceed the bounded deadline.
 
 ## How the request flow works
 
@@ -371,10 +375,8 @@ That is the stronger control-grid model.
 
 ## What still needs to be built
 
-To make this production-grade across many customers, the next steps are:
+Further production enhancements are:
 
-1. secure per-tenant upstream credential storage
-2. streaming support
-3. provider expansion beyond OpenAI
-4. tool/action-specific policies and allowlists
-5. signed gateway-to-platform trust for customer-managed edge proxies
+1. streaming support for the non-OpenAI provider routes
+2. richer tool/action-specific policy definitions
+3. signed gateway-to-platform trust for customer-managed edge proxies

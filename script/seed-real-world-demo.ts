@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../server/db";
 import { hashPassword } from "../server/auth";
+import { digestInviteToken } from "../server/invite-token";
 import { ensureTenantBootstrap } from "../server/tenant-bootstrap";
 import { auditService } from "../server/services/auditService";
 import { decisionAuditService } from "../server/services/decisionAuditService";
@@ -1926,7 +1927,7 @@ async function ensureOrgAdminData(orgMap: Map<string, Organization>, userMap: Ma
         email: invite.email,
         role: invite.role,
         status: invite.status,
-        token: invite.token,
+        token: digestInviteToken(invite.token),
         invitedBy,
         expiresAt: invite.expiresAt,
         acceptedBy: null,

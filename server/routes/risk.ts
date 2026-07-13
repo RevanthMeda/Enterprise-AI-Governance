@@ -153,7 +153,8 @@ export function registerRiskRoutes(app: Express): void {
       });
       res.json(assessments);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      console.error("Failed to load risk assessments:", err);
+      res.status(500).json({ message: "Failed to load risk assessments" });
     }
   });
 
@@ -172,7 +173,8 @@ export function registerRiskRoutes(app: Express): void {
       });
       res.json(assessments);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      console.error("Failed to load system risk assessment:", err);
+      res.status(500).json({ message: "Failed to load system risk assessment" });
     }
   });
 

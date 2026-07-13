@@ -11,6 +11,7 @@ import {
   sendAuthenticationRequired,
   sendSessionExpired,
 } from "../server/auth-errors";
+import { isTrustedBrowserOrigin } from "../server/auth-origin";
 
 async function startServer(app: Express): Promise<{ server: Server; baseUrl: string }> {
   const server = createServer(app);
@@ -157,4 +158,18 @@ test("anonymous health probes do not create session cookies", async () => {
   } finally {
     await closeServer(server);
   }
+});
+
+test("session-creating auth requests reject unknown browser origins", () => {
+  const input = {
+    requestOrigin: "https://api.example.test",
+    allowedOrigins: ["https://app.example.test"],
+  };
+
+  assert.equal(isTrustedBrowserOrigin({ ...input, origin: undefined }), true);
+  assert.equal(isTrustedBrowserOrigin({ ...input, origin: "https://api.example.test" }), true);
+  assert.equal(isTrustedBrowserOrigin({ ...input, origin: "https://app.example.test" }), true);
+  assert.equal(isTrustedBrowserOrigin({ ...input, origin: "https://evil.example" }), false);
+  assert.equal(isTrustedBrowserOrigin({ ...input, origin: "null" }), false);
+  assert.equal(isTrustedBrowserOrigin({ ...input, origin: "https://app.example.test/path" }), false);
 });

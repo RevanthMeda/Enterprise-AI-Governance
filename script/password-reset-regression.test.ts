@@ -89,6 +89,7 @@ test("password reset flow issues preview link in non-production and rotates cred
   const suffix = makeSuffix();
   const originalPassword = "Str0ng!Passw0rd";
   const newPassword = "EvenStr0nger!Passw0rd";
+  const racingPassword = "RacingReset!Passw0rd2";
   const user = await storage.createUser({
     username: `password_reset_${suffix}`,
     password: await hashPassword(originalPassword),
@@ -116,11 +117,21 @@ test("password reset flow issues preview link in non-production and rotates cred
     const token = resetUrl.searchParams.get("token");
     assert.ok(token, "Expected token in preview URL");
 
-    const resetPassword = await apiRequest(baseUrl, "/api/auth/reset-password", {
-      method: "POST",
-      body: { token, newPassword },
-    });
-    assert.equal(resetPassword.status, 200);
+    const resetAttempts = await Promise.all(
+      [newPassword, racingPassword].map((candidatePassword) =>
+        apiRequest(baseUrl, "/api/auth/reset-password", {
+          method: "POST",
+          body: { token, newPassword: candidatePassword },
+        }),
+      ),
+    );
+    assert.deepEqual(
+      resetAttempts.map((attempt) => attempt.status).sort((a, b) => a - b),
+      [200, 400],
+      "A password-reset token must be consumed exactly once under concurrency",
+    );
+    const winningPassword = resetAttempts[0].status === 200 ? newPassword : racingPassword;
+    const losingPassword = resetAttempts[0].status === 200 ? racingPassword : newPassword;
 
     const oldLogin = await apiRequest(baseUrl, "/api/auth/login", {
       method: "POST",
@@ -128,9 +139,15 @@ test("password reset flow issues preview link in non-production and rotates cred
     });
     assert.equal(oldLogin.status, 401, "Expected old password to stop working");
 
+    const losingLogin = await apiRequest(baseUrl, "/api/auth/login", {
+      method: "POST",
+      body: { username: user.email, password: losingPassword },
+    });
+    assert.equal(losingLogin.status, 401, "Expected the losing concurrent password never to take effect");
+
     const newLogin = await apiRequest(baseUrl, "/api/auth/login", {
       method: "POST",
-      body: { username: user.email, password: newPassword },
+      body: { username: user.email, password: winningPassword },
     });
     assert.equal(newLogin.status, 200, "Expected new password login to succeed by email");
     const newLoginCookie = cookieFromSetCookie(newLogin.setCookie);
@@ -148,4 +165,15 @@ test("password reset flow issues preview link in non-production and rotates cred
     }
     await db.delete(users).where(inArray(users.id, [user.id]));
   }
+});
+
+test("password changes revoke every previously issued authenticated session", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const storageSource = await readFile(new URL("../server/storage.ts", import.meta.url), "utf8");
+  const authSource = await readFile(new URL("../server/auth.ts", import.meta.url), "utf8");
+
+  assert.match(storageSource, /sessionVersion:\s*sql`\$\{users\.sessionVersion\} \+ 1`/);
+  assert.match(authSource, /sessionVersion:\s*user\.sessionVersion/);
+  assert.match(authSource, /user\.sessionVersion !== sessionVersion/);
+  assert.match(authSource, /Invalidate the legacy ID-only session format/);
 });

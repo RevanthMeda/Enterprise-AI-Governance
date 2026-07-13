@@ -18,6 +18,7 @@ const SESSION_UNAUTHORIZED_EXEMPT_PATHS = new Set([
   "/api/auth/sso/metadata",
   "/api/auth/sso/start",
   "/api/auth/sso/callback",
+  "/api/auth/sso/exchange",
   "/api/auth/sso/mock-callback",
   "/api/auth/oidc/start",
   "/api/auth/oidc/callback",
@@ -26,6 +27,7 @@ const SESSION_UNAUTHORIZED_EXEMPT_PATHS = new Set([
 const CSRF_BOOTSTRAP_EXEMPT_MUTATION_PATHS = new Set([
   "/api/auth/forgot-password",
   "/api/auth/reset-password",
+  "/api/auth/sso/exchange",
 ]);
 
 let csrfToken: string | null = null;

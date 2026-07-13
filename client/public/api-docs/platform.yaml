@@ -488,6 +488,8 @@ paths:
       responses:
         '200':
           description: Authenticated session
+        '303':
+          description: Browser redirect to the public SSO completion page with a short-lived code in the URL fragment
 
   /api/auth/oidc/start:
     get:
@@ -528,6 +530,65 @@ paths:
       responses:
         '200':
           description: Authenticated session
+        '303':
+          description: Browser redirect to the public SSO completion page with a short-lived code in the URL fragment
+
+  /api/auth/sso/exchange:
+    post:
+      tags: [Identity]
+      summary: Exchange a one-time browser SSO handoff for an authenticated session
+      description: >
+        Atomically consumes a short-lived hashed handoff created by a SAML or
+        OIDC callback and regenerates the session in the public frontend's
+        browser cookie partition. Unknown browser Origins are rejected.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                code:
+                  type: string
+                  minLength: 43
+                  maxLength: 43
+                  pattern: '^[A-Za-z0-9_-]{43}$'
+              required: [code]
+      responses:
+        '200':
+          description: Authenticated session established
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  next:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/AuthUser'
+                required: [ok, next, user]
+        '400':
+          description: Code is invalid, expired, or already consumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Browser Origin is not trusted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Shared abuse limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/organization/auth-settings:
     get:
@@ -720,11 +781,22 @@ paths:
     get:
       tags: [Org Admin]
       summary: Preview invite token
+      description: >
+        Send the token as `Authorization: Invite <token>`. The legacy query
+        parameter remains temporarily supported for previously deployed clients.
       security: []
       parameters:
+        - name: Authorization
+          in: header
+          required: false
+          description: Preferred invite credential, formatted as `Invite <token>`.
+          schema:
+            type: string
         - name: token
           in: query
-          required: true
+          required: false
+          deprecated: true
+          description: Legacy transport only; use the Authorization header to keep the credential out of request URLs.
           schema:
             type: string
       responses:

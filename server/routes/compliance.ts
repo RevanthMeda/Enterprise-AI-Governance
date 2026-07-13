@@ -1,14 +1,36 @@
 import type { Express } from "express";
-import path from "path";
 import fs from "fs";
 import { requireAuth } from "../auth";
 import { requireOrgRole, requireTenant } from "../tenant";
 import { storage } from "../storage";
 import { insertSystemControlSchema } from "@shared/schema";
 import { controlService } from "../services/controlService";
-import { evidenceService } from "../services/evidenceService";
+import { evidenceService, EvidenceRequestError } from "../services/evidenceService";
 import { auditService } from "../services/auditService";
 import { upload, uploadDir, sanitizeFilename, routeParam } from "./_helpers";
+import { resolveEvidenceStoragePath } from "../evidence-path";
+import {
+  enforceSharedRateLimits,
+  getRateLimitClientAddress,
+} from "../public-rate-limit";
+import { resourceRateLimitPolicies } from "../resource-abuse";
+import { toPublicHttpError } from "../http-error-response";
+
+async function removeUploadedEvidenceFile(
+  organizationId: string,
+  file: Express.Multer.File,
+): Promise<void> {
+  const filePath = resolveEvidenceStoragePath(
+    uploadDir,
+    organizationId,
+    `${organizationId}/${file.filename}`,
+  );
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (error: any) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+}
 
 export function registerComplianceRoutes(app: Express): void {
   app.get("/api/compliance-controls", requireAuth, async (_req, res) => {
@@ -150,7 +172,8 @@ export function registerComplianceRoutes(app: Express): void {
         });
         res.json(files);
       } catch (err: any) {
-        res.status(500).json({ message: err.message });
+        console.error("Failed to load evidence:", err);
+        res.status(500).json({ message: "Failed to load evidence" });
       }
     },
   );
@@ -160,15 +183,27 @@ export function registerComplianceRoutes(app: Express): void {
     requireAuth,
     requireTenant,
     requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "system_owner"),
+    async (req, res, next) => {
+      const organizationId = req.tenant!.organizationId;
+      const clientAddress = getRateLimitClientAddress(req);
+      const allowed = await enforceSharedRateLimits(req, res, [
+        { policy: resourceRateLimitPolicies.evidenceUploadOrg, identity: [organizationId] },
+        { policy: resourceRateLimitPolicies.evidenceUploadUser, identity: [organizationId, req.user!.id] },
+        { policy: resourceRateLimitPolicies.evidenceUploadIp, identity: [clientAddress] },
+      ]);
+      if (allowed) next();
+    },
     upload.single("file"),
     async (req, res) => {
+      const organizationId = req.tenant!.organizationId;
+      let createdEvidenceId: string | null = null;
       try {
         if (!req.file) {
           return res.status(400).json({ message: "No file uploaded" });
         }
         const { systemId, controlId, workflowId } = req.body;
         if (!systemId) {
-          return res.status(400).json({ message: "systemId is required" });
+          throw new EvidenceRequestError("systemId is required", 400);
         }
         const metadata: Record<string, unknown> = {};
         if (typeof req.body.category === "string" && req.body.category.trim()) {
@@ -185,7 +220,7 @@ export function registerComplianceRoutes(app: Express): void {
           metadata.expiryDate = req.body.expiryDate.trim();
         }
         const evidence = await evidenceService.createEvidence({
-          organizationId: req.tenant!.organizationId,
+          organizationId,
           actor: req.user!,
           input: {
             systemId,
@@ -198,8 +233,9 @@ export function registerComplianceRoutes(app: Express): void {
             metadata,
           },
         });
+        createdEvidenceId = evidence.id;
         await auditService.createLog({
-          organizationId: req.tenant!.organizationId,
+          organizationId,
           actor: req.user!,
           input: {
             entityType: "evidence_file",
@@ -210,8 +246,56 @@ export function registerComplianceRoutes(app: Express): void {
           },
         });
         res.status(201).json(evidence);
-      } catch (err: any) {
-        res.status(400).json({ message: err.message });
+      } catch (error) {
+        if (createdEvidenceId) {
+          try {
+            await evidenceService.deleteEvidence({
+              organizationId,
+              actor: req.user!,
+              evidenceId: createdEvidenceId,
+            });
+          } catch (rollbackError) {
+            console.error("Failed to roll back evidence metadata after upload failure", {
+              requestId: req.requestId ?? null,
+              organizationId,
+              evidenceId: createdEvidenceId,
+              error: rollbackError instanceof Error ? rollbackError.message : "Unknown rollback error",
+            });
+          }
+        }
+
+        if (req.file) {
+          try {
+            await removeUploadedEvidenceFile(organizationId, req.file);
+          } catch (cleanupError) {
+            console.error("Failed to remove rejected evidence upload", {
+              requestId: req.requestId ?? null,
+              organizationId,
+              fileName: req.file.filename,
+              error: cleanupError instanceof Error ? cleanupError.message : "Unknown cleanup error",
+            });
+            res.setHeader("X-Error-Code", "EVIDENCE_CLEANUP_FAILED");
+            return res.status(500).json({
+              message: "Evidence upload cleanup failed",
+              code: "EVIDENCE_CLEANUP_FAILED",
+            });
+          }
+        }
+
+        const publicError = toPublicHttpError(error, {
+          fallbackStatus: 500,
+          internalMessage: "Failed to upload evidence",
+        });
+        console.error("Evidence upload rejected", {
+          requestId: req.requestId ?? null,
+          organizationId,
+          error: error instanceof Error ? error.message : "Unknown evidence error",
+        });
+        res.setHeader("X-Error-Code", publicError.code);
+        return res.status(publicError.status).json({
+          message: publicError.message,
+          code: publicError.code,
+        });
       }
     },
   );
@@ -229,23 +313,29 @@ export function registerComplianceRoutes(app: Express): void {
           evidenceId: routeParam(req.params.id),
         });
         if (!file) return res.status(404).json({ message: "File not found" });
-        const filePath = path.join(uploadDir, file.filePath);
+        const filePath = resolveEvidenceStoragePath(
+          uploadDir,
+          req.tenant!.organizationId,
+          file.filePath,
+        );
         if (!fs.existsSync(filePath)) {
           return res.status(404).json({ message: "File not found on disk" });
         }
         res.setHeader("Content-Disposition", `attachment; filename="${sanitizeFilename(file.fileName)}"`);
         res.setHeader("Content-Type", file.mimeType);
-        const stream = fs.createReadStream(path.resolve(filePath));
+        const stream = fs.createReadStream(filePath);
         stream.on("error", (err) => {
           if (!res.headersSent) {
-            res.status(500).json({ message: err.message || "Failed to stream evidence file" });
+            console.error("Failed to stream evidence file:", err);
+            res.status(500).json({ message: "Failed to stream evidence file" });
           } else {
             res.end();
           }
         });
         stream.pipe(res);
       } catch (err: any) {
-        res.status(500).json({ message: err.message });
+        console.error("Failed to download evidence file:", err);
+        res.status(500).json({ message: "Failed to download evidence file" });
       }
     },
   );
@@ -262,7 +352,11 @@ export function registerComplianceRoutes(app: Express): void {
         evidenceId: routeParam(req.params.id),
       });
       if (!file) return res.status(404).json({ message: "File not found" });
-      const filePath = path.join(uploadDir, file.filePath);
+      const filePath = resolveEvidenceStoragePath(
+        uploadDir,
+        req.tenant!.organizationId,
+        file.filePath,
+      );
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }

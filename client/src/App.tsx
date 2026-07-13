@@ -48,6 +48,7 @@ const AccountSecurityPage = lazy(() => import("@/pages/account-security"));
 const ComplianceCalendar = lazy(() => import("@/pages/compliance-calendar"));
 const AuthPage = lazy(() => import("@/pages/auth-page"));
 const ResetPasswordPage = lazy(() => import("@/pages/reset-password"));
+const SsoCompletePage = lazy(() => import("@/pages/sso-complete"));
 const InviteAcceptPage = lazy(() => import("@/pages/invite-accept-page"));
 const LandingPage = lazy(() => import("@/pages/landing-page"));
 const BookDemoPage = lazy(() => import("@/pages/lead-capture"));
@@ -67,6 +68,7 @@ const PUBLIC_PATHS = new Set([
   "/auth",
   "/auth/login",
   "/auth/reset-password",
+  "/auth/sso/complete",
   "/login",
   "/reset-password",
   "/auth/invite",
@@ -160,6 +162,7 @@ function AuthenticatedRouter({
           <Route path="/auth" component={Dashboard} />
           <Route path="/auth/login" component={Dashboard} />
           <Route path="/auth/reset-password" component={ResetPasswordPage} />
+          <Route path="/auth/sso/complete" component={SsoCompletePage} />
           <Route path="/login" component={Dashboard} />
           <Route path="/reset-password" component={ResetPasswordPage} />
           {/* Invite routes: render accept page so authenticated users can join a new org */}
@@ -279,6 +282,7 @@ function PublicRouter() {
           <Route path="/auth" component={AuthPage} />
           <Route path="/auth/login" component={AuthPage} />
           <Route path="/auth/reset-password" component={ResetPasswordPage} />
+          <Route path="/auth/sso/complete" component={SsoCompletePage} />
           <Route path="/login" component={LoginAliasRedirect} />
           <Route path="/reset-password" component={ResetPasswordPage} />
           <Route path="/risk-assessment" component={RiskAliasRedirect} />
@@ -431,7 +435,7 @@ function AuthenticatedApp() {
 
     const isPublicDocument = !user ? isPublic : STANDALONE_PUBLIC_PATHS.has(location);
     const isCompanyPage = location === "/acturus" || location === "/arcturos";
-    const lightPublicPage = ["/book-demo", "/start-pilot", "/thank-you", "/book-demo/thank-you", "/start-pilot/thank-you", "/trust-center", "/security", "/privacy", "/terms", "/api-docs", "/auth", "/auth/login", "/login", "/auth/reset-password", "/reset-password", "/auth/invite", "/invite/accept"].includes(location);
+    const lightPublicPage = ["/book-demo", "/start-pilot", "/thank-you", "/book-demo/thank-you", "/start-pilot/thank-you", "/trust-center", "/security", "/privacy", "/terms", "/api-docs", "/auth", "/auth/login", "/login", "/auth/reset-password", "/auth/sso/complete", "/reset-password", "/auth/invite", "/invite/accept"].includes(location);
     const metadata = publicMetadata[location];
 
     if (isPublicDocument && metadata) {

@@ -306,6 +306,12 @@ async function main() {
   const backend = backendBase ? normalizeBaseUrl(backendBase) : frontend;
   const adminUsername = process.env.SMOKE_ADMIN_USERNAME;
   const adminPassword = process.env.SMOKE_ADMIN_PASSWORD;
+  const expectedReleaseCommit = process.env.SMOKE_EXPECTED_RELEASE_COMMIT
+    ?.trim()
+    .toLowerCase();
+  if (expectedReleaseCommit && !/^[0-9a-f]{7,64}$/.test(expectedReleaseCommit)) {
+    throw new Error("SMOKE_EXPECTED_RELEASE_COMMIT must be a hexadecimal Git commit");
+  }
   const configuredTopology = process.env.SMOKE_FRONTEND_TOPOLOGY?.trim() || "same-origin";
   if (configuredTopology !== "same-origin" && configuredTopology !== "cross-site") {
     throw new Error("SMOKE_FRONTEND_TOPOLOGY must be same-origin or cross-site");
@@ -334,9 +340,20 @@ async function main() {
         if (!response.ok) {
           throw new Error(`expected 200, received ${response.status}`);
         }
-        const payload = JSON.parse(text) as { ready?: boolean };
+        const payload = JSON.parse(text) as {
+          ready?: boolean;
+          release?: { commit?: string | null };
+        };
         if (!payload.ready) {
           throw new Error("readiness payload missing ready=true");
+        }
+        if (
+          expectedReleaseCommit &&
+          payload.release?.commit?.toLowerCase() !== expectedReleaseCommit
+        ) {
+          throw new Error(
+            `backend is ready but is not running expected release ${expectedReleaseCommit}`,
+          );
         }
       }),
     );

@@ -119,6 +119,12 @@ export class DashboardService {
         ? Math.round((containmentHours.reduce((sum, value) => sum + value, 0) / containmentHours.length) * 10) /
           10
         : null;
+    const activeIncidents = incidents.filter(
+      (incident) => incident.status === "open" || incident.status === "contained",
+    );
+    const activeHighSeverityIncidents = activeIncidents.filter(
+      (incident) => incident.severity === "critical" || incident.severity === "high",
+    );
 
     const driftDetectionSamples = telemetryEvents
       .map((event) => {
@@ -215,7 +221,7 @@ export class DashboardService {
               : incidentContainmentHours <= 8
                 ? "yellow"
                 : "red",
-        detail: `${incidentSummary.open} open incidents, ${incidentSummary.breached} containment SLA breaches.`,
+        detail: `${activeIncidents.length} active incidents, ${incidentSummary.breached} containment SLA breaches.`,
       },
       {
         key: "outcome_tracking_rate",
@@ -234,8 +240,8 @@ export class DashboardService {
         workflows: totalDecisions,
         traces: decisions.length,
         tracedWorkflows: tracedWorkflowIds.size,
-        openIncidents: incidentSummary.open,
-        highSeverityIncidents: incidentSummary.highSeverity,
+        openIncidents: activeIncidents.length,
+        highSeverityIncidents: activeHighSeverityIncidents.length,
         telemetryAlerts: telemetrySummary.critical + telemetrySummary.warnings,
         tierBreakdown: {
           tier1: workflows.filter((workflow) => workflow.decisionTier === "tier_1").length,

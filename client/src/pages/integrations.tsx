@@ -41,11 +41,23 @@ type JiraIntegration = {
   baseUrl: string | null;
   projectKey: string | null;
   userEmail: string | null;
-  apiToken: string | null;
+  hasCredential: boolean;
   issueType: string;
   labels: string[];
   lastTestedAt: string | null;
   lastSyncAt: string | null;
+};
+
+type IntegrationConnectorDraft = IntegrationConnectorConfig & {
+  hasCredential: boolean;
+  clearAuthToken?: boolean;
+};
+
+type ThreatIntelConfigDraft = ThreatIntelConfig & {
+  externalFeed: ThreatIntelConfig["externalFeed"] & {
+    hasCredential: boolean;
+    clearAuthToken?: boolean;
+  };
 };
 
 export default function IntegrationsPage() {
@@ -56,7 +68,7 @@ export default function IntegrationsPage() {
   const governanceEventsQuery = useQuery<GovernanceEventFeedResponse>({
     queryKey: ["/api/governance-events"],
   });
-  const connectorsQuery = useQuery<IntegrationConnectorConfig[]>({
+  const connectorsQuery = useQuery<IntegrationConnectorDraft[]>({
     queryKey: ["/api/integrations/connectors"],
   });
   const automationSummaryQuery = useQuery<GovernanceAutomationSummaryResponse>({
@@ -65,7 +77,7 @@ export default function IntegrationsPage() {
   const threatIntelSummaryQuery = useQuery<ThreatIntelSummaryResponse>({
     queryKey: ["/api/threat-intelligence/summary"],
   });
-  const threatIntelConfigQuery = useQuery<ThreatIntelConfig>({
+  const threatIntelConfigQuery = useQuery<ThreatIntelConfigDraft>({
     queryKey: ["/api/threat-intelligence/config"],
   });
   const automationConfigQuery = useQuery<GovernanceAutomationConfig>({
@@ -77,6 +89,7 @@ export default function IntegrationsPage() {
     projectKey: "",
     userEmail: "",
     apiToken: "",
+    clearApiToken: false,
     issueType: "Task",
     labels: "ai-control-grid,high-risk",
   });
@@ -86,8 +99,8 @@ export default function IntegrationsPage() {
   const [automationResult, setAutomationResult] = useState<string | null>(null);
   const [threatIntelResult, setThreatIntelResult] = useState<string | null>(null);
   const [automationConfigDraft, setAutomationConfigDraft] = useState<GovernanceAutomationConfig | null>(null);
-  const [threatIntelDraft, setThreatIntelDraft] = useState<ThreatIntelConfig | null>(null);
-  const [connectorDraft, setConnectorDraft] = useState<IntegrationConnectorConfig[]>([]);
+  const [threatIntelDraft, setThreatIntelDraft] = useState<ThreatIntelConfigDraft | null>(null);
+  const [connectorDraft, setConnectorDraft] = useState<IntegrationConnectorDraft[]>([]);
 
   useEffect(() => {
     if (!integrationQuery.data) return;
@@ -96,7 +109,8 @@ export default function IntegrationsPage() {
       baseUrl: integrationQuery.data.baseUrl ?? "",
       projectKey: integrationQuery.data.projectKey ?? "",
       userEmail: integrationQuery.data.userEmail ?? "",
-      apiToken: integrationQuery.data.apiToken ?? "",
+      apiToken: "",
+      clearApiToken: false,
       issueType: integrationQuery.data.issueType ?? "Task",
       labels: Array.isArray(integrationQuery.data.labels) ? integrationQuery.data.labels.join(",") : "",
     });
@@ -109,12 +123,19 @@ export default function IntegrationsPage() {
 
   useEffect(() => {
     if (!connectorsQuery.data) return;
-    setConnectorDraft(connectorsQuery.data);
+    setConnectorDraft(connectorsQuery.data.map((connector) => ({ ...connector, authToken: null, clearAuthToken: false })));
   }, [connectorsQuery.data]);
 
   useEffect(() => {
     if (!threatIntelConfigQuery.data) return;
-    setThreatIntelDraft(threatIntelConfigQuery.data);
+    setThreatIntelDraft({
+      ...threatIntelConfigQuery.data,
+      externalFeed: {
+        ...threatIntelConfigQuery.data.externalFeed,
+        authToken: null,
+        clearAuthToken: false,
+      },
+    });
   }, [threatIntelConfigQuery.data]);
 
   const saveMutation = useMutation({
@@ -124,7 +145,8 @@ export default function IntegrationsPage() {
         baseUrl: form.baseUrl || null,
         projectKey: form.projectKey || null,
         userEmail: form.userEmail || null,
-        apiToken: form.apiToken || null,
+        apiToken: form.apiToken.trim() || undefined,
+        clearApiToken: form.clearApiToken,
         issueType: form.issueType || "Task",
         labels: form.labels.split(",").map((value) => value.trim()).filter(Boolean),
       });
@@ -185,10 +207,10 @@ export default function IntegrationsPage() {
   const connectorMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("PUT", "/api/integrations/connectors", connectorDraft);
-      return (await res.json()) as IntegrationConnectorConfig[];
+      return (await res.json()) as IntegrationConnectorDraft[];
     },
     onSuccess: async (updated) => {
-      setConnectorDraft(updated);
+      setConnectorDraft(updated.map((connector) => ({ ...connector, authToken: null, clearAuthToken: false })));
       setConnectorTestResult("Integration connectors saved.");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["/api/integrations/connectors"] }),
@@ -238,10 +260,13 @@ export default function IntegrationsPage() {
   const threatIntelConfigMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("PUT", "/api/threat-intelligence/config", threatIntelDraft ?? {});
-      return (await res.json()) as ThreatIntelConfig;
+      return (await res.json()) as ThreatIntelConfigDraft;
     },
     onSuccess: async (updated) => {
-      setThreatIntelDraft(updated);
+      setThreatIntelDraft({
+        ...updated,
+        externalFeed: { ...updated.externalFeed, authToken: null, clearAuthToken: false },
+      });
       setThreatIntelResult("Threat intelligence settings saved.");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["/api/threat-intelligence/config"] }),
@@ -255,7 +280,12 @@ export default function IntegrationsPage() {
 
   const automationState = useMemo(() => {
     if (!form.enabled) return integrationBadges.disabled ?? "Disabled";
-    if (!form.baseUrl || !form.projectKey || !form.userEmail || !form.apiToken) {
+    if (
+      !form.baseUrl ||
+      !form.projectKey ||
+      !form.userEmail ||
+      (!form.apiToken && (!integrationQuery.data?.hasCredential || form.clearApiToken))
+    ) {
       return integrationBadges.configurationIncomplete ?? "Configuration incomplete";
     }
     return integrationBadges.jiraReady ?? "High-risk approvals will open Jira tickets";
@@ -380,11 +410,34 @@ export default function IntegrationsPage() {
                             onChange={(event) =>
                               setConnectorDraft((current) =>
                                 current.map((entry) =>
-                                  entry.id === connector.id ? { ...entry, authToken: event.target.value || null } : entry,
+                                  entry.id === connector.id
+                                    ? { ...entry, authToken: event.target.value || null, clearAuthToken: false }
+                                    : entry,
                                 ),
                               )
                             }
                           />
+                          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                            <span>{connector.hasCredential ? "Credential stored; blank preserves it." : "No credential stored."}</span>
+                            {connector.hasCredential ? (
+                              <label className="flex items-center gap-1.5">
+                                <input
+                                  type="checkbox"
+                                  checked={connector.clearAuthToken === true}
+                                  onChange={(event) =>
+                                    setConnectorDraft((current) =>
+                                      current.map((entry) =>
+                                        entry.id === connector.id
+                                          ? { ...entry, clearAuthToken: event.target.checked, authToken: null }
+                                          : entry,
+                                      ),
+                                    )
+                                  }
+                                />
+                                Clear stored token
+                              </label>
+                            ) : null}
+                          </div>
                         </Field>
                         <Field label="Event filters">
                           <input
@@ -462,13 +515,15 @@ export default function IntegrationsPage() {
                   variant="outline"
                   onClick={() =>
                     setConnectorDraft((current) => {
-                      const nextConnector: IntegrationConnectorConfig = {
+                      const nextConnector: IntegrationConnectorDraft = {
                         id: `connector-${Date.now().toString(36).slice(-6)}`,
                         label: "New connector",
                         type: "slack",
                         enabled: true,
                         webhookUrl: null,
                         authToken: null,
+                        hasCredential: false,
+                        clearAuthToken: false,
                         eventFilters: [],
                         severityFloor: "warning",
                       };
@@ -611,12 +666,46 @@ export default function IntegrationsPage() {
                             current
                               ? {
                                   ...current,
-                                  externalFeed: { ...current.externalFeed, authToken: event.target.value || null },
+                                  externalFeed: {
+                                    ...current.externalFeed,
+                                    authToken: event.target.value || null,
+                                    clearAuthToken: false,
+                                  },
                                 }
                               : current,
                           )
                         }
                       />
+                      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                        <span>
+                          {threatIntelDraft.externalFeed.hasCredential
+                            ? "Credential stored; blank preserves it."
+                            : "No credential stored."}
+                        </span>
+                        {threatIntelDraft.externalFeed.hasCredential ? (
+                          <label className="flex items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={threatIntelDraft.externalFeed.clearAuthToken === true}
+                              onChange={(event) =>
+                                setThreatIntelDraft((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        externalFeed: {
+                                          ...current.externalFeed,
+                                          clearAuthToken: event.target.checked,
+                                          authToken: null,
+                                        },
+                                      }
+                                    : current,
+                                )
+                              }
+                            />
+                            Clear stored token
+                          </label>
+                        ) : null}
+                      </div>
                     </Field>
                     <label className="flex items-center gap-2 rounded-md border border-dashed p-3 text-sm">
                       <input
@@ -887,7 +976,34 @@ export default function IntegrationsPage() {
                 <input className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.userEmail} onChange={(event) => setForm((current) => ({ ...current, userEmail: event.target.value }))} />
               </Field>
               <Field label="API token">
-                <input type="password" className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.apiToken} onChange={(event) => setForm((current) => ({ ...current, apiToken: event.target.value }))} />
+                <input
+                  type="password"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  value={form.apiToken}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, apiToken: event.target.value, clearApiToken: false }))
+                  }
+                  placeholder={integrationQuery.data?.hasCredential ? "Leave blank to keep stored token" : "Enter API token"}
+                />
+                <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                  <span>{integrationQuery.data?.hasCredential ? "Credential stored." : "No credential stored."}</span>
+                  {integrationQuery.data?.hasCredential ? (
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={form.clearApiToken}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            clearApiToken: event.target.checked,
+                            apiToken: "",
+                          }))
+                        }
+                      />
+                      Clear stored token
+                    </label>
+                  ) : null}
+                </div>
               </Field>
               <Field label="Issue type">
                 <input className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.issueType} onChange={(event) => setForm((current) => ({ ...current, issueType: event.target.value }))} />

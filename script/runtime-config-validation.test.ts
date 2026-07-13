@@ -8,6 +8,7 @@ import {
   areMockAuthRoutesEnabled,
   getSmtpEnvironmentConfig,
   getRuntimeConfig,
+  isSelfSignupEnabled,
   validateRuntimeEnvironment,
 } from "../server/env";
 import { loadProjectEnv } from "../server/load-env";
@@ -46,6 +47,37 @@ test("cross-site session cookies enable partitioning by default", () => {
   assert.equal(config.sessionCookieName, "__Host-aict.sid.v2");
   assert.equal(config.sessionCookiePartitioned, true);
   assert.equal(config.sessionCookieSecure, true);
+});
+
+test("production rejects a same-site cookie profile for a split frontend and API", () => {
+  assert.throws(
+    () =>
+      validateRuntimeEnvironment(
+        makeProductionEnv({
+          PUBLIC_APP_URL: "https://app.example.net",
+          API_PUBLIC_URL: "https://api.example.net",
+          CORS_ALLOWED_ORIGINS: "https://app.example.net",
+          SESSION_COOKIE_SAME_SITE: "strict",
+          SESSION_COOKIE_PARTITIONED: "false",
+          SESSION_COOKIE_NAME: "connect.sid",
+        }),
+      ),
+    /Cross-origin frontend\/API deployments require SESSION_COOKIE_SAME_SITE=none/,
+  );
+
+  assert.doesNotThrow(() =>
+    validateRuntimeEnvironment(
+      makeProductionEnv({
+        PUBLIC_APP_URL: "https://app.example.net",
+        API_PUBLIC_URL: "https://api.example.net",
+        CORS_ALLOWED_ORIGINS: "https://app.example.net",
+        SESSION_COOKIE_SAME_SITE: "none",
+        SESSION_COOKIE_SECURE: "true",
+        SESSION_COOKIE_PARTITIONED: "true",
+        SESSION_COOKIE_NAME: "__Host-aict.sid.v2",
+      }),
+    ),
+  );
 });
 
 test("session middleware serializes the secure partitioned cookie attributes", () => {
@@ -140,6 +172,49 @@ test("runtime validation rejects placeholder production secrets", () => {
   );
 });
 
+test("runtime validation accepts a dedicated rate-limit HMAC secret and rejects unsafe values", () => {
+  assert.doesNotThrow(() =>
+    validateRuntimeEnvironment(
+      makeProductionEnv({
+        RATE_LIMIT_HMAC_SECRET: "l".repeat(48),
+      }),
+    ),
+  );
+  assert.throws(
+    () =>
+      validateRuntimeEnvironment(
+        makeProductionEnv({
+          RATE_LIMIT_HMAC_SECRET: "<set-a-rate-limit-secret>",
+        }),
+      ),
+    /RATE_LIMIT_HMAC_SECRET/,
+  );
+  assert.throws(
+    () =>
+      validateRuntimeEnvironment(
+        makeProductionEnv({
+          RATE_LIMIT_HMAC_SECRET: "v".repeat(48),
+        }),
+      ),
+    /RATE_LIMIT_HMAC_SECRET must be different from CONTROL_TOWER_VAULT_SECRET/,
+  );
+});
+
+test("production break-glass access is optional but must use a strong independent secret", () => {
+  assert.doesNotThrow(() => validateRuntimeEnvironment(makeProductionEnv()));
+  assert.throws(
+    () => validateRuntimeEnvironment(makeProductionEnv({ BREAK_GLASS_TOKEN: "weak" })),
+    /BREAK_GLASS_TOKEN must be at least 32 characters long/,
+  );
+  assert.throws(
+    () =>
+      validateRuntimeEnvironment(
+        makeProductionEnv({ BREAK_GLASS_TOKEN: "s".repeat(48) }),
+      ),
+    /BREAK_GLASS_TOKEN must be different from the related application secret/,
+  );
+});
+
 test("runtime validation rejects missing public app origin in production", () => {
   assert.throws(
     () =>
@@ -166,15 +241,26 @@ test("development runtime allows relaxed defaults", () => {
   assert.equal(config.sessionCookieSecure, false);
 });
 
-test("mock auth routes are disabled in production unless explicitly enabled", () => {
+test("development-only flags are ignored safely in production", () => {
   assert.equal(areMockAuthRoutesEnabled(makeProductionEnv()), false);
   assert.equal(
     areMockAuthRoutesEnabled(makeProductionEnv({ ENABLE_TEST_AUTH_ROUTES: "true" })),
-    true,
+    false,
   );
   assert.equal(
     areMockAuthRoutesEnabled(makeProductionEnv({ ENABLE_TEST_AUTH_ROUTES: "1" })),
-    true,
+    false,
+  );
+  assert.doesNotThrow(() =>
+    validateRuntimeEnvironment(
+      makeProductionEnv({
+        AUTO_SEED_ON_STARTUP: "true",
+        SEED_TEST_USERS: "true",
+        RESET_TEST_USER_PASSWORDS: "true",
+        ENABLE_TEST_AUTH_ROUTES: "true",
+        EXPOSE_INVITE_TOKENS: "true",
+      }),
+    ),
   );
   assert.equal(
     areMockAuthRoutesEnabled({
@@ -182,6 +268,15 @@ test("mock auth routes are disabled in production unless explicitly enabled", ()
     }),
     true,
   );
+  assert.equal(isSelfSignupEnabled(makeProductionEnv({ ALLOW_SELF_SIGNUP: "true" })), false);
+  assert.equal(isSelfSignupEnabled({ NODE_ENV: "development", ALLOW_SELF_SIGNUP: "true" }), true);
+  assert.equal(isSelfSignupEnabled({ NODE_ENV: "development", ALLOW_SELF_SIGNUP: "false" }), false);
+});
+
+test("the application source hard-disables database seeding in production", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const seedSource = await readFile(new URL("../server/seed.ts", import.meta.url), "utf8");
+  assert.match(seedSource, /if \(isProductionEnvironment\(\)\) \{\s*throw new Error\("Database seeding is disabled in production"\)/);
 });
 
 test("runtime validation recognizes boolean-like Vercel flags", () => {

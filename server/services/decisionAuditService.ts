@@ -14,6 +14,8 @@ import {
 import {
   decisionAudits,
   decisionAuditVersions,
+  aiSystems,
+  approvalWorkflows,
   type AiSystem,
   type ApprovalWorkflow,
   type DecisionAudit,
@@ -487,14 +489,21 @@ export class DecisionAuditService {
     decisionAuditId: string,
     input: DecisionAuditUpdateInput,
   ): Promise<DecisionAudit | undefined> {
-    const { actorName, versionReason, ...changes } = input;
-    const [current] = await db
-      .select()
-      .from(decisionAudits)
-      .where(and(eq(decisionAudits.organizationId, organizationId), eq(decisionAudits.id, decisionAuditId)));
-    if (!current) {
-      return undefined;
-    }
+    return db.transaction(async (tx) => {
+      // Serialize edits for this tenant-scoped trace and keep the history
+      // snapshot plus the new current record in the same transaction.
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`decision-audit:${organizationId}:${decisionAuditId}`}, 0))`,
+      );
+
+      const { actorName, versionReason, ...changes } = input;
+      const [current] = await tx
+        .select()
+        .from(decisionAudits)
+        .where(and(eq(decisionAudits.organizationId, organizationId), eq(decisionAudits.id, decisionAuditId)));
+      if (!current) {
+        return undefined;
+      }
 
     if (current.archivedAt) {
       const error = new Error("Archived decision traces are immutable");
@@ -502,13 +511,41 @@ export class DecisionAuditService {
       throw error;
     }
 
-    const { system } = await this.ensureLinkedEntitiesExist(organizationId, {
-      systemId: changes.systemId ?? current.systemId,
-      workflowId:
-        changes.workflowId !== undefined
-          ? (changes.workflowId ?? null)
-          : (current.workflowId ?? null),
-    });
+    const targetSystemId = changes.systemId ?? current.systemId;
+    const targetWorkflowId =
+      changes.workflowId !== undefined
+        ? (changes.workflowId ?? null)
+        : (current.workflowId ?? null);
+    const [system] = await tx
+      .select()
+      .from(aiSystems)
+      .where(and(eq(aiSystems.organizationId, organizationId), eq(aiSystems.id, targetSystemId)));
+    if (!system) {
+      const error = new Error("Linked system not found in active organization") as Error & { status?: number };
+      error.status = 404;
+      throw error;
+    }
+    if (targetWorkflowId) {
+      const [workflow] = await tx
+        .select()
+        .from(approvalWorkflows)
+        .where(
+          and(
+            eq(approvalWorkflows.organizationId, organizationId),
+            eq(approvalWorkflows.id, targetWorkflowId),
+          ),
+        );
+      if (!workflow) {
+        const error = new Error("Linked workflow not found in active organization") as Error & { status?: number };
+        error.status = 404;
+        throw error;
+      }
+      if (workflow.systemId !== targetSystemId) {
+        const error = new Error("Linked workflow does not belong to the selected system") as Error & { status?: number };
+        error.status = 409;
+        throw error;
+      }
+    }
 
     const merged = {
       ...current,
@@ -569,7 +606,7 @@ export class DecisionAuditService {
     const shouldVersion = current.documentationStatus === "sealed" && hasMaterialChanges(current, comparableMerged);
 
     if (shouldVersion) {
-      await db.insert(decisionAuditVersions).values({
+      await tx.insert(decisionAuditVersions).values({
         organizationId,
         decisionAuditId: current.id,
         versionNumber: current.currentVersionNumber,
@@ -608,7 +645,7 @@ export class DecisionAuditService {
       reviewedBy: merged.reviewedBy ?? null,
     });
 
-    const [updated] = await db
+    const [updated] = await tx
       .update(decisionAudits)
       .set({
         title: merged.title,
@@ -648,7 +685,8 @@ export class DecisionAuditService {
       .where(and(eq(decisionAudits.organizationId, organizationId), eq(decisionAudits.id, decisionAuditId)))
       .returning();
 
-    return updated;
+      return updated;
+    });
   }
 
   async syncWorkflowTrace(params: {

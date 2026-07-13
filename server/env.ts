@@ -12,6 +12,7 @@ export type RuntimeConfig = {
   sessionCookiePartitioned: boolean;
   sessionCookieSecure: boolean;
   publicAppUrl: string | null;
+  apiPublicUrl: string | null;
 };
 
 export type SmtpEnvironmentConfig = {
@@ -82,8 +83,14 @@ export function parseSameSitePolicy(
 }
 
 export function areMockAuthRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const isProduction = isProductionEnvironment(env);
-  return !isProduction;
+  return !isProductionEnvironment(env);
+}
+
+export function isSelfSignupEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (
+    !isProductionEnvironment(env) &&
+    parseBooleanEnv(env.ALLOW_SELF_SIGNUP, false)
+  );
 }
 
 function normalizeOrigin(input: string): string | null {
@@ -210,6 +217,9 @@ function validateOptionalWebhook(name: string, rawValue: string | undefined, err
     if (url.protocol !== "https:") {
       errors.push(`${name} must use https in production`);
     }
+    if (url.username || url.password) {
+      errors.push(`${name} must not include URL credentials`);
+    }
   } catch {
     errors.push(`${name} must be a valid URL`);
   }
@@ -285,6 +295,9 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
   );
   const sessionCookieName = normalizeOptionalString(env.SESSION_COOKIE_NAME) ??
     (sessionCookiePartitioned ? "__Host-aict.sid.v2" : "connect.sid");
+  const renderExternalHostname = normalizeOptionalString(env.RENDER_EXTERNAL_HOSTNAME);
+  const apiPublicUrl = normalizeOptionalString(env.API_PUBLIC_URL) ??
+    (renderExternalHostname ? `https://${renderExternalHostname}` : null);
 
   return {
     isProduction,
@@ -298,6 +311,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     publicAppUrl: normalizeOptionalString(
       env.PUBLIC_APP_URL || env.APP_BASE_URL || env.FRONTEND_URL,
     ) ?? null,
+    apiPublicUrl,
   };
 }
 
@@ -335,6 +349,22 @@ export function validateRuntimeEnvironment(env: NodeJS.ProcessEnv = process.env)
     validateSecret("CONTROL_TOWER_VAULT_SECRET", env.CONTROL_TOWER_VAULT_SECRET, errors, {
       disallowEqualTo: normalizeOptionalString(env.SESSION_SECRET),
     });
+    if (normalizeOptionalString(env.BREAK_GLASS_TOKEN)) {
+      validateSecret("BREAK_GLASS_TOKEN", env.BREAK_GLASS_TOKEN, errors, {
+        disallowEqualTo: normalizeOptionalString(env.SESSION_SECRET),
+      });
+    }
+    if (normalizeOptionalString(env.RATE_LIMIT_HMAC_SECRET)) {
+      validateSecret("RATE_LIMIT_HMAC_SECRET", env.RATE_LIMIT_HMAC_SECRET, errors, {
+        disallowEqualTo: normalizeOptionalString(env.SESSION_SECRET),
+      });
+      if (
+        normalizeOptionalString(env.RATE_LIMIT_HMAC_SECRET) ===
+        normalizeOptionalString(env.CONTROL_TOWER_VAULT_SECRET)
+      ) {
+        errors.push("RATE_LIMIT_HMAC_SECRET must be different from CONTROL_TOWER_VAULT_SECRET when set");
+      }
+    }
 
     const publicAppUrl = normalizeOptionalString(env.PUBLIC_APP_URL);
     if (!publicAppUrl) {
@@ -372,20 +402,29 @@ export function validateRuntimeEnvironment(env: NodeJS.ProcessEnv = process.env)
       errors.push("CSRF_ENFORCED must not be false in production");
     }
 
-    if (parseBooleanEnv(env.AUTO_SEED_ON_STARTUP, false)) {
-      errors.push("AUTO_SEED_ON_STARTUP must not be enabled in production");
+    const normalizedApiOrigin = config.apiPublicUrl ? normalizeOrigin(config.apiPublicUrl) : null;
+    if (config.apiPublicUrl && !normalizedApiOrigin) {
+      errors.push("API_PUBLIC_URL must be a valid origin URL without a path");
+    } else if (normalizedApiOrigin && !normalizedApiOrigin.startsWith("https://")) {
+      errors.push("API_PUBLIC_URL must use https in production");
     }
-    if (parseBooleanEnv(env.SEED_TEST_USERS, false)) {
-      errors.push("SEED_TEST_USERS must not be enabled in production");
-    }
-    if (parseBooleanEnv(env.RESET_TEST_USER_PASSWORDS, false)) {
-      errors.push("RESET_TEST_USER_PASSWORDS must not be enabled in production");
-    }
-    if (parseBooleanEnv(env.ENABLE_TEST_AUTH_ROUTES, false)) {
-      errors.push("ENABLE_TEST_AUTH_ROUTES must not be enabled in production");
-    }
-    if (parseBooleanEnv(env.EXPOSE_INVITE_TOKENS, false)) {
-      errors.push("EXPOSE_INVITE_TOKENS must not be enabled in production");
+
+    const isCrossOriginTopology = Boolean(
+      normalizedPublicOrigin && normalizedApiOrigin && normalizedPublicOrigin !== normalizedApiOrigin,
+    );
+    if (isCrossOriginTopology) {
+      if (config.sessionCookieSameSite !== "none") {
+        errors.push("Cross-origin frontend/API deployments require SESSION_COOKIE_SAME_SITE=none");
+      }
+      if (!config.sessionCookieSecure) {
+        errors.push("Cross-origin frontend/API deployments require SESSION_COOKIE_SECURE=true");
+      }
+      if (!config.sessionCookiePartitioned) {
+        errors.push("Cross-origin frontend/API deployments require SESSION_COOKIE_PARTITIONED=true");
+      }
+      if (!config.sessionCookieName.startsWith("__Host-")) {
+        errors.push("Cross-origin frontend/API deployments require a __Host- prefixed SESSION_COOKIE_NAME");
+      }
     }
 
     if (
@@ -402,6 +441,9 @@ export function validateRuntimeEnvironment(env: NodeJS.ProcessEnv = process.env)
     validateOptionalWebhook("PASSWORD_RESET_WEBHOOK_URL", env.PASSWORD_RESET_WEBHOOK_URL, errors);
     validateOptionalWebhook("INVITE_WEBHOOK_URL", env.INVITE_WEBHOOK_URL, errors);
     validateOptionalWebhook("GOVERNANCE_EVENT_WEBHOOK_URL", env.GOVERNANCE_EVENT_WEBHOOK_URL, errors);
+    validateOptionalWebhook("LEAD_WEBHOOK_URL", env.LEAD_WEBHOOK_URL, errors);
+    validateOptionalWebhook("MONITORING_WEBHOOK_URL", env.MONITORING_WEBHOOK_URL, errors);
+    validateOptionalWebhook("THREAT_INTEL_FEED_URL", env.THREAT_INTEL_FEED_URL, errors);
   }
 
   if (errors.length > 0) {

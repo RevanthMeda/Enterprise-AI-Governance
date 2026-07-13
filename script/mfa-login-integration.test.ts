@@ -4,12 +4,14 @@ import type { AddressInfo } from "node:net";
 import express from "express";
 import { createServer, type Server } from "http";
 import { inArray } from "drizzle-orm";
-import { setupAuth, generateTotpSecret, hashPassword } from "../server/auth";
+import { setupAuth, generateTotpSecret, hashPassword, verifyTotpCode } from "../server/auth";
 import { createCsrfMiddleware } from "../server/security";
 import { registerRoutes } from "../server/routes";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
 import { memberships, organizations, users } from "../shared/schema";
+
+process.env.CONTROL_TOWER_VAULT_SECRET ||= "mfa-integration-test-vault-secret-with-stable-entropy";
 
 type ApiResponse = {
   status: number;
@@ -139,9 +141,10 @@ test("mfa login flow: requires second factor and accepts recovery code", async (
     tracker.membershipIds.push(membership.id);
 
     const recoveryCode = `RCODE${suffix.replace(/[^a-zA-Z0-9]/g, "").slice(-8)}`.toUpperCase();
+    const totpSecret = generateTotpSecret();
     await storage.updateUserMfa(user.id, {
       mfaEnabled: true,
-      mfaSecret: generateTotpSecret(),
+      mfaSecret: totpSecret,
       mfaRecoveryCodes: [await hashPassword(recoveryCode)],
     });
 
@@ -156,11 +159,22 @@ test("mfa login flow: requires second factor and accepts recovery code", async (
     assert.equal(denied.status, 401);
     assert.equal((denied.body as { mfaRequired?: boolean }).mfaRequired, true);
 
-    const success = await apiRequest(baseUrl, "/api/auth/login", {
-      method: "POST",
-      body: { username: user.username, password: userPassword, recoveryCode },
-    });
-    assert.equal(success.status, 200);
+    const concurrentRecoveryAttempts = await Promise.all([
+      apiRequest(baseUrl, "/api/auth/login", {
+        method: "POST",
+        body: { username: user.username, password: userPassword, recoveryCode },
+      }),
+      apiRequest(baseUrl, "/api/auth/login", {
+        method: "POST",
+        body: { username: user.username, password: userPassword, recoveryCode },
+      }),
+    ]);
+    assert.deepEqual(
+      concurrentRecoveryAttempts.map((attempt) => attempt.status).sort((a, b) => a - b),
+      [200, 401],
+      "A recovery code must be consumed atomically",
+    );
+    const success = concurrentRecoveryAttempts.find((attempt) => attempt.status === 200)!;
     assert.equal((success.body as { username?: string }).username, user.username);
     assert.ok((success.body as { currentOrganizationId?: string | null }).currentOrganizationId);
 
@@ -170,6 +184,30 @@ test("mfa login flow: requires second factor and accepts recovery code", async (
     });
     assert.equal(replay.status, 401);
     assert.equal((replay.body as { mfaRequired?: boolean }).mfaRequired, true);
+
+    const invalidMfaCode = ["000000", "111111", "222222", "333333"]
+      .find((candidate) => !verifyTotpCode(totpSecret, candidate))!;
+    const additionalFailures = [];
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      additionalFailures.push(
+        await apiRequest(baseUrl, "/api/auth/login", {
+          method: "POST",
+          body: { username: user.username, password: userPassword, mfaCode: invalidMfaCode },
+        }),
+      );
+    }
+    assert.equal(
+      additionalFailures.at(-1)?.status,
+      429,
+      "The shared MFA limiter must lock the account at five failed challenges",
+    );
+
+    const [storedAfterLogin] = await db
+      .select({ mfaSecret: users.mfaSecret, lockedUntil: users.mfaLockedUntil })
+      .from(users)
+      .where(inArray(users.id, [user.id]));
+    assert.match(storedAfterLogin.mfaSecret ?? "", /^aict:secret:v1:/);
+    assert.ok(storedAfterLogin.lockedUntil);
   } finally {
     if (server) {
       await new Promise<void>((resolve, reject) => {

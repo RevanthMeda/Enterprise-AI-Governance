@@ -3,6 +3,9 @@ import { agentGovernanceService } from "./agentGovernanceService";
 import {
   compileLawPackRuntimeOverlay,
 } from "@shared/law-packs";
+import { db } from "../db";
+import { evidenceFiles } from "@shared/schema";
+import { and, eq, gte, sql } from "drizzle-orm";
 
 type Actor = {
   id: string;
@@ -21,6 +24,73 @@ export interface CreateEvidenceInput {
   mimeType: string;
   filePath: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface EvidenceQuotaLimits {
+  organizationBytes: number;
+  organizationFiles: number;
+  userRollingDayBytes: number;
+  userRollingDayFiles: number;
+}
+
+function readPositiveIntegerEnv(name: string, fallback: number): number {
+  const value = process.env[name]?.trim();
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export const evidenceQuotaLimits: EvidenceQuotaLimits = {
+  organizationBytes: readPositiveIntegerEnv("EVIDENCE_ORG_MAX_BYTES", 10 * 1024 * 1024 * 1024),
+  organizationFiles: readPositiveIntegerEnv("EVIDENCE_ORG_MAX_FILES", 50_000),
+  userRollingDayBytes: readPositiveIntegerEnv("EVIDENCE_USER_DAILY_MAX_BYTES", 1024 * 1024 * 1024),
+  userRollingDayFiles: readPositiveIntegerEnv("EVIDENCE_USER_DAILY_MAX_FILES", 500),
+};
+
+export class EvidenceQuotaError extends Error {
+  readonly status = 413;
+  readonly code = "EVIDENCE_QUOTA_EXCEEDED";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "EvidenceQuotaError";
+  }
+}
+
+export class EvidenceRequestError extends Error {
+  readonly code = "INVALID_EVIDENCE_REQUEST";
+
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "EvidenceRequestError";
+  }
+}
+
+export function assertEvidenceQuota(params: {
+  nextFileBytes: number;
+  organizationBytesUsed: number;
+  organizationFilesUsed: number;
+  userRollingDayBytesUsed: number;
+  userRollingDayFilesUsed: number;
+  limits?: EvidenceQuotaLimits;
+}): void {
+  const limits = params.limits ?? evidenceQuotaLimits;
+  if (
+    params.organizationBytesUsed + params.nextFileBytes > limits.organizationBytes ||
+    params.organizationFilesUsed + 1 > limits.organizationFiles
+  ) {
+    throw new EvidenceQuotaError(
+      "Organization evidence storage quota has been reached. Remove older evidence or contact an administrator.",
+    );
+  }
+  if (
+    params.userRollingDayBytesUsed + params.nextFileBytes > limits.userRollingDayBytes ||
+    params.userRollingDayFilesUsed + 1 > limits.userRollingDayFiles
+  ) {
+    throw new EvidenceQuotaError(
+      "Your 24-hour evidence upload quota has been reached. Try again later.",
+    );
+  }
 }
 
 export class EvidenceService {
@@ -43,7 +113,7 @@ export class EvidenceService {
   }) {
     const system = await storage.getAiSystemById(params.organizationId, params.input.systemId);
     if (!system) {
-      throw new Error("System not found");
+      throw new EvidenceRequestError("System not found", 404);
     }
 
     if (params.input.controlId) {
@@ -53,7 +123,10 @@ export class EvidenceService {
         params.input.controlId,
       );
       if (!linkedControl) {
-        throw new Error("Control not linked to this system in the active organization");
+        throw new EvidenceRequestError(
+          "Control not linked to this system in the active organization",
+          400,
+        );
       }
     }
 
@@ -66,7 +139,10 @@ export class EvidenceService {
     if (params.input.workflowId) {
       const workflow = await storage.getApprovalWorkflowById(params.organizationId, params.input.workflowId);
       if (!workflow || workflow.systemId !== params.input.systemId) {
-        throw new Error("Workflow not found for this system in the active organization");
+        throw new EvidenceRequestError(
+          "Workflow not found for this system in the active organization",
+          400,
+        );
       }
       effectiveGovernanceScope = await agentGovernanceService.resolveEffectiveScope({
         organizationId: params.organizationId,
@@ -78,23 +154,71 @@ export class EvidenceService {
 
     const overlay = compileLawPackRuntimeOverlay(effectiveGovernanceScope.lawPackIdsApplied);
 
-    return storage.createEvidenceFileForOrg(params.organizationId, {
-      systemId: params.input.systemId,
-      controlId: params.input.controlId ?? null,
-      workflowId: params.input.workflowId ?? null,
-      fileName: params.input.fileName,
-      fileSize: params.input.fileSize,
-      mimeType: params.input.mimeType,
-      filePath: params.input.filePath,
-      uploadedBy: params.actor.fullName,
-      metadata: {
-        ...(params.input.metadata ?? {}),
-        legalProfileApplied: effectiveGovernanceScope.legalProfileApplied,
-        lawPackIdsApplied: effectiveGovernanceScope.lawPackIdsApplied,
-        governanceScopeSource: effectiveGovernanceScope.source,
-        lawPackDecisionConstraints: overlay.decisionConstraints,
-        lawPackSources: overlay.sourceRefs,
-      },
+    const metadata = {
+      ...(params.input.metadata ?? {}),
+      uploadedByUserId: params.actor.id,
+      legalProfileApplied: effectiveGovernanceScope.legalProfileApplied,
+      lawPackIdsApplied: effectiveGovernanceScope.lawPackIdsApplied,
+      governanceScopeSource: effectiveGovernanceScope.source,
+      lawPackDecisionConstraints: overlay.decisionConstraints,
+      lawPackSources: overlay.sourceRefs,
+    };
+
+    return db.transaction(async (tx) => {
+      // All evidence creation paths acquire the same tenant lock before
+      // checking usage and inserting metadata. Concurrent processes therefore
+      // cannot both observe the same remaining quota and over-allocate it.
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`evidence-quota:${params.organizationId}`}))`,
+      );
+
+      const rollingDayStart = new Date(Date.now() - 24 * 60 * 60 * 1_000);
+      const [organizationUsage] = await tx
+        .select({
+          bytes: sql<number>`coalesce(sum(${evidenceFiles.fileSize}), 0)`,
+          files: sql<number>`count(*)`,
+        })
+        .from(evidenceFiles)
+        .where(eq(evidenceFiles.organizationId, params.organizationId));
+      const [userUsage] = await tx
+        .select({
+          bytes: sql<number>`coalesce(sum(${evidenceFiles.fileSize}), 0)`,
+          files: sql<number>`count(*)`,
+        })
+        .from(evidenceFiles)
+        .where(and(
+          eq(evidenceFiles.organizationId, params.organizationId),
+          gte(evidenceFiles.createdAt, rollingDayStart),
+          sql`${evidenceFiles.metadata} ->> 'uploadedByUserId' = ${params.actor.id}`,
+        ));
+
+      assertEvidenceQuota({
+        nextFileBytes: params.input.fileSize,
+        organizationBytesUsed: Number(organizationUsage?.bytes ?? 0),
+        organizationFilesUsed: Number(organizationUsage?.files ?? 0),
+        userRollingDayBytesUsed: Number(userUsage?.bytes ?? 0),
+        userRollingDayFilesUsed: Number(userUsage?.files ?? 0),
+      });
+
+      const [created] = await tx
+        .insert(evidenceFiles)
+        .values({
+          organizationId: params.organizationId,
+          systemId: params.input.systemId,
+          controlId: params.input.controlId ?? null,
+          workflowId: params.input.workflowId ?? null,
+          fileName: params.input.fileName,
+          fileSize: params.input.fileSize,
+          mimeType: params.input.mimeType,
+          filePath: params.input.filePath,
+          uploadedBy: params.actor.fullName,
+          metadata,
+        })
+        .returning();
+      if (!created) {
+        throw new Error("Evidence insert returned no row");
+      }
+      return created;
     });
   }
 

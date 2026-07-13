@@ -83,7 +83,7 @@ Implemented identity controls:
 - SSO metadata endpoint: `GET /api/auth/sso/metadata`
 - SSO start endpoint: `GET /api/auth/sso/start`
 - SSO callback endpoint: `POST /api/auth/sso/callback`
-- SSO mock callback endpoint: `POST /api/auth/sso/mock-callback` (regression-only, disabled in production unless `ENABLE_TEST_AUTH_ROUTES=true`)
+- SSO mock callback endpoint: `POST /api/auth/sso/mock-callback` (regression-only and always disabled in production; the flag is ignored there)
 - provider identity linking on `users`
 - JIT provisioning with `provisioningSource = "jit"`
 - invite acceptance with `provisioningSource = "invite"`
@@ -106,7 +106,12 @@ JIT rules:
 Invite rules:
 
 - invites are org-scoped
-- raw invite tokens are not stored
+- newly created and resent invite tokens are stored only as versioned SHA-256 digests (`invite:sha256:v1:...`)
+- the plaintext token is returned only in explicitly enabled non-production previews; production delivery payloads are encrypted at rest by the background-job vault
+- new acceptance links carry the token in a URL fragment (not an HTTP query), and the page removes both new fragment tokens and legacy query tokens from browser history immediately after capturing them
+- invite preview sends the token in an `Authorization: Invite ...` header; the query transport remains read-only legacy compatibility and is no longer used by the frontend
+- legacy plaintext rows remain usable during rollout, are lazily replaced with digests on preview or acceptance, and are bulk-protected by `npm run db:migrate:invite-token-digests`
+- a stored digest is never accepted as a bearer token
 - expired or revoked invites must not be accepted
 - invite acceptance may onboard external users without domain allowlisting
 
@@ -192,7 +197,9 @@ Run these before merging tenant or identity changes:
 
 Schema changes:
 
-- `npm run db:push -- --force`
+- local or ephemeral test database: `npm run db:push -- --force`
+- production database: add the change to the reviewed versioned migration and
+  run `npm run db:migrate:production` only after verifying a recoverable backup
 
 ## Pre-merge checklist
 
@@ -210,12 +217,13 @@ Schema changes:
 
 Recommended production order:
 
-1. deploy nullable schema additions first
-2. run `npm run db:push -- --force`
-3. run validation checks
-4. deploy backend changes behind safe defaults
-5. deploy frontend/admin UI changes
-6. enable enterprise identity features per organization
+1. capture and verify a recoverable production database snapshot
+2. run validation checks against the exact release commit
+3. apply `npm run db:migrate:production`
+4. deploy the backend and wait for readiness to report that exact commit
+5. deploy the frontend/admin UI changes
+6. run authenticated smoke checks
+7. enable enterprise identity features per organization
 
 ## Rollback approach
 

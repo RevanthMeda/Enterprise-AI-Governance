@@ -1,6 +1,9 @@
-import { createHash, createHmac } from "crypto";
 import type { AiTelemetryEvent } from "@shared/schema";
-import { fetchWithTimeout } from "../http";
+import {
+  bedrockJsonRequest,
+  providerJsonRequest,
+  type GatewayOutboundFetch,
+} from "../provider-egress";
 import { telemetryService } from "./telemetryService";
 import type { ResolvedProviderConfig } from "./upstreamProviderVaultService";
 
@@ -63,8 +66,6 @@ type GatewayBlockedResult = {
 
 export type GatewayProxyResult = GatewaySuccessResult | GatewayBlockedResult;
 
-const DEFAULT_UPSTREAM_REQUEST_TIMEOUT_MS = 120_000;
-
 function getRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -81,14 +82,6 @@ function getStringArray(value: unknown) {
 
 function getNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function getUpstreamRequestTimeoutMs() {
-  const parsed = Number(process.env.CONTROL_TOWER_UPSTREAM_TIMEOUT_MS);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_UPSTREAM_REQUEST_TIMEOUT_MS;
-  }
-  return Math.max(5_000, parsed);
 }
 
 function getObjectRecord(value: unknown) {
@@ -797,40 +790,13 @@ function resolveGatewayName(adapter: AdapterRecord, requestedGateway: string | n
   return gateway;
 }
 
-function buildProviderHeaders(config: ResolvedProviderConfig) {
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-    ...config.headers,
-  };
-
-  if (config.protocol === "openai") {
-    headers.authorization = `Bearer ${config.apiKey}`;
-  } else if (config.protocol === "azure_openai") {
-    headers["api-key"] = config.apiKey;
-  } else if (config.protocol === "anthropic") {
-    headers["x-api-key"] = config.apiKey;
-  } else if (config.protocol === "vertex_ai") {
-    headers.authorization = `Bearer ${config.apiKey}`;
-  } else {
-    headers["x-goog-api-key"] = config.apiKey;
-  }
-
-  return headers;
-}
-
-async function postProviderJson(
+export async function postProviderJson(
   config: ResolvedProviderConfig,
   pathOrUrl: string,
   body: Record<string, unknown>,
+  outboundFetch?: GatewayOutboundFetch,
 ) {
-  const targetUrl = pathOrUrl.startsWith("http") ? pathOrUrl : `${config.baseUrl}${pathOrUrl}`;
-  const response = await fetchWithTimeout(targetUrl, {
-    method: "POST",
-    timeoutMs: getUpstreamRequestTimeoutMs(),
-    timeoutMessage: `${config.provider} upstream request timed out`,
-    headers: buildProviderHeaders(config),
-    body: JSON.stringify(body),
-  });
+  const response = await providerJsonRequest(config, pathOrUrl, body, outboundFetch);
 
   const text = await response.text();
   let json: unknown = null;
@@ -968,20 +934,14 @@ function parseOpenAiResponsesStream(rawText: string): Omit<StreamReplayResult, "
   };
 }
 
-async function postProviderBufferedStream(
+export async function postProviderBufferedStream(
   config: ResolvedProviderConfig,
   pathOrUrl: string,
   body: Record<string, unknown>,
   parser: (rawText: string) => Omit<StreamReplayResult, "status" | "bodyText" | "contentType">,
+  outboundFetch?: GatewayOutboundFetch,
 ): Promise<StreamReplayResult> {
-  const targetUrl = pathOrUrl.startsWith("http") ? pathOrUrl : `${config.baseUrl}${pathOrUrl}`;
-  const response = await fetchWithTimeout(targetUrl, {
-    method: "POST",
-    timeoutMs: getUpstreamRequestTimeoutMs(),
-    timeoutMessage: `${config.provider} upstream request timed out`,
-    headers: buildProviderHeaders(config),
-    body: JSON.stringify(body),
-  });
+  const response = await providerJsonRequest(config, pathOrUrl, body, outboundFetch);
 
   const bodyText = await response.text();
   if (!response.ok) {
@@ -1000,86 +960,13 @@ async function postProviderBufferedStream(
   };
 }
 
-function sha256Hex(value: string) {
-  return createHash("sha256").update(value, "utf8").digest("hex");
-}
-
-function hmacSha256(key: Buffer | string, value: string) {
-  return createHmac("sha256", key).update(value, "utf8").digest();
-}
-
-function buildAwsQueryString(url: URL) {
-  return Array.from(url.searchParams.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-    .join("&");
-}
-
-async function postBedrockJson(
+export async function postBedrockJson(
   config: ResolvedProviderConfig,
   pathOrUrl: string,
   body: Record<string, unknown>,
+  outboundFetch?: GatewayOutboundFetch,
 ) {
-  if (!config.accessKeyId || !config.secretAccessKey || !config.region) {
-    throw new Error("bedrock credentials and region are required");
-  }
-
-  const url = new URL(pathOrUrl.startsWith("http") ? pathOrUrl : `${config.baseUrl}${pathOrUrl}`);
-  const bodyText = JSON.stringify(body);
-  const payloadHash = sha256Hex(bodyText);
-  const now = new Date();
-  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
-  const dateStamp = amzDate.slice(0, 8);
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-    host: url.host,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate,
-    ...config.headers,
-  };
-
-  if (config.sessionToken) {
-    headers["x-amz-security-token"] = config.sessionToken;
-  }
-
-  const sortedHeaderEntries = Object.entries(headers)
-    .map(([key, value]) => [key.toLowerCase(), value.trim()] as const)
-    .sort(([left], [right]) => left.localeCompare(right));
-  const canonicalHeaders = sortedHeaderEntries.map(([key, value]) => `${key}:${value}\n`).join("");
-  const signedHeaders = sortedHeaderEntries.map(([key]) => key).join(";");
-  const canonicalRequest = [
-    "POST",
-    url.pathname,
-    buildAwsQueryString(url),
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
-  const credentialScope = `${dateStamp}/${config.region}/bedrock/aws4_request`;
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    sha256Hex(canonicalRequest),
-  ].join("\n");
-  const signingKey = hmacSha256(
-    hmacSha256(
-      hmacSha256(hmacSha256(`AWS4${config.secretAccessKey}`, dateStamp), config.region),
-      "bedrock",
-    ),
-    "aws4_request",
-  );
-  const signature = createHmac("sha256", signingKey).update(stringToSign, "utf8").digest("hex");
-  headers.authorization =
-    `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
-  const response = await fetchWithTimeout(url.toString(), {
-    method: "POST",
-    timeoutMs: getUpstreamRequestTimeoutMs(),
-    timeoutMessage: `${config.provider} upstream request timed out`,
-    headers,
-    body: bodyText,
-  });
+  const response = await bedrockJsonRequest(config, pathOrUrl, body, outboundFetch);
 
   const text = await response.text();
   let json: unknown = null;

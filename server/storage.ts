@@ -17,7 +17,7 @@ import {
   notifications, evidenceFiles, riskAssessments,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, or, ilike, gte, lte, inArray, SQL } from "drizzle-orm";
+import { eq, desc, and, or, ilike, gte, lte, inArray, sql, SQL } from "drizzle-orm";
 
 function throwUnscopedTenantMethod(method: string, scopedAlternative: string): never {
   throw new Error(
@@ -31,6 +31,7 @@ export interface UserMembershipContext {
   organizationId: string;
   role: string;
   membershipState: string;
+  provisioningSource: string;
   isDefault: boolean;
   invitedBy: string | null;
   onboardingState: unknown;
@@ -66,6 +67,7 @@ export interface IStorage {
       passwordChangedAt: Date;
       passwordExpiresAt: Date;
       passwordHistory: string[];
+      expectedCurrentPasswordHash?: string;
     },
   ): Promise<User | undefined>;
   updateUserMfa(
@@ -76,6 +78,16 @@ export interface IStorage {
       mfaRecoveryCodes: string[];
     },
   ): Promise<User | undefined>;
+  consumeUserMfaRecoveryCodes(
+    userId: string,
+    expectedRecoveryCodes: string[],
+    remainingRecoveryCodes: string[],
+  ): Promise<boolean>;
+  updateUserMfaSecretIfUnchanged(
+    userId: string,
+    expectedSecret: string,
+    nextSecret: string,
+  ): Promise<boolean>;
   getAllUsers(): Promise<User[]>;
   getOrganizationById(id: string): Promise<Organization | undefined>;
   getOrganizationBySlug(slug: string): Promise<Organization | undefined>;
@@ -389,6 +401,7 @@ export class DatabaseStorage implements IStorage {
       passwordChangedAt: Date;
       passwordExpiresAt: Date;
       passwordHistory: string[];
+      expectedCurrentPasswordHash?: string;
     },
   ): Promise<User | undefined> {
     const [updated] = await db
@@ -398,8 +411,16 @@ export class DatabaseStorage implements IStorage {
         passwordHistory: data.passwordHistory,
         passwordChangedAt: data.passwordChangedAt,
         passwordExpiresAt: data.passwordExpiresAt,
+        sessionVersion: sql`${users.sessionVersion} + 1`,
       })
-      .where(eq(users.id, userId))
+      .where(
+        and(
+          eq(users.id, userId),
+          data.expectedCurrentPasswordHash
+            ? eq(users.password, data.expectedCurrentPasswordHash)
+            : undefined,
+        ),
+      )
       .returning();
     return updated;
   }
@@ -418,10 +439,42 @@ export class DatabaseStorage implements IStorage {
         mfaEnabled: data.mfaEnabled,
         mfaSecret: data.mfaSecret,
         mfaRecoveryCodes: data.mfaRecoveryCodes,
+        sessionVersion: sql`${users.sessionVersion} + 1`,
       })
       .where(eq(users.id, userId))
       .returning();
     return updated;
+  }
+
+  async consumeUserMfaRecoveryCodes(
+    userId: string,
+    expectedRecoveryCodes: string[],
+    remainingRecoveryCodes: string[],
+  ): Promise<boolean> {
+    const [updated] = await db
+      .update(users)
+      .set({ mfaRecoveryCodes: remainingRecoveryCodes })
+      .where(
+        and(
+          eq(users.id, userId),
+          sql`${users.mfaRecoveryCodes} = ${JSON.stringify(expectedRecoveryCodes)}::jsonb`,
+        ),
+      )
+      .returning({ id: users.id });
+    return Boolean(updated);
+  }
+
+  async updateUserMfaSecretIfUnchanged(
+    userId: string,
+    expectedSecret: string,
+    nextSecret: string,
+  ): Promise<boolean> {
+    const [updated] = await db
+      .update(users)
+      .set({ mfaSecret: nextSecret })
+      .where(and(eq(users.id, userId), eq(users.mfaSecret, expectedSecret)))
+      .returning({ id: users.id });
+    return Boolean(updated);
   }
 
   async getAllUsers(): Promise<User[]> {
@@ -551,6 +604,7 @@ export class DatabaseStorage implements IStorage {
         organizationId: memberships.organizationId,
         role: memberships.role,
         membershipState: memberships.membershipState,
+        provisioningSource: memberships.provisioningSource,
         isDefault: memberships.isDefault,
         invitedBy: memberships.invitedBy,
         onboardingState: memberships.onboardingState,
@@ -613,9 +667,13 @@ export class DatabaseStorage implements IStorage {
         passwordHistory: users.passwordHistory,
         passwordChangedAt: users.passwordChangedAt,
         passwordExpiresAt: users.passwordExpiresAt,
+        sessionVersion: users.sessionVersion,
         mfaEnabled: users.mfaEnabled,
         mfaSecret: users.mfaSecret,
         mfaRecoveryCodes: users.mfaRecoveryCodes,
+        mfaFailedAttempts: users.mfaFailedAttempts,
+        mfaFailureWindowStartedAt: users.mfaFailureWindowStartedAt,
+        mfaLockedUntil: users.mfaLockedUntil,
         fullName: users.fullName,
         email: users.email,
         authProvider: users.authProvider,
@@ -645,9 +703,13 @@ export class DatabaseStorage implements IStorage {
         passwordHistory: users.passwordHistory,
         passwordChangedAt: users.passwordChangedAt,
         passwordExpiresAt: users.passwordExpiresAt,
+        sessionVersion: users.sessionVersion,
         mfaEnabled: users.mfaEnabled,
         mfaSecret: users.mfaSecret,
         mfaRecoveryCodes: users.mfaRecoveryCodes,
+        mfaFailedAttempts: users.mfaFailedAttempts,
+        mfaFailureWindowStartedAt: users.mfaFailureWindowStartedAt,
+        mfaLockedUntil: users.mfaLockedUntil,
         fullName: users.fullName,
         email: users.email,
         authProvider: users.authProvider,

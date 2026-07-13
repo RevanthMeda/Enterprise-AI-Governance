@@ -657,22 +657,37 @@ export default function TelemetryPolicyPage() {
           <CardContent className="space-y-4">
             {recommendationsQuery.isLoading ? (
               <Skeleton className="h-48 w-full" />
+            ) : recommendationsQuery.isError || !recommendationsQuery.data ? (
+              <Alert variant="destructive">
+                <AlertTitle>Data-driven recommendations could not be loaded</AlertTitle>
+                <AlertDescription className="space-y-3">
+                  <p>Recent telemetry and incident signals are unavailable, so no recommendation or signal count is being shown.</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void recommendationsQuery.refetch()}
+                  >
+                    Retry
+                  </Button>
+                </AlertDescription>
+              </Alert>
             ) : (
               <>
                 <div className="grid gap-3 md:grid-cols-4">
-                  <SignalSummaryCard label="Open incidents" value={String(recommendationsQuery.data?.signalSummary.openIncidents ?? 0)} />
-                  <SignalSummaryCard label="Breached incidents" value={String(recommendationsQuery.data?.signalSummary.breachedIncidents ?? 0)} />
-                  <SignalSummaryCard label="Blocked events" value={String(recommendationsQuery.data?.signalSummary.blockedEvents ?? 0)} />
-                  <SignalSummaryCard label="Restricted prompts" value={String(recommendationsQuery.data?.signalSummary.restrictedPromptEvents ?? 0)} />
+                  <SignalSummaryCard label="Open incidents" value={String(recommendationsQuery.data.signalSummary.openIncidents)} />
+                  <SignalSummaryCard label="Breached incidents" value={String(recommendationsQuery.data.signalSummary.breachedIncidents)} />
+                  <SignalSummaryCard label="Blocked events" value={String(recommendationsQuery.data.signalSummary.blockedEvents)} />
+                  <SignalSummaryCard label="Restricted prompts" value={String(recommendationsQuery.data.signalSummary.restrictedPromptEvents)} />
                 </div>
 
-                {(recommendationsQuery.data?.recommendations ?? []).length === 0 ? (
+                {recommendationsQuery.data.recommendations.length === 0 ? (
                   <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
                     No recommendation is being pushed right now from recent telemetry and incidents for this scope.
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {(recommendationsQuery.data?.recommendations ?? []).map((recommendation) => (
+                    {recommendationsQuery.data.recommendations.map((recommendation) => (
                       <div key={recommendation.id} className="rounded-md border p-4">
                         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                           <div>

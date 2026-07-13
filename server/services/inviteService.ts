@@ -1,10 +1,12 @@
-import { randomBytes } from "crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { membershipRoles, organizationInviteStatuses, organizationInvites, organizations, users } from "@shared/schema";
 import { hashPassword, validatePasswordStrength } from "../auth";
 import { adminAuditEvents, memberships } from "@shared/schema";
 import { db } from "../db";
-import { storage } from "../storage";
+import {
+  createInviteToken,
+  getInviteTokenLookupValues,
+} from "../invite-token";
 import { backgroundJobService } from "./backgroundJobService";
 import { buildInviteAcceptUrl, getInviteDeliveryChannel, shouldExposeInviteSecrets } from "./inviteDeliveryService";
 
@@ -12,6 +14,19 @@ const inviteStatusOptions = new Set<string>(organizationInviteStatuses);
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+function getInviteTokenPredicate(rawToken: string) {
+  const lookup = getInviteTokenLookupValues(rawToken);
+  return {
+    ...lookup,
+    predicate: lookup.legacyToken
+      ? or(
+          eq(organizationInvites.token, lookup.tokenDigest),
+          eq(organizationInvites.token, lookup.legacyToken),
+        )
+      : eq(organizationInvites.token, lookup.tokenDigest),
+  };
 }
 
 async function recordAdminAuditEvent(input: {
@@ -73,7 +88,7 @@ async function createInvite(input: {
   expiresInDays: number;
 }) {
   const email = normalizeEmail(input.email);
-  const inviteToken = randomBytes(24).toString("hex");
+  const { rawToken: inviteToken, tokenDigest } = createInviteToken();
   const expiresAt = new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000);
 
   const existingMembershipForEmail = await db
@@ -100,7 +115,7 @@ async function createInvite(input: {
       email,
       role: input.role,
       status: "pending",
-      token: inviteToken,
+      token: tokenDigest,
       invitedBy: input.actorUserId,
       expiresAt,
     })
@@ -167,12 +182,12 @@ async function createInvite(input: {
     role: invite.role,
     status: invite.status,
     expiresAt: invite.expiresAt,
-    inviteUrl,
     delivery,
   };
 
   if (shouldExposeInviteSecrets()) {
     response.inviteToken = inviteToken;
+    response.inviteUrl = inviteUrl;
   }
 
   return response;
@@ -197,13 +212,13 @@ async function resendInvite(input: {
     throw Object.assign(new Error("Invite can no longer be resent"), { status: 400 });
   }
 
-  const inviteToken = randomBytes(24).toString("hex");
+  const { rawToken: inviteToken, tokenDigest } = createInviteToken();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
   const [updated] = await db
     .update(organizationInvites)
     .set({
-      token: inviteToken,
+      token: tokenDigest,
       status: "pending",
       expiresAt,
       resendCount: (invite.resendCount ?? 0) + 1,
@@ -272,12 +287,12 @@ async function resendInvite(input: {
     status: updated.status,
     expiresAt: updated.expiresAt,
     resendCount: updated.resendCount,
-    inviteUrl,
     delivery,
   };
 
   if (shouldExposeInviteSecrets()) {
     response.inviteToken = inviteToken;
+    response.inviteUrl = inviteUrl;
   }
 
   return response;
@@ -328,7 +343,8 @@ async function revokeInvite(input: {
 }
 
 async function previewInvite(token: string) {
-  const [invite] = await db
+  const tokenLookup = getInviteTokenPredicate(token);
+  const matchingInvites = await db
     .select({
       id: organizationInvites.id,
       email: organizationInvites.email,
@@ -336,14 +352,28 @@ async function previewInvite(token: string) {
       status: organizationInvites.status,
       expiresAt: organizationInvites.expiresAt,
       organizationName: organizations.name,
+      storedToken: organizationInvites.token,
     })
     .from(organizationInvites)
     .leftJoin(organizations, eq(organizationInvites.organizationId, organizations.id))
-    .where(eq(organizationInvites.token, token))
-    .limit(1);
+    .where(tokenLookup.predicate)
+    .limit(2);
 
-  if (!invite) {
+  if (matchingInvites.length !== 1) {
     throw Object.assign(new Error("Invite token is invalid"), { status: 404 });
+  }
+  const [invite] = matchingInvites;
+
+  if (tokenLookup.legacyToken && invite.storedToken === tokenLookup.legacyToken) {
+    await db
+      .update(organizationInvites)
+      .set({ token: tokenLookup.tokenDigest, updatedAt: new Date() })
+      .where(
+        and(
+          eq(organizationInvites.id, invite.id),
+          eq(organizationInvites.token, tokenLookup.legacyToken),
+        ),
+      );
   }
 
   if (invite.status !== "pending") {
@@ -354,7 +384,13 @@ async function previewInvite(token: string) {
     await db
       .update(organizationInvites)
       .set({ status: "expired", updatedAt: new Date() })
-      .where(eq(organizationInvites.id, invite.id));
+      .where(
+        and(
+          eq(organizationInvites.id, invite.id),
+          eq(organizationInvites.token, tokenLookup.tokenDigest),
+          eq(organizationInvites.status, "pending"),
+        ),
+      );
     throw Object.assign(new Error("Invite has expired"), { status: 400 });
   }
 
@@ -375,104 +411,174 @@ async function acceptInvite(input: {
   fullName: string;
   email?: string;
 }) {
-  const [invite] = await db
+  const tokenLookup = getInviteTokenPredicate(input.token);
+  const preflightInvites = await db
     .select()
     .from(organizationInvites)
-    .where(eq(organizationInvites.token, input.token))
-    .limit(1);
+    .where(tokenLookup.predicate)
+    .limit(2);
 
-  if (!invite) {
+  if (preflightInvites.length !== 1) {
     throw Object.assign(new Error("Invite token is invalid"), { status: 404 });
   }
-  if (!inviteStatusOptions.has(invite.status) || invite.status !== "pending") {
+  const [preflightInvite] = preflightInvites;
+  if (!inviteStatusOptions.has(preflightInvite.status) || preflightInvite.status !== "pending") {
     throw Object.assign(new Error("Invite is no longer valid"), { status: 400 });
   }
-  if (invite.expiresAt.getTime() < Date.now()) {
-    await db
-      .update(organizationInvites)
-      .set({ status: "expired", updatedAt: new Date() })
-      .where(eq(organizationInvites.id, invite.id));
-    throw Object.assign(new Error("Invite has expired"), { status: 400 });
-  }
 
-  const normalizedInviteEmail = normalizeEmail(invite.email);
+  const normalizedInviteEmail = normalizeEmail(preflightInvite.email);
   if (input.email && normalizeEmail(input.email) !== normalizedInviteEmail) {
     throw Object.assign(new Error("Invite email does not match request email"), { status: 400 });
-  }
-
-  const existingUsername = await storage.getUserByUsername(input.username);
-  if (existingUsername) {
-    throw Object.assign(new Error("Username already exists"), { status: 409 });
-  }
-
-  const existingEmail = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(sql`lower(${users.email}) = lower(${normalizedInviteEmail})`)
-    .limit(1);
-  if (existingEmail.length > 0) {
-    throw Object.assign(new Error("An account with this email already exists"), { status: 409 });
   }
 
   const passwordValidation = validatePasswordStrength(input.password);
   if (!passwordValidation.valid) {
     throw Object.assign(new Error(passwordValidation.message), { status: 400 });
   }
+  const normalizedUsername = input.username.trim().toLowerCase();
+  const hashedPassword = await hashPassword(input.password);
 
-  const userRole = membershipRoles.includes(invite.role as (typeof membershipRoles)[number])
-    ? (invite.role === "owner" ? "admin" : invite.role)
-    : "reviewer";
+  try {
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`invite:${tokenLookup.tokenDigest}`}, 0))`,
+      );
 
-  const newUser = await storage.createUser({
-    username: input.username,
-    password: await hashPassword(input.password),
-    fullName: input.fullName,
-    email: normalizedInviteEmail,
-    role: userRole,
-  });
+      const matchingInvites = await tx
+        .select()
+        .from(organizationInvites)
+        .where(tokenLookup.predicate)
+        .limit(2);
+      if (matchingInvites.length !== 1) {
+        throw Object.assign(new Error("Invite token is invalid"), { status: 404 });
+      }
+      const [invite] = matchingInvites;
 
-  const existingMemberships = await storage.getMembershipsByUserId(newUser.id);
-  const membership = await storage.createMembership({
-    userId: newUser.id,
-    organizationId: invite.organizationId,
-    role: invite.role,
-    membershipState: "active",
-    isDefault: existingMemberships.length === 0,
-    invitedBy: invite.invitedBy,
-    provisioningSource: "invite",
-  });
+      if (tokenLookup.legacyToken && invite.token === tokenLookup.legacyToken) {
+        await tx
+          .update(organizationInvites)
+          .set({ token: tokenLookup.tokenDigest, updatedAt: new Date() })
+          .where(
+            and(
+              eq(organizationInvites.id, invite.id),
+              eq(organizationInvites.token, tokenLookup.legacyToken),
+            ),
+          );
+      }
+      if (!inviteStatusOptions.has(invite.status) || invite.status !== "pending") {
+        throw Object.assign(new Error("Invite is no longer valid"), { status: 400 });
+      }
 
-  await db
-    .update(organizationInvites)
-    .set({
-      status: "accepted",
-      acceptedBy: newUser.id,
-      acceptedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(organizationInvites.id, invite.id));
+      if (invite.expiresAt.getTime() < Date.now()) {
+        await tx
+          .update(organizationInvites)
+          .set({ status: "expired", updatedAt: new Date() })
+          .where(eq(organizationInvites.id, invite.id));
+        return { expired: true as const };
+      }
 
-  await recordAdminAuditEvent({
-    organizationId: invite.organizationId,
-    actorUserId: newUser.id,
-    actorName: newUser.fullName || newUser.username,
-    action: "invite.accepted",
-    targetType: "membership",
-    targetId: membership.id,
-    targetUserId: newUser.id,
-    metadata: {
-      inviteId: invite.id,
-      role: invite.role,
-      email: invite.email,
-    },
-  });
+      const lockedInviteEmail = normalizeEmail(invite.email);
+      if (input.email && normalizeEmail(input.email) !== lockedInviteEmail) {
+        throw Object.assign(new Error("Invite email does not match request email"), { status: 400 });
+      }
 
-  return {
-    ok: true,
-    userId: newUser.id,
-    organizationId: invite.organizationId,
-    membershipId: membership.id,
-  };
+      const identityLocks = [
+        `identity-email:${lockedInviteEmail}`,
+        `identity-username:${normalizedUsername}`,
+      ].sort();
+      for (const lockKey of identityLocks) {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
+      }
+
+      const [existingUsername] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(sql`lower(${users.username}) = lower(${normalizedUsername})`)
+        .limit(1);
+      if (existingUsername) {
+        throw Object.assign(new Error("Username already exists"), { status: 409 });
+      }
+
+      const [existingEmail] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(sql`lower(${users.email}) = lower(${lockedInviteEmail})`)
+        .limit(1);
+      if (existingEmail) {
+        throw Object.assign(new Error("An account with this email already exists"), { status: 409 });
+      }
+
+      const userRole = membershipRoles.includes(invite.role as (typeof membershipRoles)[number])
+        ? (invite.role === "owner" ? "admin" : invite.role)
+        : "reviewer";
+      const [newUser] = await tx
+        .insert(users)
+        .values({
+          username: normalizedUsername,
+          password: hashedPassword,
+          fullName: input.fullName,
+          email: lockedInviteEmail,
+          role: userRole,
+        })
+        .returning();
+      const [membership] = await tx
+        .insert(memberships)
+        .values({
+          userId: newUser.id,
+          organizationId: invite.organizationId,
+          role: invite.role,
+          membershipState: "active",
+          isDefault: true,
+          invitedBy: invite.invitedBy,
+          provisioningSource: "invite",
+        })
+        .returning();
+      const acceptedAt = new Date();
+      await tx
+        .update(organizationInvites)
+        .set({
+          status: "accepted",
+          acceptedBy: newUser.id,
+          acceptedAt,
+          updatedAt: acceptedAt,
+        })
+        .where(and(eq(organizationInvites.id, invite.id), eq(organizationInvites.status, "pending")));
+      await tx.insert(adminAuditEvents).values({
+        organizationId: invite.organizationId,
+        actorUserId: newUser.id,
+        actorName: newUser.fullName || newUser.username,
+        action: "invite.accepted",
+        targetType: "membership",
+        targetId: membership.id,
+        targetUserId: newUser.id,
+        metadata: {
+          inviteId: invite.id,
+          role: invite.role,
+          email: invite.email,
+        },
+      });
+
+      return {
+        expired: false as const,
+        ok: true,
+        userId: newUser.id,
+        organizationId: invite.organizationId,
+        membershipId: membership.id,
+      };
+    });
+
+    if (result.expired) {
+      throw Object.assign(new Error("Invite has expired"), { status: 400 });
+    }
+    return result;
+  } catch (error: any) {
+    if (error?.code === "23505") {
+      throw Object.assign(new Error("An account with this username or email already exists"), {
+        status: 409,
+      });
+    }
+    throw error;
+  }
 }
 
 export const inviteService = {

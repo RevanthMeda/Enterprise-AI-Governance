@@ -24,6 +24,7 @@ export function AccountSecurityPanel({
   const [isWorking, setIsWorking] = useState(false);
   const [enrollment, setEnrollment] = useState<EnrollmentState | null>(null);
   const [verifyCode, setVerifyCode] = useState("");
+  const [enrollPassword, setEnrollPassword] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [disablePassword, setDisablePassword] = useState("");
   const [disableMfaCode, setDisableMfaCode] = useState("");
@@ -41,10 +42,11 @@ export function AccountSecurityPanel({
   const startMfaEnrollment = async () => {
     setIsWorking(true);
     try {
-      const res = await apiRequest("POST", "/api/auth/mfa/enroll", {});
+      const res = await apiRequest("POST", "/api/auth/mfa/enroll", { currentPassword: enrollPassword });
       const body = await res.json();
       setEnrollment({ secret: body.secret, otpauthUrl: body.otpauthUrl });
       setRecoveryCodes([]);
+      setEnrollPassword("");
       toast({ title: "MFA enrollment started" });
     } catch (error: any) {
       toast({ title: "Failed to start MFA enrollment", description: error.message, variant: "destructive" });
@@ -157,9 +159,19 @@ export function AccountSecurityPanel({
           </div>
 
           {!user?.mfaEnabled && !enrollment && (
-            <Button size="sm" onClick={startMfaEnrollment} disabled={isWorking} data-testid="button-mfa-start">
-              Start MFA setup
-            </Button>
+            <div className="space-y-2">
+              <Input
+                type="password"
+                autoComplete="current-password"
+                value={enrollPassword}
+                onChange={(event) => setEnrollPassword(event.target.value)}
+                placeholder="Confirm current password"
+                data-testid="input-mfa-enroll-password"
+              />
+              <Button size="sm" onClick={startMfaEnrollment} disabled={isWorking || !enrollPassword} data-testid="button-mfa-start">
+                Start MFA setup
+              </Button>
+            </div>
           )}
 
           {!user?.mfaEnabled && enrollment && (

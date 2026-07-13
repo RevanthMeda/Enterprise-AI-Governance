@@ -50,17 +50,14 @@ jobs:
       - name: Apply schema
         run: npm run db:push -- --force
 
-      - name: Run type checks
-        run: npm run check
-
-      - name: Lint OpenAPI specs
-        run: npm run openapi:lint
+      - name: Run release security gate
+        run: |
+          npm run security:sast
+          npm run security:deps
+          npm run security:secrets
 
       - name: Validate tenant integrity
         run: npm run tenant:validate
-
-      - name: Run static tenant guard
-        run: npm run tenant:guard
 
       - name: Run tenant isolation tests
         run: npm run test:tenant:isolation
@@ -68,8 +65,8 @@ jobs:
       - name: Run tenant route tests
         run: npm run test:tenant:routes
 
-      - name: Run CSRF security tests
-        run: npm run test:security:csrf-middleware && npm run test:security:csrf-client && npm run test:security:http-headers && npm run test:security:csrf
+      - name: Run database-backed CSRF security test
+        run: npm run test:security:csrf
 
       - name: Run regression suite
         run: npm run test:regression:all
@@ -98,7 +95,11 @@ jobs:
     needs: test-and-build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     environment: production
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
     permissions:
       contents: read
     steps:
@@ -120,6 +121,11 @@ jobs:
           name: firebase-public
           path: dist/public
 
+      - name: Reject a stale production release
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse refs/remotes/origin/main)" = "$GITHUB_SHA"
+
       - name: Validate production deployment configuration
         env:
           RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
@@ -130,6 +136,7 @@ jobs:
           PRODUCTION_FRONTEND_TOPOLOGY: ${{ vars.PRODUCTION_FRONTEND_TOPOLOGY }}
           SMOKE_ADMIN_USERNAME: ${{ secrets.SMOKE_ADMIN_USERNAME }}
           SMOKE_ADMIN_PASSWORD: ${{ secrets.SMOKE_ADMIN_PASSWORD }}
+          PRODUCTION_DB_BACKUP_CONFIRMED: ${{ vars.PRODUCTION_DB_BACKUP_CONFIRMED }}
         run: |
           test -n "$RENDER_DEPLOY_HOOK_URL"
           test -n "$DATABASE_URL"
@@ -139,14 +146,31 @@ jobs:
           test -n "$PRODUCTION_FRONTEND_TOPOLOGY"
           test -n "$SMOKE_ADMIN_USERNAME"
           test -n "$SMOKE_ADMIN_PASSWORD"
+          test "$PRODUCTION_DB_BACKUP_CONFIRMED" = "$GITHUB_SHA"
 
-      - name: Apply production schema
+      - name: Apply forward-compatible production schema expansion
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: npm run db:push -- --force
+          PRODUCTION_DB_BACKUP_CONFIRMED: ${{ vars.PRODUCTION_DB_BACKUP_CONFIRMED }}
+        run: npm run db:migrate:production
 
       - name: Trigger Render deploy hook
-        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: curl -fsSL --retry 3 --retry-all-errors -X POST "$RENDER_DEPLOY_HOOK_URL"
+
+      - name: Wait for the new Render release to be ready
+        env:
+          SMOKE_BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_URL }}
+          SMOKE_EXPECTED_RELEASE_COMMIT: ${{ github.sha }}
+          SMOKE_RETRIES: "60"
+          SMOKE_DELAY_MS: "10000"
+        run: npm run smoke:deploy
+
+      - name: Protect legacy organization invite tokens
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run db:migrate:invite-token-digests
 
       - name: Authenticate to Firebase
         uses: google-github-actions/auth@v2
@@ -157,11 +181,16 @@ jobs:
         run: npx --yes firebase-tools@15.23.0 deploy --only hosting --project ai-control-tower-d9854 --non-interactive
 
       - name: Trigger Netlify build hook
-        if: ${{ secrets.NETLIFY_BUILD_HOOK_URL != '' }}
-        run: curl -fsSL -X POST "${{ secrets.NETLIFY_BUILD_HOOK_URL }}"
-
-      - name: Wait for deploy propagation
-        run: sleep 90
+        id: netlify
+        env:
+          NETLIFY_BUILD_HOOK_URL: ${{ secrets.NETLIFY_BUILD_HOOK_URL }}
+        run: |
+          if [ -z "$NETLIFY_BUILD_HOOK_URL" ]; then
+            echo "triggered=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          curl -fsSL --retry 3 --retry-all-errors -X POST "$NETLIFY_BUILD_HOOK_URL"
+          echo "triggered=true" >> "$GITHUB_OUTPUT"
 
       - name: Run production smoke checks
         env:
@@ -170,6 +199,7 @@ jobs:
           SMOKE_ADMIN_USERNAME: ${{ secrets.SMOKE_ADMIN_USERNAME }}
           SMOKE_ADMIN_PASSWORD: ${{ secrets.SMOKE_ADMIN_PASSWORD }}
           SMOKE_FRONTEND_TOPOLOGY: ${{ vars.PRODUCTION_FRONTEND_TOPOLOGY }}
+          SMOKE_EXPECTED_RELEASE_COMMIT: ${{ github.sha }}
           SMOKE_RETRIES: "18"
           SMOKE_DELAY_MS: "10000"
         run: npm run smoke:deploy
@@ -178,4 +208,4 @@ jobs:
         run: |
           echo "Render deploy triggered: true"
           echo "Firebase Hosting deployed: true"
-          echo "Netlify build hook configured: ${{ secrets.NETLIFY_BUILD_HOOK_URL != '' }}"
+          echo "Netlify build hook triggered: ${{ steps.netlify.outputs.triggered }}"

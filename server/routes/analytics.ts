@@ -2,8 +2,6 @@ import type { Express } from "express";
 import { requireAuth } from "../auth";
 import { requireTenant, requireOrgRole } from "../tenant";
 import { storage } from "../storage";
-import { db } from "../db";
-import { organizations } from "@shared/schema";
 import { dashboardService } from "../services/dashboardService";
 import { analyticsService } from "../services/analyticsService";
 import { governanceMaturityService } from "../services/governanceMaturityService";
@@ -12,6 +10,7 @@ import { governanceEventService } from "../services/governanceEventService";
 import { activityService } from "../services/activityService";
 import { calendarService } from "../services/calendarService";
 import { auditService } from "../services/auditService";
+import { updateOrganizationSettingsForTenant } from "../services/organizationSettingsService";
 import {
   analyticsReportCadences,
   analyticsReportFormats,
@@ -25,7 +24,6 @@ import {
   sanitizeGovernanceAutomationConfig,
 } from "@shared/governance-automation-builder";
 import { analyticsReportPresetIds } from "@shared/analytics-overview";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   routeParam,
@@ -77,7 +75,8 @@ export function registerAnalyticsRoutes(app: Express): void {
       });
       res.json(trends);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      console.error("Failed to load dashboard trends:", err);
+      res.status(500).json({ message: "Failed to load dashboard trends" });
     }
   });
 
@@ -95,7 +94,8 @@ export function registerAnalyticsRoutes(app: Express): void {
         });
         res.json(overview);
       } catch (err: any) {
-        res.status(500).json({ message: err.message || "Failed to load analytics overview" });
+        console.error("Failed to load analytics overview:", err);
+        res.status(500).json({ message: "Failed to load analytics overview" });
       }
     },
   );
@@ -114,7 +114,8 @@ export function registerAnalyticsRoutes(app: Express): void {
         });
         res.json(assessment);
       } catch (err: any) {
-        res.status(500).json({ message: err.message || "Failed to load governance maturity assessment" });
+        console.error("Failed to load governance maturity assessment:", err);
+        res.status(500).json({ message: "Failed to load governance maturity assessment" });
       }
     },
   );
@@ -132,7 +133,8 @@ export function registerAnalyticsRoutes(app: Express): void {
         }
         res.json(getAnalyticsReportBuilderSettings(organization.settings));
       } catch (err: any) {
-        res.status(500).json({ message: err.message || "Failed to load report builder settings" });
+        console.error("Failed to load report builder settings:", err);
+        res.status(500).json({ message: "Failed to load report builder settings" });
       }
     },
   );
@@ -145,11 +147,6 @@ export function registerAnalyticsRoutes(app: Express): void {
     async (req, res) => {
       try {
         const parsed = analyticsReportBuilderUpdateSchema.parse(req.body);
-        const organization = await storage.getOrganizationById(req.tenant!.organizationId);
-        if (!organization) {
-          return res.status(404).json({ message: "Organization not found" });
-        }
-
         const normalizedPlans = parsed.plans.map((plan) => ({
           id: buildAnalyticsReportPlanId(plan.id ?? plan.name, `report-${Math.random().toString(36).slice(2, 8)}`),
           name: plan.name,
@@ -165,28 +162,27 @@ export function registerAnalyticsRoutes(app: Express): void {
           plans: normalizedPlans,
         });
 
-        const [updated] = await db
-          .update(organizations)
-          .set({
-            settings: applyAnalyticsReportBuilderSettings(organization.settings, nextConfig),
-            updatedAt: new Date(),
-          })
-          .where(eq(organizations.id, organization.id))
-          .returning({ settings: organizations.settings });
+        const updated = await updateOrganizationSettingsForTenant(
+          req.tenant!.organizationId,
+          (currentSettings) => applyAnalyticsReportBuilderSettings(currentSettings, nextConfig),
+        );
+        if (!updated) {
+          return res.status(404).json({ message: "Organization not found" });
+        }
 
         await auditService.createLog({
           organizationId: req.tenant!.organizationId,
           actor: req.user!,
           input: {
             entityType: "analytics_report_builder",
-            entityId: organization.id,
+            entityId: updated.organizationId,
             action: "updated",
             performedBy: req.user!.fullName,
             details: `Analytics report builder updated with ${nextConfig.plans.length} saved plan(s).`,
           },
         });
 
-        res.json(getAnalyticsReportBuilderSettings(updated?.settings ?? nextConfig));
+        res.json(getAnalyticsReportBuilderSettings(updated.settings));
       } catch (err: any) {
         res.status(400).json({ message: err.message || "Failed to update report builder settings" });
       }
@@ -200,31 +196,28 @@ export function registerAnalyticsRoutes(app: Express): void {
     requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner", "auditor"),
     async (req, res) => {
       try {
-        const organization = await storage.getOrganizationById(req.tenant!.organizationId);
-        if (!organization) {
+        const planId = buildAnalyticsReportPlanId(routeParam(req.params.planId), routeParam(req.params.planId));
+        const lastRunAt = new Date().toISOString();
+        const updated = await updateOrganizationSettingsForTenant(
+          req.tenant!.organizationId,
+          (currentSettings) => {
+            const current = getAnalyticsReportBuilderSettings(currentSettings);
+            if (!current.plans.some((plan: { id: string }) => plan.id === planId)) {
+              throw Object.assign(new Error("Report plan not found"), { status: 404 });
+            }
+
+            return applyAnalyticsReportBuilderSettings(currentSettings, {
+              ...current,
+              plans: current.plans.map((plan: { id: string; [k: string]: unknown }) =>
+                plan.id === planId ? { ...plan, lastRunAt } : plan,
+              ),
+            });
+          },
+        );
+        if (!updated) {
           return res.status(404).json({ message: "Organization not found" });
         }
-        const current = getAnalyticsReportBuilderSettings(organization.settings);
-        const planId = buildAnalyticsReportPlanId(routeParam(req.params.planId), routeParam(req.params.planId));
-        const planExists = current.plans.some((plan: { id: string }) => plan.id === planId);
-        if (!planExists) {
-          return res.status(404).json({ message: "Report plan not found" });
-        }
-
-        const updatedConfig = {
-          ...current,
-          plans: current.plans.map((plan: { id: string; [k: string]: unknown }) =>
-            plan.id === planId ? { ...plan, lastRunAt: new Date().toISOString() } : plan,
-          ),
-        };
-
-        await db
-          .update(organizations)
-          .set({
-            settings: applyAnalyticsReportBuilderSettings(organization.settings, updatedConfig),
-            updatedAt: new Date(),
-          })
-          .where(eq(organizations.id, organization.id));
+        const updatedConfig = getAnalyticsReportBuilderSettings(updated.settings);
 
         await auditService.createLog({
           organizationId: req.tenant!.organizationId,
@@ -243,7 +236,7 @@ export function registerAnalyticsRoutes(app: Express): void {
           plan: updatedConfig.plans.find((plan: { id: string }) => plan.id === planId) ?? null,
         });
       } catch (err: any) {
-        res.status(400).json({ message: err.message || "Failed to record report export" });
+        res.status(err.status ?? 400).json({ message: err.message || "Failed to record report export" });
       }
     },
   );
@@ -261,7 +254,8 @@ export function registerAnalyticsRoutes(app: Express): void {
         });
         res.json(data);
       } catch (err: any) {
-        res.status(500).json({ message: err.message || "Failed to load exit readiness" });
+        console.error("Failed to load exit readiness:", err);
+        res.status(500).json({ message: "Failed to load exit readiness" });
       }
     },
   );
@@ -275,7 +269,8 @@ export function registerAnalyticsRoutes(app: Express): void {
       });
       res.json(data);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      console.error("Failed to load activity dashboard:", err);
+      res.status(500).json({ message: "Failed to load activity dashboard" });
     }
   });
 
@@ -292,7 +287,8 @@ export function registerAnalyticsRoutes(app: Express): void {
         });
         res.json(feed);
       } catch (err: any) {
-        res.status(500).json({ message: err.message || "Failed to load governance events" });
+        console.error("Failed to load governance events:", err);
+        res.status(500).json({ message: "Failed to load governance events" });
       }
     },
   );
@@ -318,7 +314,8 @@ export function registerAnalyticsRoutes(app: Express): void {
         });
         res.json(result);
       } catch (err: any) {
-        res.status(500).json({ message: err.message || "Failed to queue governance event test" });
+        console.error("Failed to queue governance event test:", err);
+        res.status(500).json({ message: "Failed to queue governance event test" });
       }
     },
   );
@@ -336,7 +333,8 @@ export function registerAnalyticsRoutes(app: Express): void {
         }
         res.json(getGovernanceAutomationSettings(organization.settings));
       } catch (err: any) {
-        res.status(500).json({ message: err.message || "Failed to load governance automation config" });
+        console.error("Failed to load governance automation config:", err);
+        res.status(500).json({ message: "Failed to load governance automation config" });
       }
     },
   );
@@ -349,34 +347,28 @@ export function registerAnalyticsRoutes(app: Express): void {
     async (req, res) => {
       try {
         const parsed = governanceAutomationConfigSchema.parse(req.body);
-        const organization = await storage.getOrganizationById(req.tenant!.organizationId);
-        if (!organization) {
+        const nextConfig = sanitizeGovernanceAutomationConfig(parsed);
+        const updated = await updateOrganizationSettingsForTenant(
+          req.tenant!.organizationId,
+          (currentSettings) => applyGovernanceAutomationSettings(currentSettings, nextConfig),
+        );
+        if (!updated) {
           return res.status(404).json({ message: "Organization not found" });
         }
-
-        const nextConfig = sanitizeGovernanceAutomationConfig(parsed);
-        const [updated] = await db
-          .update(organizations)
-          .set({
-            settings: applyGovernanceAutomationSettings(organization.settings, nextConfig),
-            updatedAt: new Date(),
-          })
-          .where(eq(organizations.id, organization.id))
-          .returning({ settings: organizations.settings });
 
         await auditService.createLog({
           organizationId: req.tenant!.organizationId,
           actor: req.user!,
           input: {
             entityType: "governance_automation",
-            entityId: organization.id,
+            entityId: updated.organizationId,
             action: "config_updated",
             performedBy: req.user!.fullName,
             details: `Governance automation config updated in ${nextConfig.runMode} mode.`,
           },
         });
 
-        res.json(getGovernanceAutomationSettings(updated?.settings ?? nextConfig));
+        res.json(getGovernanceAutomationSettings(updated.settings));
       } catch (err: any) {
         res.status(400).json({ message: err.message || "Failed to update governance automation config" });
       }
@@ -396,7 +388,8 @@ export function registerAnalyticsRoutes(app: Express): void {
         });
         res.json(summary);
       } catch (err: any) {
-        res.status(500).json({ message: err.message || "Failed to load governance automation summary" });
+        console.error("Failed to load governance automation summary:", err);
+        res.status(500).json({ message: "Failed to load governance automation summary" });
       }
     },
   );
@@ -414,7 +407,8 @@ export function registerAnalyticsRoutes(app: Express): void {
         });
         res.json(result);
       } catch (err: any) {
-        res.status(500).json({ message: err.message || "Failed to run governance remediation sweep" });
+        console.error("Failed to run governance remediation sweep:", err);
+        res.status(500).json({ message: "Failed to run governance remediation sweep" });
       }
     },
   );
@@ -432,7 +426,8 @@ export function registerAnalyticsRoutes(app: Express): void {
       });
       res.json(events);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      console.error("Failed to load calendar events:", err);
+      res.status(500).json({ message: "Failed to load calendar events" });
     }
   });
 }

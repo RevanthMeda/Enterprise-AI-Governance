@@ -1,9 +1,29 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../db";
-import { jiraIntegrations, approvalWorkflows, type ApprovalWorkflow, type InsertJiraIntegration } from "@shared/schema";
-import { fetchWithTimeout } from "../http";
+import {
+  jiraIntegrations,
+  approvalWorkflows,
+  type ApprovalWorkflow,
+  type InsertJiraIntegration,
+  type JiraIntegration,
+} from "@shared/schema";
+import { getSanitizedOutboundErrorMessage, safeOutboundFetch } from "../safe-outbound-http";
+import {
+  PersistedSecretError,
+  encryptPersistedSecret,
+  integrationSecretPurpose,
+  mergePersistedSecret,
+  resolvePersistedSecret,
+  hasPersistedCredential,
+} from "../persisted-secret";
+import { assertCredentialOriginPreserved } from "../credential-origin";
+import {
+  jiraIntegrationClientView,
+  type JiraIntegrationClientView,
+} from "../integration-credential-views";
 
 const JIRA_REQUEST_TIMEOUT_MS = 10_000;
+const JIRA_MAX_RESPONSE_BYTES = 512 * 1024;
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
@@ -25,8 +45,13 @@ type JiraRemoteStatus = {
   category: string | null;
 };
 
+type JiraIntegrationPatch = Omit<InsertJiraIntegration, "organizationId" | "apiToken"> & {
+  apiToken?: string | null;
+  clearApiToken?: boolean;
+};
+
 export class JiraService {
-  async getIntegration(organizationId: string) {
+  private async getStoredIntegration(organizationId: string) {
     const [integration] = await db
       .select()
       .from(jiraIntegrations)
@@ -35,61 +60,120 @@ export class JiraService {
     return integration ?? null;
   }
 
-  async upsertIntegration(organizationId: string, input: Omit<InsertJiraIntegration, "organizationId">) {
-    const existing = await this.getIntegration(organizationId);
+  private async tryMigrateLegacyToken(integration: JiraIntegration): Promise<void> {
+    const purpose = integrationSecretPurpose.jiraApiToken(integration.organizationId);
+    const resolved = resolvePersistedSecret(integration.apiToken, purpose);
+    const legacyValue = integration.apiToken;
+    if (!resolved.isLegacyPlaintext || !resolved.plaintext || !legacyValue) return;
+
+    let encrypted: string;
+    try {
+      encrypted = encryptPersistedSecret(resolved.plaintext, purpose);
+    } catch (error) {
+      if (error instanceof PersistedSecretError) return;
+      throw error;
+    }
+
+    await db
+      .update(jiraIntegrations)
+      .set({ apiToken: encrypted, updatedAt: new Date() })
+      .where(and(eq(jiraIntegrations.id, integration.id), eq(jiraIntegrations.apiToken, legacyValue)));
+  }
+
+  private async getResolvedIntegration(organizationId: string): Promise<JiraIntegration | null> {
+    const integration = await this.getStoredIntegration(organizationId);
+    if (!integration) return null;
+    const resolved = resolvePersistedSecret(
+      integration.apiToken,
+      integrationSecretPurpose.jiraApiToken(organizationId),
+    );
+    if (resolved.isLegacyPlaintext) await this.tryMigrateLegacyToken(integration);
+    return { ...integration, apiToken: resolved.plaintext };
+  }
+
+  async getIntegration(organizationId: string): Promise<JiraIntegrationClientView | null> {
+    const integration = await this.getStoredIntegration(organizationId);
+    if (!integration) return null;
+    await this.tryMigrateLegacyToken(integration);
+    return jiraIntegrationClientView(integration);
+  }
+
+  async upsertIntegration(organizationId: string, input: JiraIntegrationPatch) {
+    const existing = await this.getStoredIntegration(organizationId);
+    assertCredentialOriginPreserved({
+      label: "Jira API",
+      currentUrl: existing?.baseUrl,
+      nextUrl: input.baseUrl,
+      hasCurrentCredential: hasPersistedCredential(existing?.apiToken),
+      replacementCredential: input.apiToken,
+      clearCredential: input.clearApiToken,
+    });
+    const apiToken = mergePersistedSecret({
+      currentValue: existing?.apiToken,
+      nextValue: input.apiToken,
+      clear: input.clearApiToken,
+      purpose: integrationSecretPurpose.jiraApiToken(organizationId),
+    });
+    const { clearApiToken: _clearApiToken, apiToken: _incomingApiToken, ...nonSecretInput } = input;
     if (existing) {
       const [updated] = await db
         .update(jiraIntegrations)
-        .set({ ...input, updatedAt: new Date() })
+        .set({ ...nonSecretInput, apiToken, updatedAt: new Date() })
         .where(eq(jiraIntegrations.organizationId, organizationId))
         .returning();
-      return updated;
+      return jiraIntegrationClientView(updated);
     }
 
     const [created] = await db
       .insert(jiraIntegrations)
-      .values({ ...input, organizationId })
+      .values({ ...nonSecretInput, apiToken, organizationId })
       .returning();
-    return created;
+    return jiraIntegrationClientView(created);
   }
 
   async testConnection(organizationId: string) {
-    const integration = await this.getIntegration(organizationId);
+    const integration = await this.getResolvedIntegration(organizationId);
     if (!integration || !integration.enabled || !integration.baseUrl || !integration.projectKey || !integration.userEmail || !integration.apiToken) {
       return { ok: false, message: "Integration is not fully configured" };
     }
 
-    const baseUrl = trimTrailingSlash(integration.baseUrl);
-    const response = await fetchWithTimeout(`${baseUrl}/rest/api/3/project/${integration.projectKey}`, {
-      timeoutMs: JIRA_REQUEST_TIMEOUT_MS,
-      timeoutMessage: "Jira connection test timed out",
-      headers: {
-        Authorization: buildAuthHeader(integration.userEmail, integration.apiToken),
-        Accept: "application/json",
-      },
-    });
+    try {
+      const baseUrl = trimTrailingSlash(integration.baseUrl);
+      const response = await safeOutboundFetch(`${baseUrl}/rest/api/3/project/${integration.projectKey}`, {
+        timeoutMs: JIRA_REQUEST_TIMEOUT_MS,
+        maxResponseBytes: JIRA_MAX_RESPONSE_BYTES,
+        headers: {
+          Authorization: buildAuthHeader(integration.userEmail, integration.apiToken),
+          Accept: "application/json",
+        },
+      });
 
-    const [updated] = await db
-      .update(jiraIntegrations)
-      .set({ lastTestedAt: new Date(), updatedAt: new Date() })
-      .where(eq(jiraIntegrations.organizationId, organizationId))
-      .returning();
+      const [updated] = await db
+        .update(jiraIntegrations)
+        .set({ lastTestedAt: new Date(), updatedAt: new Date() })
+        .where(eq(jiraIntegrations.organizationId, organizationId))
+        .returning();
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => response.statusText);
+      if (!response.ok) {
+        return {
+          ok: false,
+          message: `Jira test failed with status ${response.status}`,
+          integration: jiraIntegrationClientView(updated),
+        };
+      }
+
+      await response.json().catch(() => ({}));
+      return {
+        ok: true,
+        message: `Connected to project ${integration.projectKey}`,
+        integration: jiraIntegrationClientView(updated),
+      };
+    } catch (error) {
       return {
         ok: false,
-        message: text || `Jira test failed with status ${response.status}`,
-        integration: updated,
+        message: getSanitizedOutboundErrorMessage(error, "Jira connection test failed"),
       };
     }
-
-    const payload = await response.json().catch(() => ({}));
-    return {
-      ok: true,
-      message: `Connected to project ${payload?.key ?? integration.projectKey}`,
-      integration: updated,
-    };
   }
 
   async syncWorkflowIfNeeded(input: JiraSyncInput) {
@@ -106,7 +190,7 @@ export class JiraService {
       return { status: "linked" as const, issueKey: input.workflow.jiraIssueKey, issueUrl: input.workflow.jiraIssueUrl };
     }
 
-    const integration = await this.getIntegration(input.organizationId);
+    const integration = await this.getResolvedIntegration(input.organizationId);
     if (!integration || !integration.enabled || !integration.baseUrl || !integration.projectKey || !integration.userEmail || !integration.apiToken) {
       const [updated] = await db
         .update(approvalWorkflows)
@@ -142,10 +226,10 @@ export class JiraService {
         },
       };
 
-      const response = await fetchWithTimeout(`${baseUrl}/rest/api/3/issue`, {
+      const response = await safeOutboundFetch(`${baseUrl}/rest/api/3/issue`, {
         method: "POST",
         timeoutMs: JIRA_REQUEST_TIMEOUT_MS,
-        timeoutMessage: "Jira issue sync timed out",
+        maxResponseBytes: JIRA_MAX_RESPONSE_BYTES,
         headers: {
           Authorization: buildAuthHeader(integration.userEmail, integration.apiToken),
           Accept: "application/json",
@@ -155,13 +239,12 @@ export class JiraService {
       });
 
       if (!response.ok) {
-        const text = await response.text().catch(() => response.statusText);
         const [updated] = await db
           .update(approvalWorkflows)
           .set({ jiraSyncStatus: "error", updatedAt: new Date() })
           .where(and(eq(approvalWorkflows.organizationId, input.organizationId), eq(approvalWorkflows.id, input.workflow.id)))
           .returning();
-        return { status: "error" as const, message: text || `Jira sync failed with status ${response.status}`, workflow: updated };
+        return { status: "error" as const, message: `Jira sync failed with status ${response.status}`, workflow: updated };
       }
 
       const payload = await response.json().catch(() => ({}));
@@ -181,7 +264,7 @@ export class JiraService {
 
       return { status: "linked" as const, issueKey, issueUrl, workflow: updated };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Jira sync failed";
+      const message = getSanitizedOutboundErrorMessage(error, "Jira sync failed");
       const [updated] = await db
         .update(approvalWorkflows)
         .set({ jiraSyncStatus: "error", updatedAt: new Date() })
@@ -200,7 +283,7 @@ export class JiraService {
       };
     }
 
-    const integration = await this.getIntegration(organizationId);
+    const integration = await this.getResolvedIntegration(organizationId);
     if (!integration || !integration.enabled || !integration.baseUrl || !integration.userEmail || !integration.apiToken) {
       const [updated] = await db
         .update(approvalWorkflows)
@@ -216,11 +299,11 @@ export class JiraService {
 
     try {
       const baseUrl = trimTrailingSlash(integration.baseUrl);
-      const response = await fetchWithTimeout(
+      const response = await safeOutboundFetch(
         `${baseUrl}/rest/api/3/issue/${encodeURIComponent(workflow.jiraIssueKey)}?fields=status`,
         {
           timeoutMs: JIRA_REQUEST_TIMEOUT_MS,
-          timeoutMessage: "Jira issue status refresh timed out",
+          maxResponseBytes: JIRA_MAX_RESPONSE_BYTES,
           headers: {
             Authorization: buildAuthHeader(integration.userEmail, integration.apiToken),
             Accept: "application/json",
@@ -229,7 +312,6 @@ export class JiraService {
       );
 
       if (!response.ok) {
-        const text = await response.text().catch(() => response.statusText);
         const [updated] = await db
           .update(approvalWorkflows)
           .set({ jiraSyncStatus: "error", updatedAt: new Date() })
@@ -237,7 +319,7 @@ export class JiraService {
           .returning();
         return {
           status: "error" as const,
-          message: text || `Jira status refresh failed with status ${response.status}`,
+          message: `Jira status refresh failed with status ${response.status}`,
           workflow: updated,
         };
       }
@@ -270,7 +352,7 @@ export class JiraService {
         workflow: updated,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Jira status refresh failed";
+      const message = getSanitizedOutboundErrorMessage(error, "Jira status refresh failed");
       const [updated] = await db
         .update(approvalWorkflows)
         .set({ jiraSyncStatus: "error", updatedAt: new Date() })

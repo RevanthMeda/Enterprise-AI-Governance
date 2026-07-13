@@ -9,7 +9,12 @@ import { setupAuth, hashPassword } from "../server/auth";
 import { registerRoutes } from "../server/routes";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
+import { domainService } from "../server/services/domainService";
 import { memberships, organizations, users } from "../shared/schema";
+
+process.env.NODE_ENV = "test";
+process.env.ALLOW_INSECURE_SAML_TEST_FIXTURES = "true";
+process.env.ALLOW_INSECURE_OIDC_TEST_PROVIDER = "true";
 
 type ApiResponse = {
   status: number;
@@ -221,6 +226,9 @@ test("sso metadata/start/callback and local-login enforcement regression", async
       },
     });
     tracker.organizationIds.push(org.id);
+    await domainService.replaceAllowedDomains(org.id, [
+      { domain: "example.com", isVerified: true, verifiedAt: new Date() },
+    ]);
 
     const localPassword = "Str0ng!Passw0rd";
     const localUser = await storage.createUser({
@@ -347,10 +355,12 @@ test("sso metadata/start/callback and local-login enforcement regression", async
     const ssoCookieJitOn = cookieFromSetCookie(startForJitOn.setCookie);
     assert.ok(relayStateJitOn && ssoCookieJitOn);
 
+    // A top-level IdP return can land in a different CHIPS partition. The
+    // callback must recover its one-time state from the database, not from the
+    // session cookie issued while Firebase was the top-level site.
     const jitOnEmail = `jit-on-${suffix}@example.com`;
     const jitOnCallback = await apiRequest(baseUrl, "/api/auth/sso/callback", {
       method: "POST",
-      cookie: ssoCookieJitOn,
       body: {
         RelayState: relayStateJitOn,
         SAMLResponse: buildSamlResponseBase64({
@@ -405,28 +415,11 @@ test("sso metadata/start/callback and local-login enforcement regression", async
       `/api/auth/sso/start?org=${encodeURIComponent(org.slug)}&next=${encodeURIComponent("/")}`,
       { redirect: "manual" },
     );
-    assert.equal(startForStrict.status, 302);
-    const relayStateStrict = new URL(startForStrict.location ?? "").searchParams.get("relayState");
-    const ssoCookieStrict = cookieFromSetCookie(startForStrict.setCookie);
-    assert.ok(relayStateStrict && ssoCookieStrict);
-
-    const strictCallback = await apiRequest(baseUrl, "/api/auth/sso/callback", {
-      method: "POST",
-      cookie: ssoCookieStrict,
-      body: {
-        RelayState: relayStateStrict,
-        SAMLResponse: buildSamlResponseBase64({
-          email: `strict-${suffix}@example.com`,
-          fullName: "Strict Validation User",
-          audience: "urn:sso-regression:sp",
-        }),
-      },
-    });
-    assert.equal(strictCallback.status, 400, "Expected unsigned mock SAML response to fail strict validation");
+    assert.equal(startForStrict.status, 400, "Expected incomplete strict SAML configuration to fail closed");
     assert.match(
-      JSON.stringify(strictCallback.body),
-      /certificate|signature|validation/i,
-      "Expected strict validation error details in callback response",
+      JSON.stringify(startForStrict.body),
+      /certificate/i,
+      "Expected strict SAML start to require an IdP certificate",
     );
   } finally {
     if (server) {
@@ -486,6 +479,9 @@ test("oidc start/callback and local-login enforcement regression", async () => {
       },
     });
     tracker.organizationIds.push(org.id);
+    await domainService.replaceAllowedDomains(org.id, [
+      { domain: "example.com", isVerified: true, verifiedAt: new Date() },
+    ]);
 
     const localPassword = "Str0ng!Passw0rd";
     const localUser = await storage.createUser({
@@ -547,7 +543,9 @@ test("oidc start/callback and local-login enforcement regression", async () => {
     const callback = await apiRequest(
       baseUrl,
       `${callbackUrl.pathname}${callbackUrl.search}`,
-      { cookie: sessionCookie },
+      // Deliberately omit the start-session cookie. OIDC state, nonce, and the
+      // PKCE verifier must survive the cross-site round trip independently.
+      {},
     );
 
     assert.equal(callback.status, 200, "Expected OIDC callback to succeed");

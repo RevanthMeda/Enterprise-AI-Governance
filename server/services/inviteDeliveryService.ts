@@ -5,7 +5,8 @@ import {
   isProductionEnvironment,
   parseBooleanEnv,
 } from "../env";
-import { fetchWithTimeout } from "../http";
+import { escapeEmailHtml, sanitizeEmailText } from "../email-content";
+import { safeOutboundFetch } from "../safe-outbound-http";
 
 export type InviteDeliveryStatus = "queued" | "sent" | "webhook_sent" | "preview" | "failed";
 
@@ -16,7 +17,7 @@ export type InviteDeliveryResult = {
   jobId?: string;
 };
 
-type InviteDeliveryInput = {
+export type InviteDeliveryInput = {
   email: string;
   organizationName: string;
   role: string;
@@ -27,17 +28,20 @@ type InviteDeliveryInput = {
 };
 
 const DELIVERY_WEBHOOK_TIMEOUT_MS = 5_000;
+const SMTP_CONNECTION_TIMEOUT_MS = 15_000;
+const SMTP_SOCKET_TIMEOUT_MS = 30_000;
 
 export function buildInviteAcceptUrl(token: string): string {
-  return `${getPublicAppBaseUrl()}/invite/accept?token=${encodeURIComponent(token)}`;
+  // Keep bearer credentials out of the initial HTTP request, access logs, and
+  // Referer headers. The SPA captures and removes this fragment immediately.
+  return `${getPublicAppBaseUrl()}/invite/accept#token=${encodeURIComponent(token)}`;
 }
 
 export function shouldExposeInviteSecrets(): boolean {
-  if (parseBooleanEnv(process.env.EXPOSE_INVITE_TOKENS, false)) {
-    return true;
-  }
-
-  return !isProductionEnvironment();
+  return (
+    !isProductionEnvironment() &&
+    parseBooleanEnv(process.env.EXPOSE_INVITE_TOKENS, true)
+  );
 }
 
 function getSmtpConfig() {
@@ -75,35 +79,56 @@ export function getInviteDeliveryChannel(): InviteDeliveryResult["channel"] {
   return "none";
 }
 
-function buildInviteMail(input: InviteDeliveryInput) {
+export function isInviteDeliverySuccessful(
+  result: InviteDeliveryResult,
+  production = isProductionEnvironment(),
+): boolean {
+  if (result.status === "failed") return false;
+  // A preview is useful during development, but in production it means the
+  // recipient never received the invitation and the queued job must retry or
+  // surface as failed for an administrator.
+  if (production && result.status === "preview") return false;
+  return true;
+}
+
+export function buildInviteMail(input: InviteDeliveryInput) {
   const actionLabel = input.mode === "created" ? "You have been invited" : "Your invitation was refreshed";
-  const inviter = input.invitedByName ? ` by ${input.invitedByName}` : "";
-  const expiresAt = input.expiresAt.toLocaleString("en-GB", {
+  const organizationName = sanitizeEmailText(input.organizationName);
+  const role = sanitizeEmailText(input.role);
+  const inviteUrl = sanitizeEmailText(input.inviteUrl);
+  const invitedByName = sanitizeEmailText(input.invitedByName);
+  const inviter = invitedByName ? ` by ${invitedByName}` : "";
+  const expiresAt = sanitizeEmailText(input.expiresAt.toLocaleString("en-GB", {
     dateStyle: "medium",
     timeStyle: "short",
-  });
+  }));
+  const escapedOrganizationName = escapeEmailHtml(organizationName);
+  const escapedRole = escapeEmailHtml(role);
+  const escapedInviteUrl = escapeEmailHtml(inviteUrl);
+  const escapedInviter = invitedByName ? ` by ${escapeEmailHtml(invitedByName)}` : "";
+  const escapedExpiresAt = escapeEmailHtml(expiresAt);
 
   return {
-    subject: `${actionLabel} to ${input.organizationName} on AI CONTROL GRID`,
+    subject: `${actionLabel} to ${organizationName} on AI CONTROL GRID`,
     text: [
-      `${actionLabel} to join ${input.organizationName}${inviter}.`,
-      `Assigned role: ${input.role}.`,
-      `Accept the invite: ${input.inviteUrl}`,
+      `${actionLabel} to join ${organizationName}${inviter}.`,
+      `Assigned role: ${role}.`,
+      `Accept the invite: ${inviteUrl}`,
       `Expires at: ${expiresAt}`,
     ].join("\n"),
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
         <h2 style="margin:0 0 12px">AI CONTROL GRID invitation</h2>
-        <p>${actionLabel} to join <strong>${input.organizationName}</strong>${inviter}.</p>
-        <p><strong>Assigned role:</strong> ${input.role}</p>
-        <p><strong>Expires at:</strong> ${expiresAt}</p>
+        <p>${actionLabel} to join <strong>${escapedOrganizationName}</strong>${escapedInviter}.</p>
+        <p><strong>Assigned role:</strong> ${escapedRole}</p>
+        <p><strong>Expires at:</strong> ${escapedExpiresAt}</p>
         <p style="margin:20px 0">
-          <a href="${input.inviteUrl}" style="display:inline-block;padding:10px 16px;background:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:8px">
+          <a href="${escapedInviteUrl}" style="display:inline-block;padding:10px 16px;background:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:8px">
             Accept invite
           </a>
         </p>
         <p>If the button does not work, use this URL:</p>
-        <p><a href="${input.inviteUrl}">${input.inviteUrl}</a></p>
+        <p><a href="${escapedInviteUrl}">${escapedInviteUrl}</a></p>
       </div>
     `,
   };
@@ -120,6 +145,9 @@ export async function deliverInvite(input: InviteDeliveryInput): Promise<InviteD
         port: smtp.port,
         secure: smtp.secure,
         auth: smtp.auth,
+        connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+        greetingTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+        socketTimeout: SMTP_SOCKET_TIMEOUT_MS,
       });
 
       await transporter.sendMail({
@@ -147,10 +175,10 @@ export async function deliverInvite(input: InviteDeliveryInput): Promise<InviteD
   const webhookUrl = process.env.INVITE_WEBHOOK_URL;
   if (webhookUrl) {
     try {
-      const response = await fetchWithTimeout(webhookUrl, {
+      const response = await safeOutboundFetch(webhookUrl, {
         method: "POST",
         timeoutMs: DELIVERY_WEBHOOK_TIMEOUT_MS,
-        timeoutMessage: "Invite delivery webhook timed out",
+        maxResponseBytes: 64 * 1024,
         headers: {
           "Content-Type": "application/json",
         },

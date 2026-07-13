@@ -115,17 +115,7 @@ export class GovernanceEventService {
       }));
 
     const automationEvents: GovernanceEventFeedItem[] = jobs
-      .filter((job) => {
-        const payload =
-          job.payload && typeof job.payload === "object" && !Array.isArray(job.payload)
-            ? (job.payload as Record<string, unknown>)
-            : null;
-        const body =
-          payload?.body && typeof payload.body === "object" && !Array.isArray(payload.body)
-            ? (payload.body as Record<string, unknown>)
-            : null;
-        return body?.source === "governance_event";
-      })
+      .filter((job) => job.source === "governance_event")
       .slice(0, 6)
       .map((job) => ({
         id: `job-${job.id}`,
@@ -207,8 +197,13 @@ export class GovernanceEventService {
           organizationId: params.organizationId,
           createdBy: params.actor.id,
           payload: {
-            url: destination.webhookUrl!,
-            token: destination.authToken ?? null,
+            destination:
+              destination.id === "global-governance-webhook"
+                ? { kind: "governance_environment" as const }
+                : {
+                    kind: "organization_connector" as const,
+                    connectorId: destination.id,
+                  },
             body: {
               ...body,
               connector: {

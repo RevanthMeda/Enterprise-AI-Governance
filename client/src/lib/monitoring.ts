@@ -37,9 +37,9 @@ function postClientError(payload: ClientErrorPayload) {
     route: window.location.pathname,
     requestId: payload.requestId ?? lastRequestId,
     metadata: {
-      userAgent: navigator.userAgent,
-      href: window.location.href,
       ...(payload.metadata ?? {}),
+      userAgent: navigator.userAgent,
+      location: `${window.location.origin}${window.location.pathname}`,
     },
   });
 

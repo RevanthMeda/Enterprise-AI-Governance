@@ -89,14 +89,26 @@ async function getAllowedDomainsForOrganization(organization: Organization): Pro
   return getLegacyAllowedDomains(organization.settings);
 }
 
+async function getVerifiedDomainsForJit(organizationId: string): Promise<string[]> {
+  const storedDomains = await getStoredOrganizationDomains(organizationId);
+  return Array.from(
+    new Set(
+      storedDomains
+        .filter((entry) => entry.isVerified && entry.verifiedAt instanceof Date)
+        .map((entry) => normalizeDomain(entry.domain))
+        .filter(Boolean),
+    ),
+  );
+}
+
 async function isEmailAllowedForJitProvisioning(
   organization: Organization,
   email: string | null | undefined,
 ): Promise<boolean> {
-  const allowedDomains = await getAllowedDomainsForOrganization(organization);
-  if (allowedDomains.length === 0) {
-    return true;
-  }
+  // JIT is an account-creation boundary. Legacy settings and unverified
+  // domain rows may be displayed/configured, but they cannot authorize JIT.
+  const allowedDomains = await getVerifiedDomainsForJit(organization.id);
+  if (allowedDomains.length === 0) return false;
   if (!email) {
     return false;
   }
@@ -191,6 +203,7 @@ export const domainService = {
   normalizeInputDomains,
   extractEmailDomain,
   getAllowedDomainsForOrganization,
+  getVerifiedDomainsForJit,
   getStoredOrganizationDomains,
   isEmailAllowedForJitProvisioning,
   replaceAllowedDomains,

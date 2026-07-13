@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { requireAuth } from "../auth";
 import { requireOrgRole, requireTenant } from "../tenant";
 import { storage } from "../storage";
-import { insertApprovalWorkflowSchema } from "@shared/schema";
+import { insertApprovalWorkflowSchema, type ApprovalWorkflow } from "@shared/schema";
 import { workflowService } from "../services/workflowService";
 import { auditService } from "../services/auditService";
 import { jiraService } from "../services/jiraService";
@@ -37,6 +37,7 @@ export function registerApprovalsRoutes(app: Express): void {
     requireTenant,
     requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
     async (req, res) => {
+      let committedWorkflow: ApprovalWorkflow | undefined;
       try {
         const parsed = insertApprovalWorkflowSchema.parse(req.body);
         const wf = await workflowService.createWorkflow({
@@ -44,6 +45,7 @@ export function registerApprovalsRoutes(app: Express): void {
           actor: req.user!,
           input: parsed,
         });
+        committedWorkflow = wf;
         await auditService.createLog({
           organizationId: req.tenant!.organizationId,
           actor: req.user!,
@@ -114,15 +116,27 @@ export function registerApprovalsRoutes(app: Express): void {
           );
         }
         const finalWorkflow = jiraSync.workflow ?? wf;
+        committedWorkflow = finalWorkflow;
         await decisionAuditService.syncWorkflowTrace({
           organizationId: req.tenant!.organizationId,
           workflow: finalWorkflow,
           actorName: req.user!.fullName,
           systemRiskLevel: linkedSystem?.riskLevel ?? null,
         });
-        res.status(201).json(finalWorkflow);
+        return res.status(201).json(finalWorkflow);
       } catch (err: any) {
-        res.status(400).json({ message: err.message });
+        if (committedWorkflow) {
+          console.error("[approval] Post-create processing failed after the workflow was committed", {
+            workflowId: committedWorkflow.id,
+            requestId: req.requestId,
+            errorName: err instanceof Error ? err.name : "UnknownError",
+          });
+          return res.status(201).json({
+            ...committedWorkflow,
+            postCommitWarning: "Workflow saved, but one or more follow-up operations need review.",
+          });
+        }
+        return res.status(err?.status ?? 400).json({ message: err.message || "Failed to create workflow" });
       }
     },
   );
@@ -133,6 +147,7 @@ export function registerApprovalsRoutes(app: Express): void {
     requireTenant,
     requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
     async (req, res) => {
+      let committedWorkflow: ApprovalWorkflow | undefined;
       try {
         const updated = await workflowService.updateWorkflow({
           organizationId: req.tenant!.organizationId,
@@ -141,6 +156,7 @@ export function registerApprovalsRoutes(app: Express): void {
           input: req.body,
         });
         if (!updated) return res.status(404).json({ message: "Workflow not found" });
+        committedWorkflow = updated;
         const action = req.body.status === "approved" ? "approved" : req.body.status === "rejected" ? "rejected" : "status_changed";
         await auditService.createLog({
           organizationId: req.tenant!.organizationId,
@@ -194,15 +210,27 @@ export function registerApprovalsRoutes(app: Express): void {
           });
         }
         const finalWorkflow = jiraSync.workflow ?? updated;
+        committedWorkflow = finalWorkflow;
         await decisionAuditService.syncWorkflowTrace({
           organizationId: req.tenant!.organizationId,
           workflow: finalWorkflow,
           actorName: req.user!.fullName,
           systemRiskLevel: linkedSystem?.riskLevel ?? null,
         });
-        res.json(finalWorkflow);
+        return res.json(finalWorkflow);
       } catch (err: any) {
-        res.status(err?.status ?? 400).json({ message: err.message || "Failed to update workflow" });
+        if (committedWorkflow) {
+          console.error("[approval] Post-update processing failed after the workflow was committed", {
+            workflowId: committedWorkflow.id,
+            requestId: req.requestId,
+            errorName: err instanceof Error ? err.name : "UnknownError",
+          });
+          return res.status(200).json({
+            ...committedWorkflow,
+            postCommitWarning: "Workflow saved, but one or more follow-up operations need review.",
+          });
+        }
+        return res.status(err?.status ?? 400).json({ message: err.message || "Failed to update workflow" });
       }
     },
   );

@@ -59,7 +59,8 @@ import type {
 import { EvidenceUpload } from "@/components/evidence-upload";
 import { JiraTicketLink } from "@/components/jira-ticket-link";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiFetch, apiRequest, queryClient } from "@/lib/queryClient";
+import { throwIfResponseNotOk } from "@/lib/api-client";
 import { useAuth } from "@/hooks/use-auth";
 import { usePageCopy } from "@/lib/page-copy";
 import {
@@ -1491,38 +1492,81 @@ export default function SystemDetail() {
     "member";
   const canEditSystemGovernance = EDITABLE_ORG_ROLES.has(currentOrgRole);
 
-  const { data: system, isLoading: loadingSystem } = useQuery<AiSystem>({
+  const systemQuery = useQuery<AiSystem | null>({
     queryKey: ["/api/ai-systems", systemId],
     enabled: !!systemId,
+    queryFn: async ({ signal }) => {
+      const response = await apiFetch(`/api/ai-systems/${encodeURIComponent(systemId!)}`, { signal });
+      if (response.status === 404) {
+        return null;
+      }
+      await throwIfResponseNotOk(response);
+      return response.json();
+    },
   });
 
-  const { data: controls = [], isLoading: loadingControls } = useQuery<SystemControl[]>({
+  const controlsQuery = useQuery<SystemControl[]>({
     queryKey: ["/api/ai-systems", systemId, "controls"],
-    enabled: !!systemId,
+    enabled: Boolean(systemId && systemQuery.data),
   });
 
-  const { data: workflows = [], isLoading: loadingWorkflows } = useQuery<ApprovalWorkflow[]>({
+  const workflowsQuery = useQuery<ApprovalWorkflow[]>({
     queryKey: ["/api/ai-systems", systemId, "workflows"],
-    enabled: !!systemId,
+    enabled: Boolean(systemId && systemQuery.data),
   });
 
-  const { data: auditLogs = [], isLoading: loadingLogs } = useQuery<AuditLog[]>({
+  const auditLogsQuery = useQuery<AuditLog[]>({
     queryKey: ["/api/ai-systems", systemId, "audit-logs"],
-    enabled: !!systemId,
+    enabled: Boolean(systemId && systemQuery.data),
   });
 
-  const { data: allComplianceControls = [] } = useQuery<ComplianceControl[]>({
+  const complianceControlsQuery = useQuery<ComplianceControl[]>({
     queryKey: ["/api/compliance-controls"],
+    enabled: Boolean(systemId && systemQuery.data),
   });
 
-  const isLoading = loadingSystem || loadingControls || loadingWorkflows || loadingLogs;
+  const system = systemQuery.data;
+  const dependentDataIsLoading =
+    controlsQuery.isPending ||
+    workflowsQuery.isPending ||
+    auditLogsQuery.isPending ||
+    complianceControlsQuery.isPending;
+  const dependentDataError =
+    controlsQuery.isError ||
+    workflowsQuery.isError ||
+    auditLogsQuery.isError ||
+    complianceControlsQuery.isError;
 
-  if (isLoading) {
+  if (systemQuery.isLoading) {
     return (
       <div className="page-shell">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-32 w-full" />
         <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (systemQuery.isError) {
+    return (
+      <div className="mx-auto w-full max-w-[1360px] p-5 md:p-6">
+        <Button asChild variant="ghost" size="sm" data-testid="button-back-registry">
+          <Link href="/registry">
+            <ArrowLeft className="h-4 w-4 mr-1" /> Back to Registry
+          </Link>
+        </Button>
+        <Card className="mt-4 border-destructive/40">
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <AlertTriangle className="mb-3 h-12 w-12 text-destructive/60" />
+            <h3 className="mb-1 text-sm font-medium">System details could not be loaded</h3>
+            <p className="mb-4 max-w-lg text-xs text-muted-foreground">
+              The registry request failed. Retry before relying on this system's governance record.
+            </p>
+            <Button type="button" variant="outline" size="sm" onClick={() => void systemQuery.refetch()}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -1544,6 +1588,60 @@ export default function SystemDetail() {
       </div>
     );
   }
+
+  if (dependentDataError) {
+    return (
+      <div className="mx-auto w-full max-w-[1360px] p-5 md:p-6">
+        <Button asChild variant="ghost" size="sm" data-testid="button-back-registry">
+          <Link href="/registry">
+            <ArrowLeft className="h-4 w-4 mr-1" /> Back to Registry
+          </Link>
+        </Button>
+        <Card className="mt-4 border-destructive/40">
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <AlertTriangle className="mb-3 h-12 w-12 text-destructive/60" />
+            <h3 className="mb-1 text-sm font-medium">System governance data could not be fully loaded</h3>
+            <p className="mb-4 max-w-lg text-xs text-muted-foreground">
+              Controls, workflows, audit history, and compliance definitions must all be available before counts are shown or evidence is exported.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void Promise.all([
+                controlsQuery.refetch(),
+                workflowsQuery.refetch(),
+                auditLogsQuery.refetch(),
+                complianceControlsQuery.refetch(),
+              ])}
+            >
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (dependentDataIsLoading) {
+    return (
+      <div className="page-shell">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  const controls = controlsQuery.data ?? [];
+  const workflows = workflowsQuery.data ?? [];
+  const auditLogs = auditLogsQuery.data ?? [];
+  const allComplianceControls = complianceControlsQuery.data ?? [];
+  const canExportEvidence =
+    controlsQuery.data !== undefined &&
+    workflowsQuery.data !== undefined &&
+    auditLogsQuery.data !== undefined &&
+    complianceControlsQuery.data !== undefined;
 
   return (
     <div className="mx-auto w-full max-w-[1360px] space-y-5 p-5 md:p-6" data-testid="page-system-detail">
@@ -1571,8 +1669,12 @@ export default function SystemDetail() {
           variant="outline"
           size="sm"
           onClick={() => {
+            if (!canExportEvidence) {
+              return;
+            }
             void handleExportEvidence(system, controls, allComplianceControls, workflows, auditLogs);
           }}
+          disabled={!canExportEvidence}
           data-testid="button-export-evidence"
         >
           <Download className="h-3.5 w-3.5 mr-1.5" />

@@ -2,10 +2,17 @@ import type { Express } from "express";
 import { requireAuth } from "../auth";
 import { db } from "../db";
 import { leads, marketingEvents } from "@shared/schema";
-import { fetchWithTimeout } from "../http";
+import { safeOutboundFetch } from "../safe-outbound-http";
 import { isPlatformAdminUser } from "../auth-visibility";
 import { desc } from "drizzle-orm";
 import { z } from "zod";
+import {
+  enforceSharedRateLimits,
+  getRateLimitClientAddress,
+  globalRateLimitIdentity,
+  publicRateLimitPolicies,
+} from "../public-rate-limit";
+import { boundedPublicMetadataSchema, sanitizeTrackedLocation } from "../public-payload";
 
 const leadCaptureSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -29,11 +36,21 @@ const marketingEventSchema = z.object({
   source: z.string().trim().max(120).optional().nullable(),
   campaign: z.string().trim().max(120).optional().nullable(),
   referrer: z.string().trim().max(1000).optional().nullable(),
-  metadata: z.record(z.any()).optional(),
+  metadata: boundedPublicMetadataSchema.optional(),
 });
 
 export function registerMarketingRoutes(app: Express): void {
   app.post("/api/track", async (req, res) => {
+    const clientAddress = getRateLimitClientAddress(req);
+    if (
+      !(await enforceSharedRateLimits(req, res, [
+        { policy: publicRateLimitPolicies.trackGlobal, identity: globalRateLimitIdentity() },
+        { policy: publicRateLimitPolicies.trackIp, identity: [clientAddress] },
+      ]))
+    ) {
+      return;
+    }
+
     const parsed = marketingEventSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: "Invalid tracking payload" });
@@ -42,24 +59,46 @@ export function registerMarketingRoutes(app: Express): void {
     try {
       await db.insert(marketingEvents).values({
         eventName: parsed.data.eventName,
-        pagePath: parsed.data.pagePath ?? null,
+        pagePath: sanitizeTrackedLocation(parsed.data.pagePath),
         section: parsed.data.section ?? null,
         cta: parsed.data.cta ?? null,
         source: parsed.data.source ?? null,
         campaign: parsed.data.campaign ?? null,
-        referrer: parsed.data.referrer ?? null,
+        referrer: sanitizeTrackedLocation(parsed.data.referrer),
         metadata: parsed.data.metadata ?? {},
       });
       return res.status(201).json({ ok: true });
-    } catch (err: any) {
-      return res.status(500).json({ message: err.message || "Failed to record event" });
+    } catch (error) {
+      console.error("Failed to record marketing event:", error);
+      return res.status(500).json({ message: "Failed to record event" });
     }
   });
 
   app.post("/api/leads", async (req, res) => {
+    const clientAddress = getRateLimitClientAddress(req);
+    if (
+      !(await enforceSharedRateLimits(req, res, [
+        { policy: publicRateLimitPolicies.leadGlobal, identity: globalRateLimitIdentity() },
+        { policy: publicRateLimitPolicies.leadIp, identity: [clientAddress] },
+      ]))
+    ) {
+      return;
+    }
+
     const parsed = leadCaptureSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: "Invalid lead payload" });
+    }
+
+    if (
+      !(await enforceSharedRateLimits(req, res, [
+        {
+          policy: publicRateLimitPolicies.leadEmail,
+          identity: [parsed.data.workEmail.toLowerCase()],
+        },
+      ]))
+    ) {
+      return;
     }
 
     try {
@@ -82,10 +121,10 @@ export function registerMarketingRoutes(app: Express): void {
 
       const webhookUrl = process.env.LEAD_WEBHOOK_URL;
       if (webhookUrl) {
-        void fetchWithTimeout(webhookUrl, {
+        void safeOutboundFetch(webhookUrl, {
           method: "POST",
           timeoutMs: 5_000,
-          timeoutMessage: "Lead webhook timed out",
+          maxResponseBytes: 64 * 1024,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             event: "lead.created",
@@ -97,8 +136,9 @@ export function registerMarketingRoutes(app: Express): void {
       }
 
       return res.status(201).json({ ok: true, leadId: lead.id });
-    } catch (err: any) {
-      return res.status(500).json({ message: err.message || "Failed to capture lead" });
+    } catch (error) {
+      console.error("Failed to capture lead:", error);
+      return res.status(500).json({ message: "Failed to capture lead" });
     }
   });
 
@@ -110,8 +150,9 @@ export function registerMarketingRoutes(app: Express): void {
     try {
       const records = await db.select().from(leads).orderBy(desc(leads.createdAt));
       return res.json(records);
-    } catch (err: any) {
-      return res.status(500).json({ message: err.message || "Failed to load leads" });
+    } catch (error) {
+      console.error("Failed to load leads:", error);
+      return res.status(500).json({ message: "Failed to load leads" });
     }
   });
 }

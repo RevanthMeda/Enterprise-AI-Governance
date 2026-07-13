@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, NextFunction, Request, Response } from "express";
 import { requireAuth } from "../auth";
 import { requireOrgRole, requireTenant } from "../tenant";
 import { storage } from "../storage";
@@ -12,6 +12,130 @@ import { controlTowerGatewayService } from "../services/controlTowerGatewayServi
 import { upstreamProviderVaultService } from "../services/upstreamProviderVaultService";
 import { buildTelemetryAuditDetails, getErrorStatus, routeParam, recordAdminAuditEvent } from "./_helpers";
 import { z } from "zod";
+import {
+  enforceSharedRateLimits,
+  getRateLimitClientAddress,
+  globalRateLimitIdentity,
+} from "../public-rate-limit";
+import {
+  assertGatewayCostEnvelope,
+  KeyedConcurrencyGuard,
+  resourceRateLimitPolicies,
+} from "../resource-abuse";
+import { toPublicHttpError } from "../http-error-response";
+
+const gatewayConcurrencyGuard = new KeyedConcurrencyGuard(8, 64);
+
+function sendGatewayFailure(req: Request, res: Response, error: unknown) {
+  const reportedStatus = getErrorStatus(error, 502);
+  const status = reportedStatus >= 500 ? 502 : reportedStatus;
+  const code = status === 429 ? "UPSTREAM_RATE_LIMITED" : "GATEWAY_REQUEST_FAILED";
+  console.error("Gateway request failed", {
+    requestId: req.requestId ?? null,
+    route: req.path,
+    status: reportedStatus,
+    error: error instanceof Error ? error.message : "Unknown gateway error",
+  });
+  res.setHeader("X-Error-Code", code);
+  return res.status(status).json({
+    message: status === 429 ? "The upstream provider is temporarily rate limited" : "Gateway request failed",
+    code,
+  });
+}
+
+function sendTelemetryFailure(
+  req: Request,
+  res: Response,
+  error: unknown,
+  internalMessage: string,
+) {
+  const normalizedError = error instanceof z.ZodError
+    ? {
+        status: 400,
+        message: "Invalid telemetry request",
+        code: "INVALID_TELEMETRY_REQUEST",
+      }
+    : error;
+  const publicError = toPublicHttpError(normalizedError, {
+    fallbackStatus: 500,
+    internalMessage,
+    clientMessage: "Invalid telemetry request",
+  });
+  if (publicError.status >= 500) {
+    console.error(internalMessage, {
+      requestId: req.requestId ?? null,
+      route: req.path,
+      error: error instanceof Error ? error.message : "Unknown telemetry error",
+    });
+  }
+  res.setHeader("X-Error-Code", publicError.code);
+  return res.status(publicError.status).json({
+    message: publicError.message,
+    code: publicError.code,
+  });
+}
+
+async function enforceGatewayResourceControls(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  if (req.method !== "POST") return next();
+
+  const clientAddress = getRateLimitClientAddress(req);
+  if (!(await enforceSharedRateLimits(req, res, [
+    { policy: resourceRateLimitPolicies.gatewayGlobal, identity: globalRateLimitIdentity() },
+    { policy: resourceRateLimitPolicies.gatewayIp, identity: [clientAddress] },
+  ]))) return;
+
+  const rawTelemetryKey = req.get("x-telemetry-key") || req.get("x-aict-telemetry-key") || "";
+  if (!rawTelemetryKey) {
+    return res.status(401).json({ message: "Telemetry ingest key is required" });
+  }
+  const adapter = await telemetryAdapterService.resolveIngestKey(rawTelemetryKey.trim());
+  if (!adapter) {
+    return res.status(401).json({ message: "Invalid telemetry ingest key" });
+  }
+
+  if (!(await enforceSharedRateLimits(req, res, [
+    { policy: resourceRateLimitPolicies.gatewayOrg, identity: [adapter.organizationId] },
+    { policy: resourceRateLimitPolicies.gatewayAdapter, identity: [adapter.organizationId, adapter.id] },
+  ]))) return;
+
+  try {
+    assertGatewayCostEnvelope(req.body);
+  } catch (error) {
+    const publicError = toPublicHttpError(error, {
+      fallbackStatus: 500,
+      internalMessage: "Gateway request could not be validated",
+    });
+    res.setHeader("X-Error-Code", publicError.code);
+    return res.status(publicError.status).json({
+      message: publicError.message,
+      code: publicError.code,
+    });
+  }
+
+  const release = gatewayConcurrencyGuard.tryAcquire(adapter.id);
+  if (!release) {
+    res.setHeader("Retry-After", "1");
+    res.setHeader("X-Error-Code", "GATEWAY_CONCURRENCY_LIMIT");
+    return res.status(429).json({
+      message: "Too many gateway requests are already in progress. Try again shortly.",
+      code: "GATEWAY_CONCURRENCY_LIMIT",
+    });
+  }
+
+  let released = false;
+  const releaseOnce = () => {
+    if (released) return;
+    released = true;
+    release();
+  };
+  res.once("finish", releaseOnce);
+  res.once("close", releaseOnce);
+  return next();
+}
 
 const telemetryEventPayloadSchema = z.object({
   systemId: z.string().trim().max(120).optional().nullable(),
@@ -240,6 +364,8 @@ const telemetryPolicyImpactSchema = z.object({
 });
 
 export function registerTelemetryRoutes(app: Express): void {
+  app.use("/api/gateway", enforceGatewayResourceControls);
+
   app.get(
     "/api/telemetry/summary",
     requireAuth,
@@ -257,9 +383,17 @@ export function registerTelemetryRoutes(app: Express): void {
     requireTenant,
     requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead", "reviewer", "system_owner"),
     async (req, res) => {
+      const organizationId = req.tenant!.organizationId;
+      const clientAddress = getRateLimitClientAddress(req);
+      if (!(await enforceSharedRateLimits(req, res, [
+        { policy: resourceRateLimitPolicies.telemetrySessionOrg, identity: [organizationId] },
+        { policy: resourceRateLimitPolicies.telemetrySessionUser, identity: [organizationId, req.user!.id] },
+        { policy: resourceRateLimitPolicies.telemetrySessionIp, identity: [clientAddress] },
+      ]))) return;
+
       try {
         const parsed = telemetryEventPayloadSchema.parse(req.body);
-        const created = await telemetryService.createForOrg(req.tenant!.organizationId, {
+        const created = await telemetryService.createForOrg(organizationId, {
           ...parsed,
           systemId: parsed.systemId ?? null,
           modelName: parsed.modelName ?? null,
@@ -278,26 +412,21 @@ export function registerTelemetryRoutes(app: Express): void {
           detectedAt: parsed.detectedAt ?? new Date(),
         }, {
           collectionProfile: "full_evidence",
-        });
-        await auditService.createLog({
-          organizationId: req.tenant!.organizationId,
-          actor: req.user!,
-          input: {
-            entityType: "telemetry_event",
-            entityId: created.id,
+          audit: {
+            actor: req.user!,
             action: "created",
             performedBy: req.user!.fullName,
-            details: buildTelemetryAuditDetails({
+            buildDetails: (event) => buildTelemetryAuditDetails({
               sourceLabel: "Telemetry event",
-              eventType: created.eventType,
-              decision: created.actionTaken,
-              metadata: created.metadata,
+              eventType: event.eventType,
+              decision: event.actionTaken,
+              metadata: event.metadata,
             }),
           },
         });
         res.status(201).json(created);
-      } catch (err: any) {
-        res.status(getErrorStatus(err)).json({ message: err.message || "Failed to record telemetry event" });
+      } catch (error) {
+        return sendTelemetryFailure(req, res, error, "Failed to record telemetry event");
       }
     },
   );
@@ -391,6 +520,12 @@ export function registerTelemetryRoutes(app: Express): void {
 
   app.post(["/api/telemetry/sdk-ingest", "/api/telemetry/sdk-evaluate"], async (req, res) => {
     try {
+      const clientAddress = getRateLimitClientAddress(req);
+      if (!(await enforceSharedRateLimits(req, res, [
+        { policy: resourceRateLimitPolicies.telemetrySdkGlobal, identity: globalRateLimitIdentity() },
+        { policy: resourceRateLimitPolicies.telemetrySdkIp, identity: [clientAddress] },
+      ]))) return;
+
       const rawKey =
         req.get("x-telemetry-key") ||
         req.get("x-api-key") ||
@@ -405,6 +540,11 @@ export function registerTelemetryRoutes(app: Express): void {
       if (!adapter) {
         return res.status(401).json({ message: "Invalid telemetry ingest key" });
       }
+
+      if (!(await enforceSharedRateLimits(req, res, [
+        { policy: resourceRateLimitPolicies.telemetrySdkOrg, identity: [adapter.organizationId] },
+        { policy: resourceRateLimitPolicies.telemetrySdkAdapter, identity: [adapter.organizationId, adapter.id] },
+      ]))) return;
 
       const parsed = telemetryEventPayloadSchema.parse(req.body);
       const allowedGateways = Array.isArray(adapter.allowedGateways)
@@ -439,32 +579,27 @@ export function registerTelemetryRoutes(app: Express): void {
         detectedAt: parsed.detectedAt ?? new Date(),
       }, {
         collectionProfile: adapter.collectionProfile ?? "full_evidence",
-      });
-
-      await telemetryAdapterService.markUsed(adapter.id);
-      await auditService.createLog({
-        organizationId: adapter.organizationId,
-        actor: {
-          id: "telemetry-sdk",
-          username: "telemetry-sdk",
-          fullName: "Telemetry SDK",
-          email: null,
-          role: "system",
-        },
-        input: {
-          entityType: "telemetry_event",
-          entityId: created.id,
+        audit: {
+          actor: {
+            id: "telemetry-sdk",
+            username: "telemetry-sdk",
+            fullName: "Telemetry SDK",
+            email: null,
+            role: "system",
+          },
           action: "sdk_ingested",
           performedBy: "Telemetry SDK",
-          details: buildTelemetryAuditDetails({
+          buildDetails: (event) => buildTelemetryAuditDetails({
             sourceLabel: "Telemetry SDK event",
-            eventType: created.eventType,
-            gateway: parsed.gateway ?? null,
-            decision: created.actionTaken,
-            metadata: created.metadata,
+            eventType: event.eventType,
+            gateway: event.gateway,
+            decision: event.actionTaken,
+            metadata: event.metadata,
           }),
         },
       });
+
+      await telemetryAdapterService.markUsed(adapter.id);
 
       const metadata = created.metadata as Record<string, unknown>;
       return res.status(201).json({
@@ -561,8 +696,8 @@ export function registerTelemetryRoutes(app: Express): void {
             ? metadata.guard
             : null,
       });
-    } catch (err: any) {
-      return res.status(getErrorStatus(err)).json({ message: err.message || "Failed to ingest telemetry event" });
+    } catch (error) {
+      return sendTelemetryFailure(req, res, error, "Failed to ingest telemetry event");
     }
   });
 
@@ -666,7 +801,7 @@ export function registerTelemetryRoutes(app: Express): void {
       }
       return res.status(result.upstreamStatus).json(result.upstreamJson);
     } catch (err: any) {
-      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+      return sendGatewayFailure(req, res, err);
     }
   });
 
@@ -770,7 +905,7 @@ export function registerTelemetryRoutes(app: Express): void {
       }
       return res.status(result.upstreamStatus).json(result.upstreamJson);
     } catch (err: any) {
-      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+      return sendGatewayFailure(req, res, err);
     }
   });
 
@@ -844,7 +979,7 @@ export function registerTelemetryRoutes(app: Express): void {
       res.setHeader("x-aict-telemetry-event-id", postflightDecision.id);
       return res.status(result.upstreamStatus).json(result.upstreamJson);
     } catch (err: any) {
-      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+      return sendGatewayFailure(req, res, err);
     }
   });
 
@@ -925,7 +1060,7 @@ export function registerTelemetryRoutes(app: Express): void {
       res.setHeader("x-aict-telemetry-event-id", postflightDecision.id);
       return res.status(result.upstreamStatus).json(result.upstreamJson);
     } catch (err: any) {
-      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+      return sendGatewayFailure(req, res, err);
     }
   });
 
@@ -1014,7 +1149,7 @@ export function registerTelemetryRoutes(app: Express): void {
       res.setHeader("x-aict-telemetry-event-id", postflightDecision.id);
       return res.status(result.upstreamStatus).json(result.upstreamJson);
     } catch (err: any) {
-      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+      return sendGatewayFailure(req, res, err);
     }
   });
 
@@ -1103,7 +1238,7 @@ export function registerTelemetryRoutes(app: Express): void {
       res.setHeader("x-aict-telemetry-event-id", postflightDecision.id);
       return res.status(result.upstreamStatus).json(result.upstreamJson);
     } catch (err: any) {
-      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+      return sendGatewayFailure(req, res, err);
     }
   });
 
@@ -1181,7 +1316,7 @@ export function registerTelemetryRoutes(app: Express): void {
       res.setHeader("x-aict-telemetry-event-id", postflightDecision.id);
       return res.status(result.upstreamStatus).json(result.upstreamJson);
     } catch (err: any) {
-      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+      return sendGatewayFailure(req, res, err);
     }
   });
 
@@ -1259,7 +1394,7 @@ export function registerTelemetryRoutes(app: Express): void {
       }
       return res.status(result.upstreamStatus).json(result.upstreamJson);
     } catch (err: any) {
-      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+      return sendGatewayFailure(req, res, err);
     }
   });
 
@@ -1337,7 +1472,7 @@ export function registerTelemetryRoutes(app: Express): void {
       }
       return res.status(result.upstreamStatus).json(result.upstreamJson);
     } catch (err: any) {
-      return res.status(err?.status ?? 400).json(err?.responseBody ?? { message: err.message || "Gateway request failed" });
+      return sendGatewayFailure(req, res, err);
     }
   });
 
@@ -1665,7 +1800,8 @@ export function registerTelemetryRoutes(app: Express): void {
         });
         return res.json(recommendations);
       } catch (err: any) {
-        return res.status(500).json({ message: err.message || "Failed to load telemetry policy recommendations" });
+        console.error("Failed to load telemetry policy recommendations:", err);
+        return res.status(500).json({ message: "Failed to load telemetry policy recommendations" });
       }
     },
   );

@@ -8,6 +8,7 @@ const DEFAULT_CSRF_EXEMPT_PATHS = new Set([
   "/api/auth/forgot-password",
   "/api/auth/reset-password",
   "/api/auth/sso/callback",
+  "/api/auth/sso/exchange",
 ]);
 const CSRF_TOKEN_ISSUING_EXEMPT_PATHS = new Set([
   "/api/auth/login",

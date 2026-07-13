@@ -37,3 +37,20 @@ test("evidence actions are named and visible to keyboard focus", async () => {
   assert.match(evidence, /aria-label={`Delete \$\{file\.fileName\}`}/);
   assert.match(evidence, /type="button"[\s\S]*?button-delete-evidence/);
 });
+
+test("evidence dropzone supports keyboard file selection", async () => {
+  const evidence = await readFile("client/src/components/evidence-upload.tsx", "utf8");
+  const dropzoneStart = evidence.indexOf('className={`border-2 border-dashed');
+  const dropzoneEnd = evidence.indexOf('data-testid="dropzone-evidence"', dropzoneStart);
+  assert.ok(dropzoneStart >= 0 && dropzoneEnd > dropzoneStart, "evidence dropzone could not be located");
+  const dropzone = evidence.slice(dropzoneStart, dropzoneEnd + 40);
+
+  assert.match(dropzone, /role="button"/);
+  assert.match(dropzone, /tabIndex=\{0\}/);
+  assert.match(dropzone, /aria-label="Upload evidence files"/);
+  assert.match(dropzone, /onKeyDown=/);
+  assert.match(dropzone, /event\.key === "Enter"/);
+  assert.match(dropzone, /event\.key === " "/);
+  assert.match(dropzone, /event\.preventDefault\(\)/);
+  assert.match(dropzone, /fileInputRef\.current\?\.click\(\)/);
+});

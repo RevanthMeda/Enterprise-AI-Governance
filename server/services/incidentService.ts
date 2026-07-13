@@ -2,6 +2,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { aiIncidents, type AiIncident, type InsertAiIncident } from "@shared/schema";
 import { storage } from "../storage";
+import { assertTenantAttribution } from "./tenantAttribution";
 
 type IncidentFilters = {
   status?: string;
@@ -325,6 +326,20 @@ export class IncidentService {
   }
 
   async createForOrg(organizationId: string, input: Omit<InsertAiIncident, "organizationId">): Promise<AiIncident> {
+    const [system, workflow] = await Promise.all([
+      input.systemId ? storage.getAiSystemById(organizationId, input.systemId) : Promise.resolve(undefined),
+      input.workflowId
+        ? storage.getApprovalWorkflowById(organizationId, input.workflowId)
+        : Promise.resolve(undefined),
+    ]);
+    assertTenantAttribution({
+      subject: "Incident",
+      requestedSystemId: input.systemId,
+      requestedWorkflowId: input.workflowId,
+      system,
+      workflow,
+    });
+
     const playbookTemplate = defaultPlaybooks[input.category] ?? defaultPlaybooks.reliability;
     const detectedAt = input.detectedAt ?? new Date();
     const dueAt = input.dueAt ?? new Date(detectedAt.getTime() + playbookTemplate.targetContainmentHours * 60 * 60 * 1000);

@@ -1,6 +1,7 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
+  aiIncidents,
   aiTelemetryEvents,
   type AiIncident,
   type AiSystem,
@@ -27,7 +28,11 @@ import { storage } from "../storage";
 import { agentGovernanceService } from "./agentGovernanceService";
 import { telemetryPolicyService } from "./telemetryPolicyService";
 import { riskAssessmentService } from "./riskAssessmentService";
-import { auditService } from "./auditService";
+import {
+  auditService,
+  type AuditActor,
+  type AuditLogTransaction,
+} from "./auditService";
 import { autoDiscoveryService } from "./autoDiscoveryService";
 import { threatIntelligenceService } from "./threatIntelligenceService";
 import {
@@ -70,6 +75,40 @@ import {
   runGovernanceCritic,
   applyGovernanceCritic,
 } from "./telemetryGovernanceCriticService";
+import {
+  buildTelemetryIncidentDedupeIdentity,
+} from "./telemetryIncidentDedupe";
+import { assertTenantAttribution } from "./tenantAttribution";
+
+type TelemetryCreateAudit = {
+  actor: AuditActor;
+  action: string;
+  performedBy: string;
+  buildDetails: (event: AiTelemetryEvent) => string;
+};
+
+type TelemetryCreateOptions = {
+  collectionProfile?: TelemetryCollectionProfile;
+  audit?: TelemetryCreateAudit;
+};
+
+type ResolvedTelemetryIncidentAssignment = Awaited<
+  ReturnType<typeof incidentService.resolveDefaultAssignmentForOrg>
+>;
+
+type TelemetryIncidentEscalation = {
+  incident: AiIncident;
+  created: boolean;
+  notifyAssignedOwner: boolean;
+};
+
+const runtimeTelemetryActor: AuditActor = {
+  id: "runtime-telemetry-engine",
+  username: "runtime_telemetry_engine",
+  fullName: "Runtime Telemetry Engine",
+  email: null,
+  role: "system",
+};
 
 export class TelemetryService {
   async listForOrg(organizationId: string, limit = 50) {
@@ -84,19 +123,23 @@ export class TelemetryService {
   async createForOrg(
     organizationId: string,
     input: Omit<InsertAiTelemetryEvent, "organizationId">,
-    options?: { collectionProfile?: TelemetryCollectionProfile },
+    options?: TelemetryCreateOptions,
   ): Promise<AiTelemetryEvent> {
     const metadata = getMetadataRecord(input.metadata);
     const system = input.systemId ? await storage.getAiSystemById(organizationId, input.systemId) : undefined;
     const workflowId = getRuntimeWorkflowId(input);
     const linkedWorkflow =
-      system && workflowId
+      workflowId
         ? await storage.getApprovalWorkflowById(organizationId, workflowId)
         : undefined;
-    const workflow =
-      linkedWorkflow && system && linkedWorkflow.systemId === system.id
-        ? linkedWorkflow
-        : undefined;
+    assertTenantAttribution({
+      subject: "Telemetry event",
+      requestedSystemId: input.systemId,
+      requestedWorkflowId: workflowId,
+      system,
+      workflow: linkedWorkflow,
+    });
+    const workflow = linkedWorkflow;
     const resolvedSourceReferences = mergeSourceReferences({
       explicitReferences: metadata.sourceReferences ?? metadata.citationSources,
       systemCatalog: system?.sourceCatalog,
@@ -339,49 +382,123 @@ export class TelemetryService {
       ...(guardResult.guardMetadata ? { guard: guardResult.guardMetadata } : {}),
     };
 
-    const [created] = await db
-      .insert(aiTelemetryEvents)
-      .values({
-        ...sanitizedInput,
-        organizationId,
-        severity: evaluation.severity,
-        safetySignals: sanitizedInput.safetySignals ?? getStringArray(metadata.safetySignals ?? metadata.safetyFlags),
-        piiFlags: sanitizedInput.piiFlags ?? getStringArray(metadata.piiFlags),
-        toxicityScore: sanitizedInput.toxicityScore ?? getNumberValue(metadata.toxicityScore),
-        runtimeContext: sanitizeRuntimeContext(sanitizedInput.runtimeContext, collectionProfile),
-        correlationId: sanitizedInput.correlationId ?? null,
-        actionTaken: evaluation.decision,
-        blocked: evaluation.shouldBlock,
-        metadata: enrichedMetadata,
-      })
-      .returning();
+    const resolvedIncidentAssignment = evaluation.shouldEscalateIncident
+      ? await incidentService.resolveDefaultAssignmentForOrg(
+          organizationId,
+          evaluation.incidentCategory,
+          sanitizedInput.systemId ?? null,
+        )
+      : null;
+    const telemetryAudit = options?.audit ?? {
+      actor: runtimeTelemetryActor,
+      action: "telemetry_evaluated",
+      performedBy: runtimeTelemetryActor.fullName,
+      buildDetails: (event: AiTelemetryEvent) =>
+        `Runtime telemetry event "${event.eventType}" recorded with decision "${event.actionTaken}".`,
+    };
 
-    if (evaluation.shouldNotify) {
-      await this.notifyOperatorsForThresholdBreach(organizationId, created, evaluation);
-    }
+    const persisted = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(aiTelemetryEvents)
+        .values({
+          ...sanitizedInput,
+          organizationId,
+          severity: evaluation.severity,
+          safetySignals: sanitizedInput.safetySignals ?? getStringArray(metadata.safetySignals ?? metadata.safetyFlags),
+          piiFlags: sanitizedInput.piiFlags ?? getStringArray(metadata.piiFlags),
+          toxicityScore: sanitizedInput.toxicityScore ?? getNumberValue(metadata.toxicityScore),
+          runtimeContext: sanitizeRuntimeContext(sanitizedInput.runtimeContext, collectionProfile),
+          correlationId: sanitizedInput.correlationId ?? null,
+          actionTaken: evaluation.decision,
+          blocked: evaluation.shouldBlock,
+          metadata: enrichedMetadata,
+        })
+        .returning();
 
-    let finalEvent = created;
+      let finalEvent = created;
+      let escalation: TelemetryIncidentEscalation | null = null;
 
-    if (evaluation.shouldEscalateIncident) {
-      const incidentId = await this.escalateThresholdBreach(organizationId, created, evaluation);
-      if (incidentId) {
-        const [updated] = await db
+      if (evaluation.shouldEscalateIncident) {
+        escalation = await this.escalateThresholdBreach(
+          tx,
+          organizationId,
+          created,
+          evaluation,
+          resolvedIncidentAssignment,
+        );
+        const [updated] = await tx
           .update(aiTelemetryEvents)
           .set({
             metadata: {
-              ...enrichedMetadata,
-              escalatedIncidentId: incidentId,
+              ...getMetadataRecord(created.metadata),
+              escalatedIncidentId: escalation.incident.id,
             },
           })
-          .where(eq(aiTelemetryEvents.id, created.id))
+          .where(
+            and(
+              eq(aiTelemetryEvents.organizationId, organizationId),
+              eq(aiTelemetryEvents.id, created.id),
+            ),
+          )
           .returning();
+        if (!updated) {
+          throw new Error("Telemetry event disappeared while linking its escalated incident");
+        }
         finalEvent = updated;
+      }
+
+      await auditService.createLogInTransaction(tx, {
+        organizationId,
+        actor: telemetryAudit.actor,
+        input: {
+          entityType: "telemetry_event",
+          entityId: finalEvent.id,
+          action: telemetryAudit.action,
+          performedBy: telemetryAudit.performedBy,
+          details: telemetryAudit.buildDetails(finalEvent),
+        },
+      });
+
+      if (escalation) {
+        await auditService.createLogInTransaction(tx, {
+          organizationId,
+          actor: telemetryAudit.actor,
+          input: {
+            entityType: "ai_incident",
+            entityId: escalation.incident.id,
+            action: escalation.created ? "telemetry_incident_created" : "telemetry_incident_updated",
+            performedBy: telemetryAudit.performedBy,
+            details: `Telemetry event ${finalEvent.id} ${escalation.created ? "created" : "updated"} active incident "${escalation.incident.title}".`,
+          },
+        });
+      }
+
+      return { event: finalEvent, escalation };
+    });
+
+    const postCommitResults = await Promise.allSettled([
+      evaluation.shouldNotify
+        ? this.notifyOperatorsForThresholdBreach(organizationId, persisted.event, evaluation)
+        : Promise.resolve(),
+      persisted.escalation?.notifyAssignedOwner
+        ? this.notifyAssignedIncidentOwner(organizationId, persisted.escalation.incident)
+        : Promise.resolve(),
+      this.maybeTriggerAutoReassessment(organizationId, persisted.event, evaluation),
+    ]);
+    for (const result of postCommitResults) {
+      if (result.status === "rejected") {
+        // The telemetry event, incident link, and audit evidence are already
+        // committed. A secondary notification/reassessment failure must not
+        // make the caller retry and create a duplicate event.
+        console.error("[telemetry] Post-commit processing failed", {
+          organizationId,
+          eventId: persisted.event.id,
+          errorName: result.reason instanceof Error ? result.reason.name : "UnknownError",
+        });
       }
     }
 
-    await this.maybeTriggerAutoReassessment(organizationId, finalEvent, evaluation);
-
-    return finalEvent;
+    return persisted.event;
   }
 
   private async applyAdvancedGuards(
@@ -830,12 +947,30 @@ export class TelemetryService {
   }
 
   private async escalateThresholdBreach(
+    tx: AuditLogTransaction,
     organizationId: string,
     event: AiTelemetryEvent,
     evaluation: ThresholdEvaluation,
-  ) {
+    resolvedAssignment: ResolvedTelemetryIncidentAssignment,
+  ): Promise<TelemetryIncidentEscalation> {
     const eventMetadata = getMetadataRecord(event.metadata);
+    const incidentDedupe = buildTelemetryIncidentDedupeIdentity({
+      organizationId,
+      systemId: event.systemId,
+      category: evaluation.incidentCategory,
+      eventType: event.eventType,
+      gateway: event.gateway,
+      correlationId: event.correlationId,
+      explicitIncidentKey:
+        getStringValue(eventMetadata.incidentDedupeKey) ??
+        getStringValue(eventMetadata.incidentKey),
+      thresholdBreaches: evaluation.thresholdBreaches,
+      reasonCodes: evaluation.reasonCodes,
+    });
     const incidentPlaybookEvidence = {
+      telemetryIncidentDedupeKey: incidentDedupe.key,
+      telemetryIncidentDedupeVersion: 1,
+      telemetryIncidentDedupeSource: incidentDedupe.source,
       decision: evaluation.decision,
       decisionSummary: evaluation.decisionSummary,
       thresholdBreaches: evaluation.thresholdBreaches,
@@ -876,30 +1011,111 @@ export class TelemetryService {
       telemetryEventId: event.id,
       correlationId: event.correlationId ?? null,
     };
-    const openIncidents = await incidentService.listForOrg(organizationId, { status: "open" });
-    const duplicate = openIncidents.find(
-      (incident) =>
-        incident.systemId === (event.systemId ?? null) &&
-        incident.category === evaluation.incidentCategory &&
-        incident.title === `Telemetry threshold breach: ${event.eventType}`,
+    const incidentTitle = `Telemetry threshold breach: ${event.eventType}`;
+
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${incidentDedupe.key}, 0))`,
     );
 
+    const systemScopeCondition = event.systemId
+      ? eq(aiIncidents.systemId, event.systemId)
+      : isNull(aiIncidents.systemId);
+    const [duplicate] = await tx
+      .select()
+      .from(aiIncidents)
+      .where(
+        and(
+          eq(aiIncidents.organizationId, organizationId),
+          inArray(aiIncidents.status, ["open", "contained"]),
+          or(
+            sql`${aiIncidents.playbook} ->> 'telemetryIncidentDedupeKey' = ${incidentDedupe.key}`,
+            and(
+              sql`${aiIncidents.playbook} ->> 'telemetryIncidentDedupeKey' is null`,
+              systemScopeCondition,
+              eq(aiIncidents.category, evaluation.incidentCategory),
+              eq(aiIncidents.title, incidentTitle),
+            ),
+          ),
+        ),
+      )
+      .orderBy(desc(aiIncidents.updatedAt))
+      .limit(1);
+
     if (duplicate) {
-      const resolvedAssignment = duplicate.owner
-        ? null
-        : await incidentService.resolveDefaultAssignmentForOrg(
-            organizationId,
-            evaluation.incidentCategory,
-            event.systemId ?? null,
-          );
-      const updatedIncident = await incidentService.updateForOrg(organizationId, duplicate.id, {
+      const assignmentAdded = Boolean(
+        !duplicate.owner &&
+        !incidentService.getAssignmentMetadata(duplicate.playbook) &&
+        resolvedAssignment,
+      );
+      const [updatedIncident] = await tx
+        .update(aiIncidents)
+        .set({
+          severity: evaluation.severity === "critical" ? "critical" : "high",
+          description: `${event.summary}\n\nThreshold breaches: ${evaluation.thresholdBreaches.join(", ")}`,
+          playbook: {
+            ...(duplicate.playbook ?? {}),
+            targetContainmentHours: 4,
+            ...incidentPlaybookEvidence,
+            ...(assignmentAdded && resolvedAssignment
+              ? {
+                  assignment: {
+                    autoAssigned: true,
+                    ownerUserId: resolvedAssignment.ownerUserId,
+                    owner: resolvedAssignment.owner,
+                    ownerRole: resolvedAssignment.ownerRole,
+                    assignedAt: new Date().toISOString(),
+                  },
+                }
+              : {}),
+            steps: [
+              "Freeze or narrow the affected model release or gateway route.",
+              "Review prompt, output, context, and threshold evidence captured with the event.",
+              "Confirm whether customer, safety, privacy, or fairness impact occurred.",
+              "Document containment and assign post-incident review owner.",
+            ],
+          },
+          owner: duplicate.owner ?? resolvedAssignment?.owner ?? null,
+          escalatedTo:
+            duplicate.escalatedTo ??
+            resolvedAssignment?.escalatedTo ??
+            "System owner, compliance lead, and governance operations",
+          dueAt: new Date((event.detectedAt ?? new Date()).getTime() + 4 * 60 * 60 * 1000),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(aiIncidents.organizationId, organizationId),
+            eq(aiIncidents.id, duplicate.id),
+          ),
+        )
+        .returning();
+      if (!updatedIncident) {
+        throw new Error("Active incident disappeared while linking telemetry evidence");
+      }
+      return {
+        incident: updatedIncident,
+        created: false,
+        notifyAssignedOwner: assignmentAdded,
+      };
+    }
+
+    const detectedAt = event.detectedAt ?? new Date();
+    const dueAt = new Date(detectedAt.getTime() + 4 * 60 * 60 * 1000);
+    const [created] = await tx
+      .insert(aiIncidents)
+      .values({
+        organizationId,
+        systemId: event.systemId ?? null,
+        workflowId: null,
+        title: incidentTitle,
+        category: evaluation.incidentCategory,
         severity: evaluation.severity === "critical" ? "critical" : "high",
+        status: "open",
         description: `${event.summary}\n\nThreshold breaches: ${evaluation.thresholdBreaches.join(", ")}`,
         playbook: {
-          ...(duplicate.playbook ?? {}),
           targetContainmentHours: 4,
           ...incidentPlaybookEvidence,
-          ...(!incidentService.getAssignmentMetadata(duplicate.playbook) && resolvedAssignment
+          ...(resolvedAssignment
             ? {
                 assignment: {
                   autoAssigned: true,
@@ -917,46 +1133,21 @@ export class TelemetryService {
             "Document containment and assign post-incident review owner.",
           ],
         },
-        owner: duplicate.owner ?? resolvedAssignment?.owner ?? null,
-        escalatedTo: duplicate.escalatedTo ?? resolvedAssignment?.escalatedTo ?? "System owner, compliance lead, and governance operations",
-        dueAt: new Date((event.detectedAt ?? new Date()).getTime() + 4 * 60 * 60 * 1000),
-      });
-      if (!duplicate.owner && updatedIncident) {
-        await this.notifyAssignedIncidentOwner(organizationId, updatedIncident);
-      }
-      return duplicate.id;
-    }
+        owner: resolvedAssignment?.owner ?? null,
+        escalatedTo: "System owner, compliance lead, and governance operations",
+        detectedAt,
+        dueAt,
+        containedAt: null,
+        resolvedAt: null,
+        updatedAt: new Date(),
+      })
+      .returning();
 
-    const detectedAt = event.detectedAt ?? new Date();
-    const dueAt = new Date(detectedAt.getTime() + 4 * 60 * 60 * 1000);
-    const created = await incidentService.createForOrg(organizationId, {
-      systemId: event.systemId ?? null,
-      workflowId: null,
-      title: `Telemetry threshold breach: ${event.eventType}`,
-      category: evaluation.incidentCategory,
-      severity: evaluation.severity === "critical" ? "critical" : "high",
-      status: "open",
-      description: `${event.summary}\n\nThreshold breaches: ${evaluation.thresholdBreaches.join(", ")}`,
-      playbook: {
-        targetContainmentHours: 4,
-        ...incidentPlaybookEvidence,
-        steps: [
-          "Freeze or narrow the affected model release or gateway route.",
-          "Review prompt, output, context, and threshold evidence captured with the event.",
-          "Confirm whether customer, safety, privacy, or fairness impact occurred.",
-          "Document containment and assign post-incident review owner.",
-        ],
-      },
-      owner: null,
-      escalatedTo: "System owner, compliance lead, and governance operations",
-      detectedAt,
-      dueAt,
-      containedAt: null,
-      resolvedAt: null,
-    });
-    await this.notifyAssignedIncidentOwner(organizationId, created);
-
-    return created.id;
+    return {
+      incident: created,
+      created: true,
+      notifyAssignedOwner: Boolean(resolvedAssignment?.ownerUserId),
+    };
   }
 
   private async notifyAssignedIncidentOwner(organizationId: string, incident: AiIncident) {

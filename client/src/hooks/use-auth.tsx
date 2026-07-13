@@ -92,6 +92,7 @@ const PUBLIC_SESSION_PATHS = new Set([
   "/auth",
   "/auth/login",
   "/auth/reset-password",
+  "/auth/sso/complete",
   "/login",
   "/reset-password",
   "/auth/invite",

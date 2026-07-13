@@ -31,7 +31,7 @@ Use `SMOKE_FRONTEND_TOPOLOGY=same-origin` for Render, Netlify proxy, and Vercel 
 The script checks:
 
 - backend `/api/health`
-- backend `/api/ready`
+- backend `/api/ready`, including the exact Git revision when `SMOKE_EXPECTED_RELEASE_COMMIT` is set
 - backend authenticated admin APIs, when admin credentials are provided:
   - `/api/auth/user`
   - `/api/organization/subscription`
@@ -49,6 +49,7 @@ The script checks:
 - frontend `/`
 - frontend `/auth/login`
 - frontend `/auth/reset-password`
+- frontend `/auth/sso/complete` (the page must load without a code and fail closed)
 - frontend `/api-docs`
 - frontend `/trust-center`
 - frontend `/api-docs/identity.html`
@@ -70,7 +71,20 @@ GitHub Actions production promotion uses:
 - `secrets.SMOKE_ADMIN_USERNAME`
 - `secrets.SMOKE_ADMIN_PASSWORD`
 
-and runs the same smoke script after deploying Render and Firebase Hosting. The optional Netlify hook remains available for the proxied secondary frontend.
+The workflow triggers Render and waits until `/api/ready` reports `release.commit` equal to `${{ github.sha }}` before Firebase or Netlify can publish. A healthy older backend therefore cannot accidentally satisfy the release gate. Render supplies `RENDER_GIT_COMMIT` automatically for a Git-backed service; another host must set `RELEASE_COMMIT_SHA` to its deployed Git revision.
+
+Production jobs in both workflows share the `production-deploy` concurrency
+group, so an automatic push deployment and a manual promotion cannot interleave.
+Before either job can modify the database, the production environment variable
+`PRODUCTION_DB_BACKUP_CONFIRMED` must equal the full `${{ github.sha }}` being
+promoted. This makes backup acknowledgement release-specific instead of a
+permanent boolean bypass.
+
+After the new backend is ready, the workflow runs `npm run db:migrate:invite-token-digests` before publishing the frontend. This idempotent data migration removes legacy plaintext organization-invite tokens; the application remains compatible with a legacy row if an interrupted deployment must be retried.
+
+The workflow runs the full smoke script again after deploying Firebase Hosting. The optional Netlify hook remains available for the proxied secondary frontend.
+
+Evidence-storage readiness is also returned by `/api/ready`. Follow [Production Evidence Storage](./evidence-storage-production.md) before enabling `REQUIRE_DURABLE_EVIDENCE_STORAGE=true`.
 
 Manual spot checks after the script passes:
 
@@ -84,3 +98,9 @@ Manual spot checks after the script passes:
 8. Open one registry card and confirm detail navigation
 9. On Firebase, refresh after login, run one Runtime/Telemetry evaluation, then create or update a Registry item
 10. On Firebase, download an evidence file and confirm the browser stays signed in
+11. On Firebase, complete one configured SAML or OIDC login, confirm the browser passes through `/auth/sso/complete`, refresh, and confirm the session remains signed in
+
+Federated login requires `sso_login_attempts`, `sso_login_exchanges`, and
+`external_auth_identities`. Run the production schema step before the backend
+release; an old schema must block promotion rather than publishing a frontend
+whose federated login cannot complete or whose identity scope is ambiguous.

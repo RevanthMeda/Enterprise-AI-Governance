@@ -98,6 +98,7 @@ type OrgAuthSettings = {
   oidcJwksUrl: string | null;
   oidcClientId: string | null;
   oidcClientSecret: string | null;
+  hasOidcClientSecret: boolean;
   oidcScopes: string;
   allowedDomains: string[];
   jitProvisioning: boolean;
@@ -181,12 +182,13 @@ export default function SettingsPage() {
   const [oidcJwksUrl, setOidcJwksUrl] = useState("");
   const [oidcClientId, setOidcClientId] = useState("");
   const [oidcClientSecret, setOidcClientSecret] = useState("");
+  const [clearOidcClientSecret, setClearOidcClientSecret] = useState(false);
   const [oidcScopes, setOidcScopes] = useState("openid profile email");
   const [managedDomainsDraft, setManagedDomainsDraft] = useState<string[]>([]);
   const [pendingDomainInput, setPendingDomainInput] = useState("");
   const [jitProvisioning, setJitProvisioning] = useState(false);
   const [enforceSso, setEnforceSso] = useState(false);
-  const [strictSamlValidation, setStrictSamlValidation] = useState(false);
+  const [strictSamlValidation, setStrictSamlValidation] = useState(true);
   const [defaultRole, setDefaultRole] = useState<(typeof SSO_ROLE_OPTIONS)[number]>("reviewer");
   const [activeTab, setActiveTab] = useState(initialTab);
   const [inviteSearch, setInviteSearch] = useState("");
@@ -265,11 +267,14 @@ export default function SettingsPage() {
     setOidcTokenUrl(orgAuthSettings.oidcTokenUrl ?? "");
     setOidcJwksUrl(orgAuthSettings.oidcJwksUrl ?? "");
     setOidcClientId(orgAuthSettings.oidcClientId ?? "");
-    setOidcClientSecret(orgAuthSettings.oidcClientSecret ?? "");
+    setOidcClientSecret("");
+    setClearOidcClientSecret(false);
     setOidcScopes(orgAuthSettings.oidcScopes ?? "openid profile email");
     setJitProvisioning(orgAuthSettings.jitProvisioning);
     setEnforceSso(orgAuthSettings.enforceSso);
-    setStrictSamlValidation(orgAuthSettings.strictSamlValidation);
+    setStrictSamlValidation(
+      orgAuthSettings.mode === "saml" ? true : orgAuthSettings.strictSamlValidation,
+    );
     if (SSO_ROLE_OPTIONS.includes(orgAuthSettings.defaultRole as (typeof SSO_ROLE_OPTIONS)[number])) {
       setDefaultRole(orgAuthSettings.defaultRole as (typeof SSO_ROLE_OPTIONS)[number]);
     }
@@ -336,6 +341,17 @@ export default function SettingsPage() {
   };
 
   const saveOrgAuthSettings = async () => {
+    if (
+      authMode === "saml" &&
+      (!ssoUrl.trim() || !idpIssuer.trim() || !certificate.trim())
+    ) {
+      toast({
+        title: "Complete the required SAML settings",
+        description: "The Identity Provider SSO URL, expected IdP issuer, and IdP certificate are required.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsWorking(true);
     try {
       await apiRequest("PATCH", "/api/organization/auth-settings", {
@@ -350,11 +366,12 @@ export default function SettingsPage() {
         oidcTokenUrl: oidcTokenUrl.trim() || null,
         oidcJwksUrl: oidcJwksUrl.trim() || null,
         oidcClientId: oidcClientId.trim() || null,
-        oidcClientSecret: oidcClientSecret.trim() || null,
+        oidcClientSecret: oidcClientSecret.trim() || undefined,
+        clearOidcClientSecret,
         oidcScopes: oidcScopes.trim() || null,
         jitProvisioning,
         enforceSso,
-        strictSamlValidation,
+        strictSamlValidation: authMode === "saml" ? true : strictSamlValidation,
         defaultRole,
       });
 
@@ -1086,7 +1103,11 @@ export default function SettingsPage() {
                 <select
                   className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                   value={authMode}
-                  onChange={(e) => setAuthMode(e.target.value as "local" | "saml" | "oidc")}
+                  onChange={(e) => {
+                    const nextMode = e.target.value as "local" | "saml" | "oidc";
+                    setAuthMode(nextMode);
+                    if (nextMode === "saml") setStrictSamlValidation(true);
+                  }}
                   data-testid="select-auth-mode"
                 >
                   <option value="local">Local (username/password)</option>
@@ -1133,11 +1154,11 @@ export default function SettingsPage() {
                 <label className="flex items-center gap-2 rounded-md border p-2 text-xs md:col-span-2">
                   <input
                     type="checkbox"
-                    checked={strictSamlValidation}
-                    onChange={(e) => setStrictSamlValidation(e.target.checked)}
+                    checked
+                    disabled
                     data-testid="checkbox-auth-strict-saml"
                   />
-                  Strict SAML validation (signature, issuer, audience, assertion timing)
+                  Strict SAML validation is required (signature, issuer, audience, assertion timing)
                 </label>
               )}
             </div>
@@ -1407,7 +1428,7 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <p className="text-[11px] text-muted-foreground">Expected IdP Issuer (optional)</p>
+                  <p className="text-[11px] text-muted-foreground">Expected IdP Issuer (required)</p>
                   <Input
                     value={idpIssuer}
                     onChange={(e) => setIdpIssuer(e.target.value)}
@@ -1488,11 +1509,30 @@ export default function SettingsPage() {
                   <p className="text-[11px] text-muted-foreground">OIDC client secret (optional for PKCE-only providers)</p>
                   <Input
                     value={oidcClientSecret}
-                    onChange={(e) => setOidcClientSecret(e.target.value)}
-                    placeholder="client-secret"
+                    onChange={(e) => {
+                      setOidcClientSecret(e.target.value);
+                      setClearOidcClientSecret(false);
+                    }}
+                    placeholder={orgAuthSettings?.hasOidcClientSecret ? "Leave blank to keep stored secret" : "client-secret"}
                     type="password"
                     data-testid="input-auth-oidc-client-secret"
                   />
+                  <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                    <span>{orgAuthSettings?.hasOidcClientSecret ? "Credential stored." : "No credential stored."}</span>
+                    {orgAuthSettings?.hasOidcClientSecret ? (
+                      <label className="flex items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          checked={clearOidcClientSecret}
+                          onChange={(event) => {
+                            setClearOidcClientSecret(event.target.checked);
+                            setOidcClientSecret("");
+                          }}
+                        />
+                        Clear stored secret
+                      </label>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <p className="text-[11px] text-muted-foreground">OIDC scopes</p>

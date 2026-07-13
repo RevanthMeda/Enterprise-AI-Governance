@@ -2,8 +2,7 @@ import type { Express } from "express";
 import { requireAuth } from "../auth";
 import { requireTenant, requireOrgRole } from "../tenant";
 import { storage } from "../storage";
-import { db } from "../db";
-import { organizations, subscriptionTiers, subscriptionStatuses, userRoles } from "@shared/schema";
+import { subscriptionTiers, subscriptionStatuses, userRoles } from "@shared/schema";
 import { jiraService } from "../services/jiraService";
 import { integrationConnectorService } from "../services/integrationConnectorService";
 import { domainService } from "../services/domainService";
@@ -28,7 +27,6 @@ import {
   regionalPrimaryRegions,
   sanitizeRegionalGovernanceProfile,
 } from "@shared/regional-governance-profile";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   routeParam,
@@ -38,7 +36,22 @@ import {
   applyOrgAuthSettings,
   OrgAuthSettings,
 } from "./_helpers";
-import { parseBooleanEnv } from "../env";
+import { isProductionEnvironment, isSelfSignupEnabled } from "../env";
+import {
+  SafeOutboundHttpError,
+  validateOutboundUrlPolicy,
+} from "../safe-outbound-http";
+import {
+  getOidcClientSecretState,
+  mergeOidcClientSecret,
+  tryMigrateOidcClientSecret,
+} from "../services/organizationSecretService";
+import { updateOrganizationSettingsForTenant } from "../services/organizationSettingsService";
+import { areInsecureSamlTestFixturesAllowed } from "../services/ssoService";
+import {
+  assertOidcClientSecretBindingUpdate,
+  validateOidcEndpointConfiguration,
+} from "../services/oidcEndpointSecurity";
 
 const authModeValues = ["local", "saml", "oidc"] as const;
 const ssoDefaultRoleOptions = userRoles;
@@ -56,6 +69,7 @@ const orgAuthSettingsPatchSchema = z.object({
   oidcJwksUrl: z.string().trim().url().max(1000).nullable().optional(),
   oidcClientId: z.string().trim().max(500).nullable().optional(),
   oidcClientSecret: z.string().trim().max(4000).nullable().optional(),
+  clearOidcClientSecret: z.boolean().optional(),
   oidcScopes: z.string().trim().max(500).nullable().optional(),
   allowedDomains: z.array(z.string().trim().min(1).max(255)).max(50).optional(),
   jitProvisioning: z.boolean().optional(),
@@ -63,6 +77,102 @@ const orgAuthSettingsPatchSchema = z.object({
   strictSamlValidation: z.boolean().optional(),
   defaultRole: z.enum(ssoDefaultRoleOptions).optional(),
 });
+
+type OrgAuthSettingsPatch = z.infer<typeof orgAuthSettingsPatchSchema>;
+
+function buildOrgAuthSettingsUpdate(input: {
+  organizationId: string;
+  current: OrgAuthSettings;
+  parsed: OrgAuthSettingsPatch;
+  allowedDomains: string[];
+  mergeSecret: boolean;
+}): OrgAuthSettings {
+  const { current, parsed } = input;
+  const updated: OrgAuthSettings = {
+    ...current,
+    mode: parsed.mode ?? current.mode,
+    ssoUrl: parsed.ssoUrl === undefined ? current.ssoUrl : parsed.ssoUrl,
+    entityId: parsed.entityId === undefined ? current.entityId : parsed.entityId,
+    idpIssuer: parsed.idpIssuer === undefined ? current.idpIssuer : parsed.idpIssuer,
+    certificate: parsed.certificate === undefined ? current.certificate : parsed.certificate,
+    callbackUrl: parsed.callbackUrl === undefined ? current.callbackUrl : parsed.callbackUrl,
+    oidcIssuer: parsed.oidcIssuer === undefined ? current.oidcIssuer : parsed.oidcIssuer,
+    oidcAuthorizationUrl:
+      parsed.oidcAuthorizationUrl === undefined
+        ? current.oidcAuthorizationUrl
+        : parsed.oidcAuthorizationUrl,
+    oidcTokenUrl: parsed.oidcTokenUrl === undefined ? current.oidcTokenUrl : parsed.oidcTokenUrl,
+    oidcJwksUrl: parsed.oidcJwksUrl === undefined ? current.oidcJwksUrl : parsed.oidcJwksUrl,
+    oidcClientId: parsed.oidcClientId === undefined ? current.oidcClientId : parsed.oidcClientId,
+    oidcClientSecret: current.oidcClientSecret,
+    oidcScopes:
+      parsed.oidcScopes === undefined
+        ? current.oidcScopes
+        : parsed.oidcScopes ?? "openid profile email",
+    allowedDomains: input.allowedDomains,
+    jitProvisioning: parsed.jitProvisioning ?? current.jitProvisioning,
+    enforceSso: parsed.enforceSso ?? current.enforceSso,
+    strictSamlValidation: parsed.strictSamlValidation ?? current.strictSamlValidation,
+    defaultRole: parsed.defaultRole ?? current.defaultRole,
+  };
+
+  if (updated.mode === "local") {
+    updated.enforceSso = false;
+    updated.strictSamlValidation = false;
+  }
+  if (updated.mode !== "saml") {
+    updated.strictSamlValidation = false;
+  }
+  if (input.mergeSecret) {
+    assertOidcClientSecretBindingUpdate({
+      currentSettings: current,
+      nextSettings: updated,
+      currentSecret: current.oidcClientSecret,
+      nextSecret: parsed.oidcClientSecret,
+      clearSecret: parsed.clearOidcClientSecret,
+    });
+    updated.oidcClientSecret = mergeOidcClientSecret({
+      organizationId: input.organizationId,
+      currentValue: current.oidcClientSecret,
+      nextValue: parsed.oidcClientSecret,
+      clear: parsed.clearOidcClientSecret === true,
+      bindingSettings: updated,
+    });
+  }
+  return updated;
+}
+
+function assertOrgAuthSettingsValid(settings: OrgAuthSettings): void {
+  if (settings.mode === "saml") {
+    if (!settings.ssoUrl) {
+      throw new Error("SSO URL is required when mode is saml");
+    }
+    if (!settings.strictSamlValidation && !areInsecureSamlTestFixturesAllowed()) {
+      throw new Error("Strict SAML validation is required");
+    }
+    if (settings.strictSamlValidation && !settings.certificate) {
+      throw new Error("IdP certificate is required when strict SAML validation is enabled");
+    }
+    if (settings.strictSamlValidation && !settings.idpIssuer) {
+      throw new Error("Expected IdP issuer is required when strict SAML validation is enabled");
+    }
+  }
+  if (
+    settings.mode === "oidc" &&
+    (!settings.oidcIssuer ||
+      !settings.oidcAuthorizationUrl ||
+      !settings.oidcTokenUrl ||
+      !settings.oidcJwksUrl ||
+      !settings.oidcClientId)
+  ) {
+    throw new Error(
+      "OIDC issuer, authorization URL, token URL, JWKS URL, and client ID are required when mode is oidc",
+    );
+  }
+  if (settings.mode === "oidc") {
+    validateOidcEndpointConfiguration(settings);
+  }
+}
 
 const updateOrganizationDomainsSchema = z.object({
   domains: z.array(z.string().trim().min(1).max(255)).max(50),
@@ -74,6 +184,7 @@ const jiraIntegrationSchema = z.object({
   projectKey: z.string().trim().max(120).nullable().optional(),
   userEmail: z.string().trim().email().max(255).nullable().optional(),
   apiToken: z.string().trim().max(4000).nullable().optional(),
+  clearApiToken: z.boolean().optional(),
   issueType: z.string().trim().max(120).default("Task"),
   labels: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
 });
@@ -85,6 +196,7 @@ const integrationConnectorSchema = z.object({
   enabled: z.boolean(),
   webhookUrl: z.string().trim().url().max(1000).nullable().optional(),
   authToken: z.string().trim().max(400).nullable().optional(),
+  clearAuthToken: z.boolean().optional(),
   eventFilters: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
   severityFloor: z.enum(integrationConnectorSeverityFloors),
 });
@@ -98,6 +210,7 @@ const threatIntelConfigSchema = z.object({
     providerLabel: z.string().trim().max(120).nullable().optional(),
     feedUrl: z.string().trim().url().max(1000).nullable().optional(),
     authToken: z.string().trim().max(400).nullable().optional(),
+    clearAuthToken: z.boolean().optional(),
   }).optional(),
   customIndicators: z
     .array(
@@ -135,7 +248,7 @@ export function registerSettingsRoutes(app: Express): void {
   app.get("/api/settings", requireAuth, requireTenant, requireOrgRole("owner", "admin"), async (req, res) => {
     const user = await storage.getUser(req.user!.id);
     return res.json({
-      allowSelfSignup: parseBooleanEnv(process.env.ALLOW_SELF_SIGNUP, false),
+      allowSelfSignup: isSelfSignupEnabled(),
       mfaEnabled: Boolean(user?.mfaEnabled),
       currentOrganizationId: req.session.currentOrganizationId ?? null,
     });
@@ -163,9 +276,14 @@ export function registerSettingsRoutes(app: Express): void {
 
       const authSettings = getOrgAuthSettings(organization.settings);
       const allowedDomains = await domainService.getAllowedDomainsForOrganization(organization);
+      await tryMigrateOidcClientSecret({
+        organizationId: organization.id,
+        rawSettings: organization.settings,
+      });
 
       return res.json({
         ...authSettings,
+        ...getOidcClientSecretState(organization.settings),
         allowedDomains,
       });
     },
@@ -193,68 +311,42 @@ export function registerSettingsRoutes(app: Express): void {
           parsed.allowedDomains === undefined
             ? current.allowedDomains
             : domainService.normalizeInputDomains(parsed.allowedDomains);
-        const updated: OrgAuthSettings = {
-          ...current,
-          mode: parsed.mode ?? current.mode,
-          ssoUrl: parsed.ssoUrl === undefined ? current.ssoUrl : parsed.ssoUrl,
-          entityId: parsed.entityId === undefined ? current.entityId : parsed.entityId,
-          idpIssuer: parsed.idpIssuer === undefined ? current.idpIssuer : parsed.idpIssuer,
-          certificate: parsed.certificate === undefined ? current.certificate : parsed.certificate,
-          callbackUrl: parsed.callbackUrl === undefined ? current.callbackUrl : parsed.callbackUrl,
-          oidcIssuer: parsed.oidcIssuer === undefined ? current.oidcIssuer : parsed.oidcIssuer,
-          oidcAuthorizationUrl:
-            parsed.oidcAuthorizationUrl === undefined ? current.oidcAuthorizationUrl : parsed.oidcAuthorizationUrl,
-          oidcTokenUrl: parsed.oidcTokenUrl === undefined ? current.oidcTokenUrl : parsed.oidcTokenUrl,
-          oidcJwksUrl: parsed.oidcJwksUrl === undefined ? current.oidcJwksUrl : parsed.oidcJwksUrl,
-          oidcClientId: parsed.oidcClientId === undefined ? current.oidcClientId : parsed.oidcClientId,
-          oidcClientSecret:
-            parsed.oidcClientSecret === undefined ? current.oidcClientSecret : parsed.oidcClientSecret,
-          oidcScopes: parsed.oidcScopes === undefined ? current.oidcScopes : parsed.oidcScopes ?? "openid profile email",
+        const preview = buildOrgAuthSettingsUpdate({
+          organizationId: organization.id,
+          current,
+          parsed,
           allowedDomains: requestedAllowedDomains,
-          jitProvisioning: parsed.jitProvisioning ?? current.jitProvisioning,
-          enforceSso: parsed.enforceSso ?? current.enforceSso,
-          strictSamlValidation: parsed.strictSamlValidation ?? current.strictSamlValidation,
-          defaultRole: parsed.defaultRole ?? current.defaultRole,
-        };
+          mergeSecret: false,
+        });
+        assertOrgAuthSettingsValid(preview);
 
-        if (updated.mode === "local") {
-          updated.enforceSso = false;
-          updated.strictSamlValidation = false;
-        }
-        if (updated.mode === "saml" && !updated.ssoUrl) {
-          return res.status(400).json({ message: "SSO URL is required when mode is saml" });
-        }
-        if (updated.mode === "saml" && updated.strictSamlValidation && !updated.certificate) {
-          return res.status(400).json({ message: "IdP certificate is required when strict SAML validation is enabled" });
-        }
-        if (
-          updated.mode === "oidc" &&
-          (!updated.oidcIssuer ||
-            !updated.oidcAuthorizationUrl ||
-            !updated.oidcTokenUrl ||
-            !updated.oidcJwksUrl ||
-            !updated.oidcClientId)
-        ) {
-          return res.status(400).json({
-            message: "OIDC issuer, authorization URL, token URL, JWKS URL, and client ID are required when mode is oidc",
-          });
-        }
-        if (updated.mode !== "saml") {
-          updated.strictSamlValidation = false;
-        }
-
+        let allowedDomains = preview.allowedDomains;
         if (parsed.allowedDomains !== undefined) {
-          const storedDomains = await domainService.replaceAllowedDomains(organization.id, updated.allowedDomains);
-          updated.allowedDomains = storedDomains.map((entry) => entry.domain);
+          const storedDomains = await domainService.replaceAllowedDomains(
+            organization.id,
+            preview.allowedDomains,
+          );
+          allowedDomains = storedDomains.map((entry) => entry.domain);
         }
 
-        await db
-          .update(organizations)
-          .set({
-            settings: applyOrgAuthSettings(organization.settings, updated),
-            updatedAt: new Date(),
-          })
-          .where(eq(organizations.id, organization.id));
+        const persisted = await updateOrganizationSettingsForTenant(
+          organization.id,
+          (currentSettings) => {
+            const updated = buildOrgAuthSettingsUpdate({
+              organizationId: organization.id,
+              current: getOrgAuthSettings(currentSettings),
+              parsed,
+              allowedDomains,
+              mergeSecret: true,
+            });
+            assertOrgAuthSettingsValid(updated);
+            return applyOrgAuthSettings(currentSettings, updated);
+          },
+        );
+        if (!persisted) {
+          return res.status(404).json({ message: "Organization not found" });
+        }
+        const updated = getOrgAuthSettings(persisted.settings);
 
         await recordAdminAuditEvent({
           organizationId: req.tenant!.organizationId,
@@ -273,7 +365,10 @@ export function registerSettingsRoutes(app: Express): void {
           },
         });
 
-        return res.json(updated);
+        return res.json({
+          ...updated,
+          ...getOidcClientSecretState(persisted.settings),
+        });
       } catch (err: any) {
         return res.status(400).json({ message: err.message || "Failed to update auth settings" });
       }
@@ -360,18 +455,17 @@ export function registerSettingsRoutes(app: Express): void {
             };
           }),
         );
-        const authSettings = {
-          ...getOrgAuthSettings(organization.settings),
-          allowedDomains: storedDomains.map((entry) => entry.domain),
-        };
-
-        await db
-          .update(organizations)
-          .set({
-            settings: applyOrgAuthSettings(organization.settings, authSettings),
-            updatedAt: new Date(),
-          })
-          .where(eq(organizations.id, organization.id));
+        const persisted = await updateOrganizationSettingsForTenant(
+          organization.id,
+          (currentSettings) =>
+            applyOrgAuthSettings(currentSettings, {
+              ...getOrgAuthSettings(currentSettings),
+              allowedDomains: storedDomains.map((entry) => entry.domain),
+            }),
+        );
+        if (!persisted) {
+          return res.status(404).json({ message: "Organization not found" });
+        }
 
         await recordAdminAuditEvent({
           organizationId: req.tenant!.organizationId,
@@ -439,18 +533,17 @@ export function registerSettingsRoutes(app: Express): void {
         }));
 
         const updatedDomains = await domainService.replaceAllowedDomains(organization.id, nextDomains);
-        const authSettings = {
-          ...getOrgAuthSettings(organization.settings),
-          allowedDomains: updatedDomains.map((entry) => entry.domain),
-        };
-
-        await db
-          .update(organizations)
-          .set({
-            settings: applyOrgAuthSettings(organization.settings, authSettings),
-            updatedAt: new Date(),
-          })
-          .where(eq(organizations.id, organization.id));
+        const persisted = await updateOrganizationSettingsForTenant(
+          organization.id,
+          (currentSettings) =>
+            applyOrgAuthSettings(currentSettings, {
+              ...getOrgAuthSettings(currentSettings),
+              allowedDomains: updatedDomains.map((entry) => entry.domain),
+            }),
+        );
+        if (!persisted) {
+          return res.status(404).json({ message: "Organization not found" });
+        }
 
         await recordAdminAuditEvent({
           organizationId: req.tenant!.organizationId,
@@ -596,18 +689,17 @@ export function registerSettingsRoutes(app: Express): void {
               )
             : [];
 
-        const authSettings = {
-          ...getOrgAuthSettings(organization.settings),
-          allowedDomains: rebalancedDomains.map((entry) => entry.domain),
-        };
-
-        await db
-          .update(organizations)
-          .set({
-            settings: applyOrgAuthSettings(organization.settings, authSettings),
-            updatedAt: new Date(),
-          })
-          .where(eq(organizations.id, organization.id));
+        const persisted = await updateOrganizationSettingsForTenant(
+          organization.id,
+          (currentSettings) =>
+            applyOrgAuthSettings(currentSettings, {
+              ...getOrgAuthSettings(currentSettings),
+              allowedDomains: rebalancedDomains.map((entry) => entry.domain),
+            }),
+        );
+        if (!persisted) {
+          return res.status(404).json({ message: "Organization not found" });
+        }
 
         await recordAdminAuditEvent({
           organizationId: req.tenant!.organizationId,
@@ -637,12 +729,16 @@ export function registerSettingsRoutes(app: Express): void {
   app.put("/api/organization/jira-integration", requireAuth, requireTenant, requireOrgRole("owner", "admin"), async (req, res) => {
     try {
       const parsed = jiraIntegrationSchema.parse(req.body);
+      if (parsed.baseUrl) {
+        validateOutboundUrlPolicy(parsed.baseUrl, isProductionEnvironment());
+      }
       const integration = await jiraService.upsertIntegration(req.tenant!.organizationId, {
         enabled: parsed.enabled,
         baseUrl: parsed.baseUrl ?? null,
         projectKey: parsed.projectKey ?? null,
         userEmail: parsed.userEmail ?? null,
-        apiToken: parsed.apiToken ?? null,
+        apiToken: parsed.apiToken,
+        clearApiToken: parsed.clearApiToken === true,
         issueType: parsed.issueType,
         labels: parsed.labels ?? [],
       });
@@ -688,9 +784,18 @@ export function registerSettingsRoutes(app: Express): void {
     async (req, res) => {
       try {
         const parsed = z.array(integrationConnectorSchema).max(12).parse(req.body ?? []);
+        for (const connector of parsed) {
+          if (connector.webhookUrl) {
+            validateOutboundUrlPolicy(connector.webhookUrl, isProductionEnvironment());
+          }
+        }
+        const clearById = new Map(parsed.map((connector) => [connector.id, connector.clearAuthToken === true]));
         const updated = await integrationConnectorService.updateForOrg(
           req.tenant!.organizationId,
-          sanitizeIntegrationConnectors(parsed),
+          sanitizeIntegrationConnectors(parsed).map((connector) => ({
+            ...connector,
+            clearAuthToken: clearById.get(connector.id) === true,
+          })),
         );
         await auditService.createLog({
           organizationId: req.tenant!.organizationId,
@@ -748,8 +853,9 @@ export function registerSettingsRoutes(app: Express): void {
       try {
         const config = await threatIntelligenceService.getConfigForOrg(req.tenant!.organizationId);
         res.json(config);
-      } catch (err: any) {
-        res.status(500).json({ message: err.message || "Failed to load threat intelligence config" });
+      } catch (error) {
+        console.error("Failed to load threat intelligence config:", error);
+        res.status(500).json({ message: "Failed to load threat intelligence config" });
       }
     },
   );
@@ -760,8 +866,25 @@ export function registerSettingsRoutes(app: Express): void {
     requireTenant,
     requireOrgRole("owner", "admin", "cro", "ciso", "compliance_lead"),
     async (req, res) => {
+      const parsedResult = threatIntelConfigSchema.safeParse(req.body ?? {});
+      if (!parsedResult.success) {
+        return res.status(400).json({ message: "Invalid threat intelligence configuration" });
+      }
+      const parsed = parsedResult.data;
+
+      if (parsed.externalFeed?.feedUrl) {
+        try {
+          validateOutboundUrlPolicy(parsed.externalFeed.feedUrl, isProductionEnvironment());
+        } catch (error) {
+          const message =
+            error instanceof SafeOutboundHttpError
+              ? error.message
+              : "External feed URL is not allowed";
+          return res.status(400).json({ message });
+        }
+      }
+
       try {
-        const parsed = threatIntelConfigSchema.parse(req.body ?? {});
         const updated = await threatIntelligenceService.updateConfigForOrg(req.tenant!.organizationId, {
           enabled: parsed.enabled,
           advisoryMode: parsed.advisoryMode,
@@ -771,6 +894,7 @@ export function registerSettingsRoutes(app: Express): void {
             providerLabel: parsed.externalFeed?.providerLabel ?? null,
             feedUrl: parsed.externalFeed?.feedUrl ?? null,
             authToken: parsed.externalFeed?.authToken ?? null,
+            clearAuthToken: parsed.externalFeed?.clearAuthToken === true,
           },
           customIndicators: parsed.customIndicators.map((indicator) => ({
             ...indicator,
@@ -789,8 +913,9 @@ export function registerSettingsRoutes(app: Express): void {
           },
         });
         res.json(updated);
-      } catch (err: any) {
-        res.status(400).json({ message: err.message || "Failed to update threat intelligence config" });
+      } catch (error) {
+        console.error("Failed to update threat intelligence config:", error);
+        res.status(500).json({ message: "Failed to update threat intelligence config" });
       }
     },
   );
@@ -804,8 +929,9 @@ export function registerSettingsRoutes(app: Express): void {
       try {
         const summary = await threatIntelligenceService.getSummaryForOrg(req.tenant!.organizationId);
         res.json(summary);
-      } catch (err: any) {
-        res.status(500).json({ message: err.message || "Failed to load threat intelligence summary" });
+      } catch (error) {
+        console.error("Failed to load threat intelligence summary:", error);
+        res.status(500).json({ message: "Failed to load threat intelligence summary" });
       }
     },
   );

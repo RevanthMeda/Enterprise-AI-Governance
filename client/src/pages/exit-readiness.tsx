@@ -115,8 +115,8 @@ export default function ExitReadinessPage() {
             <SummaryMetric label="Approval workflows" value={summaryValue(readiness?.summary.workflows)} icon={Fingerprint} />
             <SummaryMetric label="Decision traces" value={summaryValue(readiness?.summary.traces)} icon={Signal} />
             <SummaryMetric label="Linked workflow traces" value={summaryValue(readiness?.summary.tracedWorkflows)} icon={ArrowRight} />
-            <SummaryMetric label="Open incidents" value={summaryValue(readiness?.summary.openIncidents)} icon={AlertTriangle} />
-            <SummaryMetric label="High severity incidents" value={summaryValue(readiness?.summary.highSeverityIncidents)} icon={ShieldAlert} />
+            <SummaryMetric label="Active incidents" value={summaryValue(readiness?.summary.openIncidents)} icon={AlertTriangle} />
+            <SummaryMetric label="Active high severity" value={summaryValue(readiness?.summary.highSeverityIncidents)} icon={ShieldAlert} />
             <SummaryMetric label="Telemetry alerts" value={summaryValue(readiness?.summary.telemetryAlerts)} icon={Signal} />
           </CardContent>
         </Card>

@@ -49,12 +49,17 @@ Optional (if used in your flows):
 - `SMTP_FROM=<from-address>`
 - `INVITE_WEBHOOK_URL=<delivery-webhook-url>`
 - `EXPOSE_INVITE_TOKENS=false`
-- `ALLOW_SELF_SIGNUP=false`
-- `SEED_TEST_USERS=true`
-- `TEST_USER_PASSWORD=<strong-temp-password>`
+- `ALLOW_SELF_SIGNUP=false` (self-registration is always disabled in production)
+- `AUTO_SEED_ON_STARTUP=false`
+- `SEED_TEST_USERS=false`
+- `RESET_TEST_USER_PASSWORDS=false`
+- `ENABLE_TEST_AUTH_ROUTES=false`
+- `TEST_USER_PASSWORD` is for non-production test environments only
 
 Run database schema sync once backend env is ready:
-- `npm run db:push -- --force`
+- after confirming a recoverable production database backup, set
+  `PRODUCTION_DB_BACKUP_CONFIRMED=true` for the migration process only and run
+  `npm run db:migrate:production`
 
 ## 2) Deploy frontend on Netlify
 

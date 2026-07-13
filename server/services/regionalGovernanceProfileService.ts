@@ -6,6 +6,7 @@ import {
   sanitizeRegionalGovernanceProfile,
   type RegionalGovernanceProfile,
 } from "@shared/regional-governance-profile";
+import { updateOrganizationSettingsForTenant } from "./organizationSettingsService";
 
 function getSettingsObject(rawSettings: unknown) {
   return rawSettings && typeof rawSettings === "object" && !Array.isArray(rawSettings)
@@ -36,26 +37,15 @@ export class RegionalGovernanceProfileService {
   }
 
   async updateForOrg(organizationId: string, nextValue: RegionalGovernanceProfile): Promise<RegionalGovernanceProfile> {
-    const [organization] = await db
-      .select()
-      .from(organizations)
-      .where(eq(organizations.id, organizationId))
-      .limit(1);
-
-    if (!organization) {
+    const updated = await updateOrganizationSettingsForTenant(
+      organizationId,
+      (currentSettings) => buildRegionalGovernanceSettings(currentSettings, nextValue),
+    );
+    if (!updated) {
       throw new Error("Organization not found");
     }
 
-    const [updated] = await db
-      .update(organizations)
-      .set({
-        settings: buildRegionalGovernanceSettings(organization.settings, nextValue),
-        updatedAt: new Date(),
-      })
-      .where(eq(organizations.id, organizationId))
-      .returning({ settings: organizations.settings });
-
-    const settings = getSettingsObject(updated?.settings);
+    const settings = getSettingsObject(updated.settings);
     return sanitizeRegionalGovernanceProfile(settings.regionalGovernanceProfile);
   }
 }

@@ -10,22 +10,22 @@ function ensureDir(dirPath: string): string {
   return dirPath;
 }
 
-function getWritableRoot(): string {
-  if (isVercelRuntime()) {
+function getWritableRoot(env: NodeJS.ProcessEnv = process.env): string {
+  if (isVercelRuntime(env)) {
     return "/tmp/ai-control-grid";
   }
 
   return process.cwd();
 }
 
-export function getUploadsRoot(): string {
+export function getUploadsRoot(env: NodeJS.ProcessEnv = process.env): string {
   return ensureDir(
-    process.env.UPLOAD_ROOT || path.join(getWritableRoot(), "uploads"),
+    env.UPLOAD_ROOT || path.join(getWritableRoot(env), "uploads"),
   );
 }
 
-export function getExportsRoot(): string {
+export function getExportsRoot(env: NodeJS.ProcessEnv = process.env): string {
   return ensureDir(
-    process.env.EXPORTS_ROOT || path.join(getWritableRoot(), "exports"),
+    env.EXPORTS_ROOT || path.join(getWritableRoot(env), "exports"),
   );
 }

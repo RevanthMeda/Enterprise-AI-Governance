@@ -146,8 +146,10 @@ components:
           type: integer
         inviteToken:
           type: [string, 'null']
+          description: Non-production preview only; never returned in production.
         inviteUrl:
           type: string
+          description: Non-production preview only; never returned in production.
         delivery:
           $ref: '#/components/schemas/InviteDelivery'
       required: [id, email, role, status, expiresAt]
@@ -279,6 +281,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '303':
+          description: Browser redirect to the public SSO completion page with a short-lived code in the URL fragment
         '403':
           description: SSO denied by org policy
           content:
@@ -351,8 +355,67 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '303':
+          description: Browser redirect to the public SSO completion page with a short-lived code in the URL fragment
         '409':
           description: Provider identity conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/auth/sso/exchange:
+    post:
+      tags: [SSO]
+      summary: Exchange a one-time browser SSO handoff for an authenticated session
+      description: >
+        Called by the public frontend after a SAML or OIDC browser callback. The
+        code is short-lived, stored only as a digest, atomically consumed, and
+        accepted only from a trusted browser Origin (or a non-browser client
+        without Origin). This is the only CSRF-exempt SSO session bootstrap.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                code:
+                  type: string
+                  minLength: 43
+                  maxLength: 43
+                  pattern: '^[A-Za-z0-9_-]{43}$'
+              required: [code]
+      responses:
+        '200':
+          description: Authenticated session established in the frontend browser context
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  next:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/AuthUser'
+                required: [ok, next, user]
+        '400':
+          description: Code is invalid, expired, or already consumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Browser Origin is not trusted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Shared abuse limit exceeded
           content:
             application/json:
               schema:
@@ -548,11 +611,22 @@ paths:
     get:
       tags: [Invites]
       summary: Preview invite by raw token
+      description: >
+        Send the token as `Authorization: Invite <token>`. The legacy query
+        parameter remains temporarily supported for previously deployed clients.
       security: []
       parameters:
+        - name: Authorization
+          in: header
+          required: false
+          description: Preferred invite credential, formatted as `Invite <token>`.
+          schema:
+            type: string
         - name: token
           in: query
-          required: true
+          required: false
+          deprecated: true
+          description: Legacy transport only; use the Authorization header to keep the credential out of request URLs.
           schema:
             type: string
       responses:

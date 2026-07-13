@@ -16,6 +16,8 @@ import {
   parseBooleanEnv,
   validateRuntimeEnvironment,
 } from "./env";
+import { toPublicHttpError } from "./http-error-response";
+import { secretsMatch } from "./secret-comparison";
 
 declare module "http" {
   interface IncomingMessage {
@@ -45,17 +47,25 @@ export interface AppRuntime {
 
 let processHandlersRegistered = false;
 let vercelRuntimePromise: Promise<AppRuntime> | null = null;
+let fatalProcessExitScheduled = false;
 
 function shouldStartProcessWorkers() {
   return !isVercelRuntime();
 }
 
 function shouldSeedOnStartup() {
+  // Development seed flags are always ignored in production. This keeps a
+  // stale hosting-provider variable from either enabling seed behavior or
+  // preventing an otherwise safe production process from starting.
+  if (isProductionEnvironment()) {
+    return false;
+  }
+
   if (process.env.AUTO_SEED_ON_STARTUP !== undefined) {
     return parseBooleanEnv(process.env.AUTO_SEED_ON_STARTUP, false);
   }
 
-  return !isProductionEnvironment() && !isVercelRuntime();
+  return !isVercelRuntime();
 }
 
 function verifyCronSecret(req: Request): boolean {
@@ -64,7 +74,11 @@ function verifyCronSecret(req: Request): boolean {
     return !isProductionEnvironment();
   }
 
-  return req.get("authorization") === `Bearer ${configuredSecret}`;
+  const authorization = req.get("authorization") ?? "";
+  const suppliedSecret = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length)
+    : null;
+  return secretsMatch(configuredSecret, suppliedSecret);
 }
 
 function registerProcessHandlers() {
@@ -73,7 +87,7 @@ function registerProcessHandlers() {
   }
 
   process.on("unhandledRejection", (reason) => {
-    void monitoringService.reportProcessIssue({
+    const reportPromise = monitoringService.reportProcessIssue({
       level: "error",
       event: "process.unhandled_rejection",
       message: reason instanceof Error ? reason.message : String(reason),
@@ -82,6 +96,28 @@ function registerProcessHandlers() {
         kind: typeof reason,
       },
     });
+
+    if (!isProductionEnvironment() || fatalProcessExitScheduled) {
+      void reportPromise.catch((reportError) => {
+        console.error("Failed to report unhandled rejection:", reportError);
+      });
+      return;
+    }
+
+    fatalProcessExitScheduled = true;
+    const forcedExit = setTimeout(() => process.exit(1), 2_500);
+    forcedExit.unref();
+    void reportPromise.then(
+      () => {
+        clearTimeout(forcedExit);
+        process.exit(1);
+      },
+      (reportError) => {
+        console.error("Failed to report unhandled rejection:", reportError);
+        clearTimeout(forcedExit);
+        process.exit(1);
+      },
+    );
   });
 
   process.on("uncaughtExceptionMonitor", (error, origin) => {
@@ -247,37 +283,27 @@ export async function bootstrapApp(
   }
 
   app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-    const errorCode =
-      err.code ||
-      (status === 400
-        ? "BAD_REQUEST"
-        : status === 401
-          ? "UNAUTHORIZED"
-          : status === 403
-            ? "FORBIDDEN"
-            : status === 404
-              ? "NOT_FOUND"
-              : status === 409
-                ? "CONFLICT"
-                : "INTERNAL_SERVER_ERROR");
+    const publicError = toPublicHttpError(err);
+    const internalMessage =
+      typeof err?.message === "string" && err.message.trim()
+        ? err.message.trim()
+        : "Internal Server Error";
 
     console.error("Internal Server Error:", err);
-    if (status >= 500) {
+    if (publicError.status >= 500) {
       void monitoringService.reportServerError({
-        level: status >= 500 ? "error" : "warn",
+        level: "error",
         event: "api.unhandled_error",
-        message,
+        message: internalMessage,
         requestId: req.requestId ?? null,
         organizationId: req.tenant?.organizationId ?? null,
         userId: (req.user as { id?: string } | undefined)?.id ?? null,
         route: req.path,
         method: req.method,
-        status,
+        status: publicError.status,
         stack: err instanceof Error ? err.stack ?? null : null,
         metadata: {
-          errorCode,
+          errorCode: publicError.code,
         },
       });
     }
@@ -286,10 +312,14 @@ export async function bootstrapApp(
       return next(err);
     }
 
-    res.setHeader("X-Error-Code", errorCode);
+    res.setHeader("X-Error-Code", publicError.code);
     return res
-      .status(status)
-      .json({ message, code: errorCode, requestId: req.requestId ?? null });
+      .status(publicError.status)
+      .json({
+        message: publicError.message,
+        code: publicError.code,
+        requestId: req.requestId ?? null,
+      });
   });
 
   if (serveStaticClient) {

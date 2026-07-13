@@ -7,6 +7,7 @@ import {
   buildNextPasswordHistory,
   comparePasswords,
   consumeRecoveryCode,
+  finalizeSuccessfulLocalLogin,
   generateTotpSecret,
   getPasswordExpiryDate,
   hashPassword,
@@ -17,10 +18,15 @@ import {
 } from "../auth";
 import { requireAuth } from "../auth";
 import { isPlatformAdminUser, pickCurrentOrganizationId } from "../auth-visibility";
-import { memberships, organizations } from "@shared/schema";
+import { memberships, organizations, type User } from "@shared/schema";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
 import { ssoService } from "../services/ssoService";
+import {
+  SSO_LOGIN_EXCHANGE_CODE_PATTERN,
+  ssoLoginExchangeService,
+} from "../services/ssoLoginExchangeService";
+import { ssoPendingStateService } from "../services/ssoPendingStateService";
 import {
   buildPasswordResetUrl,
   createPasswordResetToken,
@@ -28,17 +34,35 @@ import {
   isPasswordResetTokenValidForUser,
   verifyPasswordResetToken,
 } from "../services/passwordResetService";
-import { areMockAuthRoutesEnabled, parseBooleanEnv } from "../env";
+import {
+  areMockAuthRoutesEnabled,
+  getPublicAppBaseUrl,
+  isSelfSignupEnabled,
+} from "../env";
+import {
+  encryptPersistedSecret,
+  integrationSecretPurpose,
+  isPersistedSecretEnvelope,
+  resolvePersistedSecret,
+} from "../persisted-secret";
+import { mfaSecurityService } from "../services/mfaSecurityService";
+import { toPublicHttpError } from "../http-error-response";
+import { isTrustedAuthRequestOrigin } from "../auth-origin";
+import { secretsMatch } from "../secret-comparison";
 import {
   buildAndPersistAuthPayload,
   regenerateSessionForUser,
   getOptionalString,
   getOrgAuthSettings,
-  getClientIp,
-  isPasswordResetRateLimited,
-  trackPasswordResetRequest,
   normalizeNextPath,
+  recordAdminAuditEvent,
 } from "./_helpers";
+import {
+  enforceSharedRateLimits,
+  getRateLimitClientAddress,
+  globalRateLimitIdentity,
+  publicRateLimitPolicies,
+} from "../public-rate-limit";
 import {
   DEFAULT_GUIDED_MODE,
   DEFAULT_WORKSPACE_LOCALE,
@@ -79,10 +103,43 @@ const ssoAcsBodySchema = z.object({
   RelayState: z.string().trim().min(8).max(200),
 });
 
+const ssoLoginExchangeSchema = z.object({
+  code: z.string().regex(SSO_LOGIN_EXCHANGE_CODE_PATTERN),
+});
+
 const oidcCallbackQuerySchema = z.object({
   code: z.string().trim().min(3).max(2000),
   state: z.string().trim().min(8).max(200),
 });
+
+function isBrowserNavigationRequest(req: Request): boolean {
+  return (req.get("accept") ?? "")
+    .split(",")
+    .some((value) => value.trim().toLowerCase().startsWith("text/html"));
+}
+
+function buildSsoSuccessRedirect(nextPath: string): string {
+  const publicBaseUrl = `${getPublicAppBaseUrl().replace(/\/+$/, "")}/`;
+  return new URL(ssoService.normalizeNextPath(nextPath), publicBaseUrl).toString();
+}
+
+function buildSsoExchangeRedirect(code: string): string {
+  const target = new URL("/auth/sso/complete", `${getPublicAppBaseUrl().replace(/\/+$/, "")}/`);
+  target.hash = new URLSearchParams({ sso_exchange: code }).toString();
+  return target.toString();
+}
+
+function toSessionUser(user: Pick<User, "id" | "username" | "fullName" | "email" | "role" | "isPlatformAdmin" | "sessionVersion">): Express.User {
+  return {
+    id: user.id,
+    username: user.username,
+    fullName: user.fullName,
+    email: user.email,
+    role: user.role,
+    isPlatformAdmin: user.isPlatformAdmin,
+    sessionVersion: user.sessionVersion,
+  };
+}
 
 const oidcMockCallbackSchema = z.object({
   state: z.string().trim().min(8).max(200),
@@ -90,6 +147,17 @@ const oidcMockCallbackSchema = z.object({
   fullName: z.string().trim().min(1).max(200).optional(),
   providerSubject: z.string().trim().min(1).max(255).optional(),
 });
+
+function getSsoCompletionPublicError(error: unknown, internalMessage: string) {
+  const message =
+    error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string"
+      ? (error as { message: string }).message
+      : "";
+  if (message === "Organization not found") {
+    return { status: 404, message, code: "NOT_FOUND" };
+  }
+  return toPublicHttpError(error, { fallbackStatus: 500, internalMessage });
+}
 
 const onboardingStateSchema = z.object({
   currentStep: z.number().int().min(0).max(10).optional(),
@@ -137,14 +205,53 @@ async function verifyMfaChallenge(
   }
 
   const mfaCode = getOptionalString(input.mfaCode);
-  if (mfaCode && user.mfaSecret && verifyTotpCode(user.mfaSecret, mfaCode)) {
-    return { valid: true, usedRecoveryCode: false, remainingRecoveryCodes: [] };
+  if (mfaCode && user.mfaSecret) {
+    const resolved = resolvePersistedSecret(
+      user.mfaSecret,
+      integrationSecretPurpose.mfaTotpSecret(user.id),
+    );
+    if (resolved.plaintext && verifyTotpCode(resolved.plaintext, mfaCode)) {
+      if (resolved.isLegacyPlaintext && process.env.CONTROL_TOWER_VAULT_SECRET?.trim()) {
+        await storage.updateUserMfaSecretIfUnchanged(
+          user.id,
+          user.mfaSecret,
+          encryptPersistedSecret(
+            resolved.plaintext,
+            integrationSecretPurpose.mfaTotpSecret(user.id),
+          ),
+        );
+      }
+      return { valid: true, usedRecoveryCode: false, remainingRecoveryCodes: [] };
+    }
   }
 
   const recoveryCode = getOptionalString(input.recoveryCode);
   if (recoveryCode) {
     const consumed = await consumeRecoveryCode(recoveryCode, user.mfaRecoveryCodes);
     if (consumed.valid) {
+      const expectedRecoveryCodes = Array.isArray(user.mfaRecoveryCodes)
+        ? user.mfaRecoveryCodes.filter((entry): entry is string => typeof entry === "string")
+        : [];
+      const persisted = await storage.consumeUserMfaRecoveryCodes(
+        user.id,
+        expectedRecoveryCodes,
+        consumed.remainingRecoveryCodes,
+      );
+      if (!persisted) return { valid: false };
+      if (
+        user.mfaSecret &&
+        !isPersistedSecretEnvelope(user.mfaSecret) &&
+        process.env.CONTROL_TOWER_VAULT_SECRET?.trim()
+      ) {
+        await storage.updateUserMfaSecretIfUnchanged(
+          user.id,
+          user.mfaSecret,
+          encryptPersistedSecret(
+            user.mfaSecret,
+            integrationSecretPurpose.mfaTotpSecret(user.id),
+          ),
+        );
+      }
       return {
         valid: true,
         usedRecoveryCode: true,
@@ -157,9 +264,29 @@ async function verifyMfaChallenge(
 }
 
 export async function registerAuthRoutes(app: Express): Promise<void> {
+  app.use("/api/auth", (_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, private, max-age=0");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    next();
+  });
+
   app.post("/api/auth/register", async (req, res) => {
-    if (!parseBooleanEnv(process.env.ALLOW_SELF_SIGNUP, false)) {
+    if (!isTrustedAuthRequestOrigin(req)) {
+      res.setHeader("X-Error-Code", "ORIGIN_NOT_ALLOWED");
+      return res.status(403).json({ message: "Request origin is not allowed", code: "ORIGIN_NOT_ALLOWED" });
+    }
+    if (!isSelfSignupEnabled()) {
       return res.status(403).json({ message: "Self-service registration is disabled" });
+    }
+    const clientAddress = getRateLimitClientAddress(req);
+    if (
+      !(await enforceSharedRateLimits(req, res, [
+        { policy: publicRateLimitPolicies.registrationGlobal, identity: globalRateLimitIdentity() },
+        { policy: publicRateLimitPolicies.registrationIp, identity: [clientAddress] },
+      ]))
+    ) {
+      return;
     }
     try {
       const { username, password, fullName, email } = req.body;
@@ -180,15 +307,13 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
           return res.status(400).json({ message: "Email already exists" });
         }
       }
-      const allUsers = await storage.getAllUsers();
-      const assignedRole = allUsers.length === 0 ? "admin" : "reviewer";
       const hashed = await hashPassword(password);
       const user = await storage.createUser({
         username,
         password: hashed,
         fullName,
         email: email || null,
-        role: assignedRole,
+        role: "reviewer",
       });
       const loginUser: Express.User = {
         id: user.id,
@@ -197,28 +322,41 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         email: user.email,
         role: user.role,
         isPlatformAdmin: user.isPlatformAdmin,
+        sessionVersion: user.sessionVersion,
       };
       try {
         await regenerateSessionForUser(req, loginUser);
         const authPayload = await buildAndPersistAuthPayload(req);
         return res.status(201).json(authPayload);
       } catch (authErr: any) {
-        return res.status(500).json({ message: authErr.message || "Login failed after registration" });
+        console.error("Login failed after registration:", authErr);
+        return res.status(500).json({ message: "Login failed after registration" });
       }
     } catch (err: any) {
-      res.status(400).json({ message: err.message });
+      if (err?.code === "23505") {
+        return res.status(409).json({ message: "An account with this username or email already exists" });
+      }
+      console.error("Registration failed:", err);
+      return res.status(500).json({ message: "Registration failed" });
     }
   });
 
   app.post("/api/auth/forgot-password", async (req, res) => {
     try {
       const { identifier } = forgotPasswordSchema.parse(req.body ?? {});
-      const clientIp = getClientIp(req);
-
-      if (isPasswordResetRateLimited(clientIp)) {
-        return res.status(429).json({ message: "Too many password reset requests. Try again later." });
+      const clientAddress = getRateLimitClientAddress(req);
+      if (
+        !(await enforceSharedRateLimits(req, res, [
+          { policy: publicRateLimitPolicies.forgotPasswordGlobal, identity: globalRateLimitIdentity() },
+          { policy: publicRateLimitPolicies.forgotPasswordIp, identity: [clientAddress] },
+          {
+            policy: publicRateLimitPolicies.forgotPasswordAccount,
+            identity: [identifier.toLowerCase()],
+          },
+        ]))
+      ) {
+        return;
       }
-      trackPasswordResetRequest(clientIp);
 
       const genericResponse = {
         ok: true,
@@ -244,13 +382,30 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         ...(process.env.NODE_ENV !== "production" ? { previewUrl: delivery.previewUrl ?? resetUrl } : {}),
       });
     } catch (err: any) {
-      return res.status(400).json({ message: err.message || "Password reset request failed" });
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid password reset request" });
+      }
+      console.error("Password reset request failed:", err);
+      return res.status(202).json({
+        ok: true,
+        message: "If an eligible local account exists, a password reset link has been sent.",
+      });
     }
   });
 
   app.post("/api/auth/reset-password", async (req, res) => {
     try {
       const { token, newPassword } = resetPasswordSchema.parse(req.body ?? {});
+      const clientAddress = getRateLimitClientAddress(req);
+      if (
+        !(await enforceSharedRateLimits(req, res, [
+          { policy: publicRateLimitPolicies.resetPasswordGlobal, identity: globalRateLimitIdentity() },
+          { policy: publicRateLimitPolicies.resetPasswordIp, identity: [clientAddress] },
+          { policy: publicRateLimitPolicies.resetPasswordToken, identity: [token] },
+        ]))
+      ) {
+        return;
+      }
       const payload = verifyPasswordResetToken(token);
       if (!payload) {
         return res.status(400).json({ message: "Password reset token is invalid or expired" });
@@ -277,9 +432,10 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         passwordChangedAt: new Date(),
         passwordExpiresAt: getPasswordExpiryDate(),
         passwordHistory: buildNextPasswordHistory(user.password, user.passwordHistory),
+        expectedCurrentPasswordHash: user.password,
       });
       if (!updated) {
-        return res.status(500).json({ message: "Failed to update password" });
+        return res.status(400).json({ message: "Password reset token is invalid or expired" });
       }
 
       return res.json({
@@ -287,16 +443,33 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         message: "Password reset successful. You can now sign in with your new password.",
       });
     } catch (err: any) {
-      return res.status(400).json({ message: err.message || "Password reset failed" });
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid password reset request" });
+      }
+      console.error("Password reset failed:", err);
+      return res.status(500).json({ message: "Password reset failed" });
     }
   });
 
   app.post("/api/auth/login", (req, res, next) => {
+    if (!isTrustedAuthRequestOrigin(req)) {
+      res.setHeader("X-Error-Code", "ORIGIN_NOT_ALLOWED");
+      return res.status(403).json({ message: "Request origin is not allowed", code: "ORIGIN_NOT_ALLOWED" });
+    }
     passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
       if (err) return next(err);
       if (!user) {
         if (info?.message === "RATE_LIMITED") {
-          return res.status(429).json({ message: "Too many login attempts. Try again in 5 minutes." });
+          const retryAfterSeconds = Math.max(
+            1,
+            Math.ceil((req.loginRateLimitRetryAfterMs ?? 5 * 60 * 1_000) / 1_000),
+          );
+          res.setHeader("Retry-After", String(retryAfterSeconds));
+          res.setHeader("X-Error-Code", "RATE_LIMIT_EXCEEDED");
+          return res.status(429).json({
+            message: "Too many login attempts. Try again later.",
+            code: "RATE_LIMIT_EXCEEDED",
+          });
         }
         if (info?.message === "PASSWORD_EXPIRED") {
           return res.status(403).json({ message: "Password expired. Reset required before login." });
@@ -315,8 +488,10 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
           const requestedNext = normalizeNextPath(getOptionalString(req.body?.next));
           const configuredBreakGlassToken = getOptionalString(process.env.BREAK_GLASS_TOKEN);
           const suppliedBreakGlassToken = getOptionalString(req.body?.breakGlassToken);
-          const breakGlassAllowed =
-            Boolean(configuredBreakGlassToken) && suppliedBreakGlassToken === configuredBreakGlassToken;
+          const breakGlassAllowed = secretsMatch(
+            configuredBreakGlassToken,
+            suppliedBreakGlassToken,
+          );
 
           const membershipRows = await db
             .select({
@@ -351,13 +526,13 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
           selectedMembership =
             activeMemberships.find((membership) => membership.isDefault) ?? selectedMembership;
 
+          let usedBreakGlass = false;
           if (selectedMembership) {
             const selectedAuthSettings = getOrgAuthSettings(selectedMembership.organizationSettings);
-            if (
+            const ssoEnforced =
               (selectedAuthSettings.mode === "saml" || selectedAuthSettings.mode === "oidc") &&
-              selectedAuthSettings.enforceSso &&
-              !breakGlassAllowed
-            ) {
+              selectedAuthSettings.enforceSso;
+            if (ssoEnforced && !breakGlassAllowed) {
               const authStartPath =
                 selectedAuthSettings.mode === "oidc" ? "/api/auth/oidc/start" : "/api/auth/sso/start";
               return res.status(403).json({
@@ -368,11 +543,20 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
                 )}&next=${encodeURIComponent(requestedNext)}`,
               });
             }
+            usedBreakGlass = ssoEnforced && breakGlassAllowed;
           }
 
           if (storedUser.mfaEnabled) {
             if (!storedUser.mfaSecret) {
               return res.status(500).json({ message: "MFA is enabled but not configured correctly" });
+            }
+
+            const mfaAttemptState = await mfaSecurityService.getAttemptState(storedUser.id);
+            if (!mfaAttemptState.allowed) {
+              return res.status(429).json({
+                message: "Too many MFA attempts. Try again in 5 minutes.",
+                mfaRequired: true,
+              });
             }
 
             const mfaResult = await verifyMfaChallenge(
@@ -389,18 +573,34 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
             );
 
             if (!mfaResult.valid) {
+              const nextAttemptState = await mfaSecurityService.recordFailure(storedUser.id);
+              if (!nextAttemptState.allowed) {
+                return res.status(429).json({
+                  message: "Too many MFA attempts. Try again in 5 minutes.",
+                  mfaRequired: true,
+                });
+              }
               return res.status(401).json({ message: "MFA verification required", mfaRequired: true });
             }
-
-            if (mfaResult.usedRecoveryCode) {
-              await storage.updateUserMfa(storedUser.id, {
-                mfaEnabled: true,
-                mfaSecret: storedUser.mfaSecret,
-                mfaRecoveryCodes: mfaResult.remainingRecoveryCodes,
-              });
-            }
+            await mfaSecurityService.clearFailures(storedUser.id);
           }
 
+          await finalizeSuccessfulLocalLogin(req, storedUser.id);
+          if (usedBreakGlass && selectedMembership) {
+            await recordAdminAuditEvent({
+              organizationId: selectedMembership.organizationId,
+              actorUserId: storedUser.id,
+              actorName: storedUser.fullName || storedUser.username,
+              action: "auth.break_glass_login",
+              targetType: "user",
+              targetId: storedUser.id,
+              targetUserId: storedUser.id,
+              metadata: {
+                requestId: req.requestId ?? null,
+                organizationSlug: selectedMembership.organizationSlug,
+              },
+            });
+          }
           await regenerateSessionForUser(req, user);
           const authPayload = await buildAndPersistAuthPayload(req);
           return res.json(authPayload);
@@ -449,9 +649,10 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         passwordChangedAt: new Date(),
         passwordExpiresAt: getPasswordExpiryDate(),
         passwordHistory: buildNextPasswordHistory(user.password, user.passwordHistory),
+        expectedCurrentPasswordHash: user.password,
       });
       if (!updated) {
-        return res.status(500).json({ message: "Failed to update password" });
+        return res.status(409).json({ message: "Password changed in another session; try again" });
       }
 
       await regenerateSessionForUser(req, {
@@ -461,12 +662,19 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         email: updated.email,
         role: updated.role,
         isPlatformAdmin: updated.isPlatformAdmin,
+        sessionVersion: updated.sessionVersion,
       });
 
       const authPayload = await buildAndPersistAuthPayload(req);
       return res.json({ message: "Password updated", user: authPayload });
     } catch (err: any) {
-      return res.status(400).json({ message: err.message });
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.issues[0]?.message || "Invalid password change request",
+        });
+      }
+      console.error("Password change failed:", err);
+      return res.status(500).json({ message: "Password change failed" });
     }
   });
 
@@ -478,16 +686,31 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
     if (user.mfaEnabled) {
       return res.status(400).json({ message: "MFA is already enabled" });
     }
+    if ((user.authProvider ?? "local") !== "local") {
+      return res.status(400).json({ message: "MFA for SSO-managed accounts must be configured with the identity provider" });
+    }
+    const currentPassword = getOptionalString(req.body?.currentPassword);
+    if (!currentPassword) {
+      return res.status(400).json({ message: "Current password is required to start MFA enrollment" });
+    }
+    if (!(await comparePasswords(currentPassword, user.password))) {
+      return res.status(400).json({ message: "Current password is incorrect" });
+    }
 
     const secret = generateTotpSecret();
+    const encryptedSecret = encryptPersistedSecret(
+      secret,
+      integrationSecretPurpose.mfaTotpSecret(user.id),
+    );
     const updated = await storage.updateUserMfa(user.id, {
       mfaEnabled: false,
-      mfaSecret: secret,
+      mfaSecret: encryptedSecret,
       mfaRecoveryCodes: [],
     });
     if (!updated) {
       return res.status(500).json({ message: "Failed to start MFA enrollment" });
     }
+    await regenerateSessionForUser(req, toSessionUser(updated));
 
     return res.json({
       secret,
@@ -508,7 +731,11 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
     if (!user.mfaSecret) {
       return res.status(400).json({ message: "MFA enrollment has not been started" });
     }
-    if (!verifyTotpCode(user.mfaSecret, code)) {
+    const resolvedSecret = resolvePersistedSecret(
+      user.mfaSecret,
+      integrationSecretPurpose.mfaTotpSecret(user.id),
+    ).plaintext;
+    if (!resolvedSecret || !verifyTotpCode(resolvedSecret, code)) {
       return res.status(400).json({ message: "Invalid MFA code" });
     }
 
@@ -521,6 +748,7 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
     if (!updated) {
       return res.status(500).json({ message: "Failed to enable MFA" });
     }
+    await regenerateSessionForUser(req, toSessionUser(updated));
 
     return res.json({
       ok: true,
@@ -571,6 +799,7 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
     if (!updated) {
       return res.status(500).json({ message: "Failed to disable MFA" });
     }
+    await regenerateSessionForUser(req, toSessionUser(updated));
 
     return res.json({ ok: true, message: "MFA disabled" });
   });
@@ -609,6 +838,7 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
     if (!updated) {
       return res.status(500).json({ message: "Failed to regenerate recovery codes" });
     }
+    await regenerateSessionForUser(req, toSessionUser(updated));
 
     return res.json({
       ok: true,
@@ -719,11 +949,22 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
       req.session.currentOrganizationId = organizationId;
       return res.json({ ok: true, currentOrganizationId: organizationId });
     } catch (err: any) {
-      return res.status(500).json({ message: err.message || "Failed to refresh session" });
+      console.error("Failed to refresh session:", err);
+      return res.status(500).json({ message: "Failed to refresh session" });
     }
   });
 
   app.get("/api/auth/sso/metadata", async (req, res) => {
+    const clientAddress = getRateLimitClientAddress(req);
+    if (
+      !(await enforceSharedRateLimits(req, res, [
+        { policy: publicRateLimitPolicies.ssoMetadataGlobal, identity: globalRateLimitIdentity() },
+        { policy: publicRateLimitPolicies.ssoMetadataIp, identity: [clientAddress] },
+      ]))
+    ) {
+      return;
+    }
+
     const rawOrg = Array.isArray(req.query.org) ? req.query.org[0] : req.query.org;
     const requestedOrg = getOptionalString(rawOrg);
     if (!requestedOrg) {
@@ -765,6 +1006,15 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
 
   app.get("/api/auth/sso/start", async (req, res) => {
     try {
+      const clientAddress = getRateLimitClientAddress(req);
+      if (
+        !(await enforceSharedRateLimits(req, res, [
+          { policy: publicRateLimitPolicies.ssoStartGlobal, identity: globalRateLimitIdentity() },
+          { policy: publicRateLimitPolicies.ssoStartIp, identity: [clientAddress] },
+        ]))
+      ) {
+        return;
+      }
       const parsed = ssoStartSchema.parse({
         org: Array.isArray(req.query.org) ? req.query.org[0] : req.query.org,
         next: Array.isArray(req.query.next) ? req.query.next[0] : req.query.next,
@@ -774,6 +1024,8 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         parsed.org,
         nextPath,
         req.isAuthenticated?.() ? req.user?.id : undefined,
+        req.protocol,
+        req.get("host"),
       );
       (req.session as any).ssoPending = started.pending;
       return res.redirect(302, started.redirectUrl);
@@ -788,12 +1040,25 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
           availableOrganizationSlugs: err.availableOrganizationSlugs ?? [],
         });
       }
-      return res.status(400).json({ message: err.message || "Invalid SSO start request" });
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid SSO start request" });
+      }
+      console.error("Failed to start SAML login:", err);
+      return res.status(500).json({ message: "Unable to start SAML login" });
     }
   });
 
   app.get("/api/auth/oidc/start", async (req, res) => {
     try {
+      const clientAddress = getRateLimitClientAddress(req);
+      if (
+        !(await enforceSharedRateLimits(req, res, [
+          { policy: publicRateLimitPolicies.ssoStartGlobal, identity: globalRateLimitIdentity() },
+          { policy: publicRateLimitPolicies.ssoStartIp, identity: [clientAddress] },
+        ]))
+      ) {
+        return;
+      }
       const parsed = ssoStartSchema.parse({
         org: Array.isArray(req.query.org) ? req.query.org[0] : req.query.org,
         next: Array.isArray(req.query.next) ? req.query.next[0] : req.query.next,
@@ -821,12 +1086,25 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
           availableOrganizationSlugs: err.availableOrganizationSlugs ?? [],
         });
       }
-      return res.status(400).json({ message: err.message || "Invalid OIDC start request" });
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid OIDC start request" });
+      }
+      console.error("Failed to start OIDC login:", err);
+      return res.status(500).json({ message: "Unable to start OIDC login" });
     }
   });
 
   app.post("/api/auth/sso/callback", async (req, res) => {
     try {
+      const clientAddress = getRateLimitClientAddress(req);
+      if (
+        !(await enforceSharedRateLimits(req, res, [
+          { policy: publicRateLimitPolicies.ssoCallbackGlobal, identity: globalRateLimitIdentity() },
+          { policy: publicRateLimitPolicies.ssoCallbackIp, identity: [clientAddress] },
+        ]))
+      ) {
+        return;
+      }
       const relayState = getOptionalString(req.body?.RelayState);
       const samlResponse = getOptionalString(req.body?.SAMLResponse);
       const parsed = ssoAcsBodySchema.parse({
@@ -834,22 +1112,13 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         SAMLResponse: samlResponse,
       });
 
-      const pending = (req.session as any).ssoPending as import("../services/ssoService").SsoPendingState | undefined;
-      try {
-        ssoService.assertPendingState(pending, parsed.RelayState);
-      } catch (stateError: any) {
-        if (stateError?.message === "SSO state has expired") {
-          (req.session as any).ssoPending = undefined;
-        }
-        return res.status(400).json({ message: stateError?.message || "SSO state is invalid or missing" });
+      const pending = await ssoPendingStateService.consume(parsed.RelayState, "saml");
+      (req.session as any).ssoPending = undefined;
+      if (!pending) {
+        return res.status(400).json({ message: "SSO state is invalid, expired, or already used" });
       }
 
-      if (pending?.provider !== "saml") {
-        (req.session as any).ssoPending = undefined;
-        return res.status(400).json({ message: "SSO state is invalid or missing" });
-      }
-
-      const organization = await storage.getOrganizationById(pending!.organizationId);
+      const organization = await storage.getOrganizationById(pending.organizationId);
       if (!organization) {
         (req.session as any).ssoPending = undefined;
         return res.status(404).json({ message: "Organization not found" });
@@ -862,7 +1131,7 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
           name: organization.name,
           settings: organization.settings,
         },
-        parsed.RelayState,
+        pending,
         parsed.SAMLResponse,
         req.protocol,
         req.get("host"),
@@ -875,7 +1144,7 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
 
       let completed;
       try {
-        completed = await ssoService.completeLogin(pending!, {
+        completed = await ssoService.completeLogin(pending, {
           email: principal.email,
           fullName: principal.fullName,
           providerSubject: principal.providerSubject,
@@ -883,16 +1152,25 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         });
       } catch (completionError: any) {
         (req.session as any).ssoPending = undefined;
-        const message = completionError?.message || "Failed to complete SSO callback";
-        const derivedStatus =
-          message === "Organization not found"
-            ? 404
-            : message === "Email domain is not allowed for this organization" ||
-                message === "JIT user provisioning is disabled for this organization"
-              ? 403
-              : 400;
-        const status = completionError?.status ?? derivedStatus;
-        return res.status(status).json({ message });
+        const publicError = getSsoCompletionPublicError(
+          completionError,
+          "Failed to complete SSO callback",
+        );
+        if (publicError.status >= 500) {
+          console.error("Failed to complete SSO callback:", completionError);
+        }
+        return res.status(publicError.status).json({ message: publicError.message });
+      }
+
+      if (isBrowserNavigationRequest(req)) {
+        const exchange = await ssoLoginExchangeService.issue({
+          userId: completed.user.id,
+          organizationId: completed.organization.id,
+          nextPath: completed.next,
+        });
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("Referrer-Policy", "no-referrer");
+        return res.redirect(303, buildSsoExchangeRedirect(exchange.code));
       }
 
       await regenerateSessionForUser(req, completed.user);
@@ -906,51 +1184,50 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         user: authUser,
       });
     } catch (err: any) {
-      return res.status(400).json({ message: err.message || "Failed to complete SSO callback" });
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid SSO callback request" });
+      }
+      const publicError = toPublicHttpError(err, {
+        fallbackStatus: 500,
+        internalMessage: "Failed to complete SSO callback",
+      });
+      if (publicError.status >= 500) {
+        console.error("Failed to process SSO callback:", err);
+      }
+      return res.status(publicError.status).json({ message: publicError.message });
     }
   });
 
   app.post("/api/auth/sso/mock-callback", async (req, res) => {
-    if (!areMockAuthRoutesEnabled()) {
+    if (!areMockAuthRoutesEnabled() || !ssoService.areInsecureSamlTestFixturesAllowed()) {
       return res.status(404).json({ message: "Not found" });
     }
 
     try {
       const parsed = ssoMockCallbackSchema.parse(req.body ?? {});
-      const pending = (req.session as any).ssoPending as import("../services/ssoService").SsoPendingState | undefined;
-      try {
-        ssoService.assertPendingState(pending, parsed.state);
-      } catch (stateError: any) {
-        if (stateError?.message === "SSO state has expired") {
-          (req.session as any).ssoPending = undefined;
-        }
-        return res.status(400).json({ message: stateError?.message || "SSO state is invalid or missing" });
-      }
-
-      if (pending?.provider !== "saml") {
-        (req.session as any).ssoPending = undefined;
-        return res.status(400).json({ message: "SSO state is invalid or missing" });
+      const pending = await ssoPendingStateService.consume(parsed.state, "saml");
+      (req.session as any).ssoPending = undefined;
+      if (!pending) {
+        return res.status(400).json({ message: "SSO state is invalid, expired, or already used" });
       }
 
       let completed;
       try {
-        completed = await ssoService.completeLogin(pending!, {
+        completed = await ssoService.completeLogin(pending, {
           email: parsed.email,
           fullName: parsed.fullName,
           providerSubject: parsed.email,
         });
       } catch (completionError: any) {
         (req.session as any).ssoPending = undefined;
-        const message = completionError?.message || "Failed to complete SSO callback";
-        const derivedStatus =
-          message === "Organization not found"
-            ? 404
-            : message === "Email domain is not allowed for this organization" ||
-                message === "JIT user provisioning is disabled for this organization"
-              ? 403
-              : 400;
-        const status = completionError?.status ?? derivedStatus;
-        return res.status(status).json({ message });
+        const publicError = getSsoCompletionPublicError(
+          completionError,
+          "Failed to complete SSO callback",
+        );
+        if (publicError.status >= 500) {
+          console.error("Failed to complete mock SSO callback:", completionError);
+        }
+        return res.status(publicError.status).json({ message: publicError.message });
       }
 
       await regenerateSessionForUser(req, completed.user);
@@ -958,35 +1235,48 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
       (req.session as any).ssoPending = undefined;
 
       const authUser = await buildAndPersistAuthPayload(req);
+      if (isBrowserNavigationRequest(req)) {
+        return res.redirect(303, buildSsoSuccessRedirect(completed.next));
+      }
       return res.json({
         ok: true,
         next: completed.next,
         user: authUser,
       });
     } catch (err: any) {
-      return res.status(400).json({ message: err.message || "Failed to complete SSO callback" });
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid SSO callback request" });
+      }
+      const publicError = toPublicHttpError(err, {
+        fallbackStatus: 500,
+        internalMessage: "Failed to complete SSO callback",
+      });
+      if (publicError.status >= 500) {
+        console.error("Failed to process mock SSO callback:", err);
+      }
+      return res.status(publicError.status).json({ message: publicError.message });
     }
   });
 
   app.get("/api/auth/oidc/callback", async (req, res) => {
     try {
+      const clientAddress = getRateLimitClientAddress(req);
+      if (
+        !(await enforceSharedRateLimits(req, res, [
+          { policy: publicRateLimitPolicies.ssoCallbackGlobal, identity: globalRateLimitIdentity() },
+          { policy: publicRateLimitPolicies.ssoCallbackIp, identity: [clientAddress] },
+        ]))
+      ) {
+        return;
+      }
       const parsed = oidcCallbackQuerySchema.parse({
         code: Array.isArray(req.query.code) ? req.query.code[0] : req.query.code,
         state: Array.isArray(req.query.state) ? req.query.state[0] : req.query.state,
       });
-      const pending = (req.session as any).ssoPending as import("../services/ssoService").SsoPendingState | undefined;
-      try {
-        ssoService.assertPendingState(pending, parsed.state);
-      } catch (stateError: any) {
-        if (stateError?.message === "SSO state has expired") {
-          (req.session as any).ssoPending = undefined;
-        }
-        return res.status(400).json({ message: stateError?.message || "OIDC state is invalid or missing" });
-      }
-
-      if (pending?.provider !== "oidc") {
-        (req.session as any).ssoPending = undefined;
-        return res.status(400).json({ message: "OIDC state is invalid or missing" });
+      const pending = await ssoPendingStateService.consume(parsed.state, "oidc");
+      (req.session as any).ssoPending = undefined;
+      if (!pending) {
+        return res.status(400).json({ message: "OIDC state is invalid, expired, or already used" });
       }
 
       const organization = await storage.getOrganizationById(pending.organizationId);
@@ -1023,16 +1313,25 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         });
       } catch (completionError: any) {
         (req.session as any).ssoPending = undefined;
-        const message = completionError?.message || "Failed to complete OIDC callback";
-        const derivedStatus =
-          message === "Organization not found"
-            ? 404
-            : message === "Email domain is not allowed for this organization" ||
-                message === "JIT user provisioning is disabled for this organization"
-              ? 403
-              : 400;
-        const status = completionError?.status ?? derivedStatus;
-        return res.status(status).json({ message });
+        const publicError = getSsoCompletionPublicError(
+          completionError,
+          "Failed to complete OIDC callback",
+        );
+        if (publicError.status >= 500) {
+          console.error("Failed to complete OIDC callback:", completionError);
+        }
+        return res.status(publicError.status).json({ message: publicError.message });
+      }
+
+      if (isBrowserNavigationRequest(req)) {
+        const exchange = await ssoLoginExchangeService.issue({
+          userId: completed.user.id,
+          organizationId: completed.organization.id,
+          nextPath: completed.next,
+        });
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("Referrer-Policy", "no-referrer");
+        return res.redirect(303, buildSsoExchangeRedirect(exchange.code));
       }
 
       await regenerateSessionForUser(req, completed.user);
@@ -1046,7 +1345,107 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         user: authUser,
       });
     } catch (err: any) {
-      return res.status(400).json({ message: err.message || "Failed to complete OIDC callback" });
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid OIDC callback request" });
+      }
+      const publicError = toPublicHttpError(err, {
+        fallbackStatus: 500,
+        internalMessage: "Failed to complete OIDC callback",
+      });
+      if (publicError.status >= 500) {
+        console.error("Failed to process OIDC callback:", err);
+      }
+      return res.status(publicError.status).json({ message: publicError.message });
+    }
+  });
+
+  app.post("/api/auth/sso/exchange", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Pragma", "no-cache");
+
+    try {
+      if (!isTrustedAuthRequestOrigin(req)) {
+        res.setHeader("X-Error-Code", "ORIGIN_NOT_ALLOWED");
+        return res.status(403).json({
+          message: "Request origin is not allowed",
+          code: "ORIGIN_NOT_ALLOWED",
+        });
+      }
+
+      const clientAddress = getRateLimitClientAddress(req);
+      if (
+        !(await enforceSharedRateLimits(req, res, [
+          { policy: publicRateLimitPolicies.ssoExchangeGlobal, identity: globalRateLimitIdentity() },
+          { policy: publicRateLimitPolicies.ssoExchangeIp, identity: [clientAddress] },
+        ]))
+      ) {
+        return;
+      }
+
+      const parsed = ssoLoginExchangeSchema.parse(req.body ?? {});
+      if (
+        !(await enforceSharedRateLimits(req, res, [
+          { policy: publicRateLimitPolicies.ssoExchangeToken, identity: [parsed.code] },
+        ]))
+      ) {
+        return;
+      }
+
+      const claimed = await ssoLoginExchangeService.consume(parsed.code);
+      if (!claimed) {
+        res.setHeader("X-Error-Code", "SSO_EXCHANGE_INVALID");
+        return res.status(400).json({
+          message: "The sign-in handoff is invalid, expired, or has already been used.",
+          code: "SSO_EXCHANGE_INVALID",
+        });
+      }
+
+      const [user, membershipsList] = await Promise.all([
+        storage.getUser(claimed.userId),
+        storage.getMembershipsByUserId(claimed.userId),
+      ]);
+      const membership = membershipsList.find(
+        (candidate) =>
+          candidate.organizationId === claimed.organizationId &&
+          candidate.membershipState === "active" &&
+          candidate.organizationStatus === "active",
+      );
+      if (!user || !membership) {
+        res.setHeader("X-Error-Code", "SSO_EXCHANGE_INVALID");
+        return res.status(400).json({
+          message: "The sign-in handoff is invalid, expired, or has already been used.",
+          code: "SSO_EXCHANGE_INVALID",
+        });
+      }
+
+      await regenerateSessionForUser(req, user);
+      req.session.currentOrganizationId = claimed.organizationId;
+      const authUser = await buildAndPersistAuthPayload(req);
+
+      return res.json({
+        ok: true,
+        next: ssoService.normalizeNextPath(claimed.nextPath),
+        user: authUser,
+      });
+    } catch (err: unknown) {
+      if (err instanceof z.ZodError) {
+        res.setHeader("X-Error-Code", "SSO_EXCHANGE_INVALID");
+        return res.status(400).json({
+          message: "The sign-in handoff is invalid, expired, or has already been used.",
+          code: "SSO_EXCHANGE_INVALID",
+        });
+      }
+      const publicError = toPublicHttpError(err, {
+        fallbackStatus: 500,
+        internalMessage: "Failed to complete SSO login exchange",
+      });
+      if (publicError.status >= 500) {
+        console.error("Failed to complete SSO login exchange:", err);
+      }
+      return res.status(publicError.status).json({
+        message: publicError.message,
+        code: publicError.code,
+      });
     }
   });
 
@@ -1057,19 +1456,10 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
 
     try {
       const parsed = oidcMockCallbackSchema.parse(req.body ?? {});
-      const pending = (req.session as any).ssoPending as import("../services/ssoService").SsoPendingState | undefined;
-      try {
-        ssoService.assertPendingState(pending, parsed.state);
-      } catch (stateError: any) {
-        if (stateError?.message === "SSO state has expired") {
-          (req.session as any).ssoPending = undefined;
-        }
-        return res.status(400).json({ message: stateError?.message || "OIDC state is invalid or missing" });
-      }
-
-      if (pending?.provider !== "oidc") {
-        (req.session as any).ssoPending = undefined;
-        return res.status(400).json({ message: "OIDC state is invalid or missing" });
+      const pending = await ssoPendingStateService.consume(parsed.state, "oidc");
+      (req.session as any).ssoPending = undefined;
+      if (!pending) {
+        return res.status(400).json({ message: "OIDC state is invalid, expired, or already used" });
       }
 
       let completed;
@@ -1081,16 +1471,14 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         });
       } catch (completionError: any) {
         (req.session as any).ssoPending = undefined;
-        const message = completionError?.message || "Failed to complete OIDC callback";
-        const derivedStatus =
-          message === "Organization not found"
-            ? 404
-            : message === "Email domain is not allowed for this organization" ||
-                message === "JIT user provisioning is disabled for this organization"
-              ? 403
-              : 400;
-        const status = completionError?.status ?? derivedStatus;
-        return res.status(status).json({ message });
+        const publicError = getSsoCompletionPublicError(
+          completionError,
+          "Failed to complete OIDC callback",
+        );
+        if (publicError.status >= 500) {
+          console.error("Failed to complete mock OIDC callback:", completionError);
+        }
+        return res.status(publicError.status).json({ message: publicError.message });
       }
 
       await regenerateSessionForUser(req, completed.user);
@@ -1104,7 +1492,17 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
         user: authUser,
       });
     } catch (err: any) {
-      return res.status(400).json({ message: err.message || "Failed to complete OIDC callback" });
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid OIDC callback request" });
+      }
+      const publicError = toPublicHttpError(err, {
+        fallbackStatus: 500,
+        internalMessage: "Failed to complete OIDC callback",
+      });
+      if (publicError.status >= 500) {
+        console.error("Failed to process mock OIDC callback:", err);
+      }
+      return res.status(publicError.status).json({ message: publicError.message });
     }
   });
 }

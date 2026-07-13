@@ -3,6 +3,7 @@ import { requireAuth } from "../auth";
 import { portfolioService } from "../services/portfolioService";
 import { telemetryPolicyService } from "../services/telemetryPolicyService";
 import { requireOrgRole, requireTenant } from "../tenant";
+import { toPublicHttpError } from "../http-error-response";
 import { z } from "zod";
 
 const portfolioProvisionSchema = z.object({
@@ -78,7 +79,14 @@ export function registerPortfolioRoutes(app: Express): void {
         });
         res.json(data);
       } catch (err: any) {
-        res.status(err?.status ?? 500).json({ message: err.message || "Failed to load portfolio control plane" });
+        const publicError = toPublicHttpError(err, {
+          fallbackStatus: 500,
+          internalMessage: "Failed to load portfolio control plane",
+        });
+        if (publicError.status >= 500) {
+          console.error("Failed to load portfolio control plane:", err);
+        }
+        res.status(publicError.status).json({ message: publicError.message });
       }
     },
   );
@@ -107,7 +115,8 @@ export function registerPortfolioRoutes(app: Express): void {
         policy,
       });
     } catch (err: any) {
-      return res.status(500).json({ message: err.message || "Failed to load portfolio telemetry policy" });
+      console.error("Failed to load portfolio telemetry policy:", err);
+      return res.status(500).json({ message: "Failed to load portfolio telemetry policy" });
     }
   });
 

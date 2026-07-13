@@ -1,7 +1,6 @@
 import { backgroundJobService } from "./backgroundJobService";
 
 const MONITORING_WEBHOOK_URL = process.env.MONITORING_WEBHOOK_URL?.trim() || "";
-const MONITORING_WEBHOOK_TOKEN = process.env.MONITORING_WEBHOOK_TOKEN?.trim() || "";
 const MONITORING_SERVICE_NAME = process.env.MONITORING_SERVICE_NAME?.trim() || "ai-control-grid";
 const MONITORING_ENVIRONMENT =
   process.env.MONITORING_ENVIRONMENT?.trim() || process.env.NODE_ENV || "development";
@@ -54,8 +53,7 @@ async function postWebhook(payload: ReturnType<typeof normalizeEvent>) {
       organizationId: payload.organizationId,
       createdBy: payload.userId,
       payload: {
-        url: MONITORING_WEBHOOK_URL,
-        token: MONITORING_WEBHOOK_TOKEN || null,
+        destination: { kind: "monitoring_environment" },
         body: payload,
       },
       maxAttempts: 4,

@@ -11,6 +11,24 @@ import {
   type ThreatIntelMatch,
   type ThreatIntelSummaryResponse,
 } from "@shared/threat-intelligence";
+import { safeOutboundFetch } from "../safe-outbound-http";
+import {
+  PersistedSecretError,
+  encryptPersistedSecret,
+  integrationSecretPurpose,
+  mergePersistedSecret,
+  resolvePersistedSecret,
+  hasPersistedCredential,
+} from "../persisted-secret";
+import {
+  threatIntelClientView,
+  type ThreatIntelClientConfig,
+} from "../integration-credential-views";
+import { updateOrganizationSettingsForTenant } from "./organizationSettingsService";
+import { assertCredentialOriginPreserved } from "../credential-origin";
+
+const REMOTE_FEED_TIMEOUT_MS = 10_000;
+const REMOTE_FEED_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 const BUILT_IN_INDICATORS: ThreatIntelIndicator[] = [
   {
@@ -54,6 +72,12 @@ const BUILT_IN_INDICATORS: ThreatIntelIndicator[] = [
 type CachedRemoteFeed = {
   expiresAt: number;
   indicators: ThreatIntelIndicator[];
+};
+
+export type ThreatIntelUpdateInput = ThreatIntelConfig & {
+  externalFeed: ThreatIntelConfig["externalFeed"] & {
+    clearAuthToken?: boolean;
+  };
 };
 
 const remoteFeedCache = new Map<string, CachedRemoteFeed>();
@@ -102,7 +126,7 @@ function normalizeThreatIntelSource(value: unknown): ThreatIntelMatch["source"] 
 }
 
 export class ThreatIntelligenceService {
-  async getConfigForOrg(organizationId: string): Promise<ThreatIntelConfig> {
+  private async getStoredConfigForOrg(organizationId: string) {
     const [organization] = await db
       .select({ settings: organizations.settings })
       .from(organizations)
@@ -110,35 +134,106 @@ export class ThreatIntelligenceService {
       .limit(1);
 
     if (!organization) {
-      return DEFAULT_THREAT_INTEL_CONFIG;
+      return null;
     }
 
     const settings = getSettingsObject(organization.settings);
-    return sanitizeThreatIntelConfig(settings.threatIntelligenceConfig);
+    return {
+      organization,
+      config: sanitizeThreatIntelConfig(settings.threatIntelligenceConfig),
+    };
   }
 
-  async updateConfigForOrg(organizationId: string, nextValue: ThreatIntelConfig): Promise<ThreatIntelConfig> {
-    const [organization] = await db
-      .select()
-      .from(organizations)
-      .where(eq(organizations.id, organizationId))
-      .limit(1);
+  private async tryMigrateLegacyToken(
+    organizationId: string,
+    config: ThreatIntelConfig,
+  ): Promise<void> {
+    const purpose = integrationSecretPurpose.threatFeedAuthToken(organizationId);
+    const resolved = resolvePersistedSecret(config.externalFeed.authToken, purpose);
+    if (!resolved.isLegacyPlaintext || !resolved.plaintext) return;
 
-    if (!organization) {
+    let encrypted: string;
+    try {
+      encrypted = encryptPersistedSecret(resolved.plaintext, purpose);
+    } catch (error) {
+      if (error instanceof PersistedSecretError) return;
+      throw error;
+    }
+    const legacyAuthToken = config.externalFeed.authToken;
+    await updateOrganizationSettingsForTenant(organizationId, (currentSettings) => {
+      const current = sanitizeThreatIntelConfig(
+        getSettingsObject(currentSettings).threatIntelligenceConfig,
+      );
+      if (current.externalFeed.authToken !== legacyAuthToken) {
+        return { ...currentSettings };
+      }
+      return buildThreatIntelSettings(currentSettings, {
+        ...current,
+        externalFeed: { ...current.externalFeed, authToken: encrypted },
+      });
+    });
+  }
+
+  async getConfigForOrg(organizationId: string): Promise<ThreatIntelClientConfig> {
+    const stored = await this.getStoredConfigForOrg(organizationId);
+    if (!stored) return threatIntelClientView(DEFAULT_THREAT_INTEL_CONFIG);
+    await this.tryMigrateLegacyToken(organizationId, stored.config);
+    return threatIntelClientView(stored.config);
+  }
+
+  private async getResolvedConfigForOrg(organizationId: string): Promise<ThreatIntelConfig> {
+    const stored = await this.getStoredConfigForOrg(organizationId);
+    if (!stored) return DEFAULT_THREAT_INTEL_CONFIG;
+    const resolved = resolvePersistedSecret(
+      stored.config.externalFeed.authToken,
+      integrationSecretPurpose.threatFeedAuthToken(organizationId),
+    );
+    if (resolved.isLegacyPlaintext) {
+      await this.tryMigrateLegacyToken(organizationId, stored.config);
+    }
+    return {
+      ...stored.config,
+      externalFeed: { ...stored.config.externalFeed, authToken: resolved.plaintext },
+    };
+  }
+
+  async updateConfigForOrg(
+    organizationId: string,
+    nextValue: ThreatIntelUpdateInput,
+  ): Promise<ThreatIntelClientConfig> {
+    const updated = await updateOrganizationSettingsForTenant(
+      organizationId,
+      (currentSettings) => {
+        const current = sanitizeThreatIntelConfig(
+          getSettingsObject(currentSettings).threatIntelligenceConfig,
+        );
+        assertCredentialOriginPreserved({
+          label: "Threat-intelligence feed",
+          currentUrl: current.externalFeed.feedUrl,
+          nextUrl: nextValue.externalFeed.feedUrl,
+          hasCurrentCredential: hasPersistedCredential(current.externalFeed.authToken),
+          replacementCredential: nextValue.externalFeed.authToken,
+          clearCredential: nextValue.externalFeed.clearAuthToken,
+        });
+        const storedToken = mergePersistedSecret({
+          currentValue: current.externalFeed.authToken,
+          nextValue: nextValue.externalFeed.authToken,
+          clear: nextValue.externalFeed.clearAuthToken,
+          purpose: integrationSecretPurpose.threatFeedAuthToken(organizationId),
+        });
+        const storedConfig: ThreatIntelConfig = {
+          ...nextValue,
+          externalFeed: { ...nextValue.externalFeed, authToken: storedToken },
+        };
+        return buildThreatIntelSettings(currentSettings, storedConfig);
+      },
+    );
+    if (!updated) {
       throw new Error("Organization not found");
     }
 
-    const [updated] = await db
-      .update(organizations)
-      .set({
-        settings: buildThreatIntelSettings(organization.settings, nextValue),
-        updatedAt: new Date(),
-      })
-      .where(eq(organizations.id, organizationId))
-      .returning({ settings: organizations.settings });
-
-    const settings = getSettingsObject(updated?.settings);
-    return sanitizeThreatIntelConfig(settings.threatIntelligenceConfig);
+    const settings = getSettingsObject(updated.settings);
+    return threatIntelClientView(sanitizeThreatIntelConfig(settings.threatIntelligenceConfig));
   }
 
   private async getRemoteIndicators(config: ThreatIntelConfig): Promise<{
@@ -155,13 +250,18 @@ export class ThreatIntelligenceService {
     const providerLabel = config.externalFeed.enabled
       ? config.externalFeed.providerLabel ?? threatIntelExternalFeedDefaultLabels[providerType]
       : null;
-    const feedUrl = configuredFeedUrl ?? normalizeOptionalString(process.env.THREAT_INTEL_FEED_URL);
+    const environmentFeedUrl = normalizeOptionalString(process.env.THREAT_INTEL_FEED_URL);
+    const environmentToken = normalizeOptionalString(process.env.THREAT_INTEL_FEED_TOKEN);
+    const feedUrl = configuredFeedUrl ?? environmentFeedUrl;
+    // Environment credentials are a deployment-owned URL/token pair and must
+    // never be combined with a tenant-configured destination.
+    const feedToken = configuredFeedUrl ? configuredToken : environmentToken;
     if (!feedUrl) {
       return { indicators: [], remoteFeedConfigured: false, providerType, providerLabel };
     }
 
     const now = Date.now();
-    const cacheKey = `${feedUrl}|${configuredToken ?? normalizeOptionalString(process.env.THREAT_INTEL_FEED_TOKEN) ?? ""}`;
+    const cacheKey = `${feedUrl}|${feedToken ?? ""}`;
     const cached = remoteFeedCache.get(cacheKey);
     if (cached && cached.expiresAt > now) {
       return {
@@ -173,10 +273,12 @@ export class ThreatIntelligenceService {
     }
 
     try {
-      const response = await fetch(feedUrl, {
-        headers: configuredToken ?? normalizeOptionalString(process.env.THREAT_INTEL_FEED_TOKEN)
-          ? { Authorization: `Bearer ${(configuredToken ?? normalizeOptionalString(process.env.THREAT_INTEL_FEED_TOKEN))!}` }
+      const response = await safeOutboundFetch(feedUrl, {
+        headers: feedToken
+          ? { Authorization: `Bearer ${feedToken}` }
           : undefined,
+        timeoutMs: REMOTE_FEED_TIMEOUT_MS,
+        maxResponseBytes: REMOTE_FEED_MAX_RESPONSE_BYTES,
       });
       if (!response.ok) {
         return { indicators: [], remoteFeedConfigured: true, providerType, providerLabel: providerLabel ?? "Environment feed" };
@@ -216,7 +318,7 @@ export class ThreatIntelligenceService {
     remoteProviderType: ThreatIntelConfig["externalFeed"]["providerType"];
     remoteProviderLabel: string | null;
   }> {
-    const config = await this.getConfigForOrg(organizationId);
+    const config = await this.getResolvedConfigForOrg(organizationId);
     const remoteIndicators = await this.getRemoteIndicators(config);
     return {
       config,

@@ -1,15 +1,16 @@
 # Deployment and Rollback Runbook
 
-This runbook covers production promotion and rollback for the current Netlify + Render deployment model.
+This runbook covers production promotion and rollback for the current Firebase Hosting + Render deployment model. Netlify remains an optional secondary frontend.
 
 ## Deployment model
 
 Current production shape:
 
-- frontend: Netlify
+- primary frontend: Firebase Hosting
+- optional secondary frontend: Netlify
 - backend: Render
 - database: PostgreSQL
-- schema changes: `npm run db:push -- --force`
+- forward-compatible schema expansion: `npm run db:migrate:production` (never use forced schema synchronization against production)
 
 CI/CD entry points:
 
@@ -20,16 +21,20 @@ CI/CD entry points:
 
 Before promoting:
 
-1. `npm run check`
-2. `npm run tenant:validate`
-3. `npm run tenant:guard`
-4. `npm run test:tenant:isolation`
-5. `npm run test:tenant:routes`
-6. `npm run test:regression:all`
+1. `npm run security:sast`
+2. `npm run security:deps`
+3. `npm run security:secrets`
+4. `npm run tenant:validate`
+5. `npm run test:tenant:isolation`
+6. `npm run test:tenant:routes`
+7. `npm run test:security:csrf`
+8. `npm run test:regression:all`
 
 Operational checks:
 
-- production database snapshot exists
+- a recoverable production database snapshot exists for the exact release
+- the production GitHub environment variable `PRODUCTION_DB_BACKUP_CONFIRMED`
+  equals the full Git commit SHA being promoted
 - Render backend env vars are current
 - Netlify env vars are current
 - deploy hooks are valid
@@ -40,10 +45,12 @@ Recommended order:
 
 1. validate on `main`
 2. run manual production promotion
-3. optionally apply `db:push` during promotion if the release includes schema changes
+3. confirm the snapshot/restore point, set the production GitHub environment variable `PRODUCTION_DB_BACKUP_CONFIRMED` to the full release commit SHA, and apply `npm run db:migrate:production`
 4. trigger backend deploy
-5. trigger frontend deploy
-6. run smoke checks:
+5. verify `/api/ready` reports the exact release commit
+6. migrate any legacy plaintext invite tokens
+7. deploy Firebase Hosting and optionally trigger Netlify
+8. run smoke checks:
    - `/api/health`
    - login
    - org switching
@@ -73,12 +80,14 @@ Use when:
 Steps:
 
 1. redeploy the previous stable Render release
-2. redeploy the previous stable Netlify release
+2. redeploy the previous stable Firebase Hosting release and, if enabled, the previous stable Netlify release
 3. run smoke checks:
    - `/api/health`
    - `/api/auth/user`
    - dashboard
    - settings
+
+Invite-token compatibility note: this release replaces plaintext invitation tokens with one-way digests. If the backend is rolled back to a release that predates digest support without restoring the pre-release database snapshot, pending invitations must be resent from the old release before they can be accepted. Never attempt to reconstruct or export the previous raw tokens from their digests.
 
 ### Application + database rollback
 
@@ -92,7 +101,7 @@ Steps:
 1. stop further production promotions
 2. restore the pre-release DB snapshot
 3. redeploy the previous stable backend
-4. redeploy the previous stable frontend
+4. redeploy the previous stable Firebase Hosting release and, if enabled, the previous stable Netlify release
 5. re-run tenant and smoke validation
 
 ## Important limitations
@@ -101,7 +110,7 @@ Current repo state:
 
 - promotion is automated through deploy hooks
 - rollback is documented, not provider-API-automated
-- database schema promotion uses `drizzle-kit push`, not versioned forward/back SQL migrations
+- the current release migration is an idempotent, version-recorded expand migration; destructive contract migrations remain deliberately separate
 
 That means database rollback should be treated as snapshot restore, not reverse migration replay.
 
@@ -114,6 +123,6 @@ That means database rollback should be treated as snapshot restore, not reverse 
 5. confirm SSO start URL still resolves correctly
 6. confirm invite acceptance route still loads
 
-## Recommended next improvement
+## Schema rollback rule
 
-If you want stronger rollback guarantees, the next step is to move from `db:push` to explicit migration files with release-by-release forward plans.
+Do not reverse the additive release migration while either the new or previous application release is running. Application rollback remains compatible with the added columns and tables. If data repair is required, restore the verified pre-release snapshot in a controlled maintenance window.

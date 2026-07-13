@@ -7,7 +7,8 @@ import {
   normalizeOptionalString,
   parseBooleanEnv,
 } from "../env";
-import { fetchWithTimeout } from "../http";
+import { escapeEmailHtml, sanitizeEmailText } from "../email-content";
+import { safeOutboundFetch } from "../safe-outbound-http";
 
 export type PasswordResetDeliveryStatus = "sent" | "webhook_sent" | "preview" | "failed";
 
@@ -25,7 +26,7 @@ type PasswordResetTokenPayload = {
   pwdChangedAt: string;
 };
 
-type PasswordResetMailInput = {
+export type PasswordResetMailInput = {
   email: string;
   fullName: string;
   resetUrl: string;
@@ -90,19 +91,24 @@ function getSmtpConfig() {
   };
 }
 
-function buildPasswordResetMail(input: PasswordResetMailInput) {
-  const expiresAt = input.expiresAt.toLocaleString("en-GB", {
+export function buildPasswordResetMail(input: PasswordResetMailInput) {
+  const fullName = sanitizeEmailText(input.fullName);
+  const resetUrl = sanitizeEmailText(input.resetUrl);
+  const expiresAt = sanitizeEmailText(input.expiresAt.toLocaleString("en-GB", {
     dateStyle: "medium",
     timeStyle: "short",
-  });
+  }));
+  const escapedFullName = escapeEmailHtml(fullName);
+  const escapedResetUrl = escapeEmailHtml(resetUrl);
+  const escapedExpiresAt = escapeEmailHtml(expiresAt);
 
   return {
     subject: "Reset your AI CONTROL GRID password",
     text: [
-      `Hello ${input.fullName},`,
+      `Hello ${fullName},`,
       "",
       "A password reset was requested for your AI CONTROL GRID account.",
-      `Reset your password: ${input.resetUrl}`,
+      `Reset your password: ${resetUrl}`,
       `This link expires at: ${expiresAt}`,
       "",
       "If you did not request this, you can ignore this message.",
@@ -110,16 +116,16 @@ function buildPasswordResetMail(input: PasswordResetMailInput) {
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
         <h2 style="margin:0 0 12px">Reset your password</h2>
-        <p>Hello <strong>${input.fullName}</strong>,</p>
+        <p>Hello <strong>${escapedFullName}</strong>,</p>
         <p>A password reset was requested for your AI CONTROL GRID account.</p>
-        <p><strong>Expires at:</strong> ${expiresAt}</p>
+        <p><strong>Expires at:</strong> ${escapedExpiresAt}</p>
         <p style="margin:20px 0">
-          <a href="${input.resetUrl}" style="display:inline-block;padding:10px 16px;background:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:8px">
+          <a href="${escapedResetUrl}" style="display:inline-block;padding:10px 16px;background:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:8px">
             Reset password
           </a>
         </p>
         <p>If the button does not work, use this URL:</p>
-        <p><a href="${input.resetUrl}">${input.resetUrl}</a></p>
+        <p><a href="${escapedResetUrl}">${escapedResetUrl}</a></p>
         <p>If you did not request this, you can ignore this message.</p>
       </div>
     `,
@@ -245,10 +251,10 @@ export async function deliverPasswordReset(input: PasswordResetMailInput): Promi
   const webhookUrl = process.env.PASSWORD_RESET_WEBHOOK_URL;
   if (webhookUrl) {
     try {
-      const response = await fetchWithTimeout(webhookUrl, {
+      const response = await safeOutboundFetch(webhookUrl, {
         method: "POST",
         timeoutMs: DELIVERY_WEBHOOK_TIMEOUT_MS,
-        timeoutMessage: "Password reset delivery webhook timed out",
+        maxResponseBytes: 64 * 1024,
         headers: {
           "Content-Type": "application/json",
         },

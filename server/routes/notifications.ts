@@ -15,7 +15,8 @@ export function registerNotificationsRoutes(app: Express): void {
       });
       res.json(notifs);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      console.error("Failed to load notifications:", err);
+      res.status(500).json({ message: "Failed to load notifications" });
     }
   });
 
@@ -29,7 +30,8 @@ export function registerNotificationsRoutes(app: Express): void {
       });
       res.json(digest);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      console.error("Failed to load notification digest:", err);
+      res.status(500).json({ message: "Failed to load notification digest" });
     }
   });
 
@@ -41,7 +43,8 @@ export function registerNotificationsRoutes(app: Express): void {
       });
       res.json({ count });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      console.error("Failed to load unread notification count:", err);
+      res.status(500).json({ message: "Failed to load unread notification count" });
     }
   });
 
@@ -55,7 +58,8 @@ export function registerNotificationsRoutes(app: Express): void {
       if (!updated) return res.status(404).json({ message: "Notification not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      console.error("Failed to mark notification as read:", err);
+      res.status(500).json({ message: "Failed to mark notification as read" });
     }
   });
 

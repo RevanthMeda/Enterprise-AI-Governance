@@ -4,6 +4,7 @@ import { Upload, File, Trash2, Download, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { formatLawPackLabel, formatLegalProfileLabel } from "@/lib/governance-display";
+import { runEvidenceUploads } from "@/lib/evidence-upload";
 import { apiFetch, apiRequest, queryClient } from "@/lib/queryClient";
 import type { EvidenceFile } from "@shared/schema";
 
@@ -110,7 +112,7 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
 
   const queryKey = ["/api/evidence", queryParams.toString()];
 
-  const { data: files = [], isLoading } = useQuery<EvidenceFile[]>({
+  const filesQuery = useQuery<EvidenceFile[]>({
     queryKey,
     queryFn: async ({ signal }) => {
       const res = await apiFetch(`/api/evidence?${queryParams.toString()}`, { signal });
@@ -118,6 +120,7 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
       return res.json();
     },
   });
+  const files = filesQuery.isError ? [] : filesQuery.data ?? [];
 
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -161,17 +164,26 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
   const handleUpload = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     setUploading(true);
-    for (let i = 0; i < fileList.length; i++) {
-      await uploadMutation.mutateAsync(fileList[i]);
+    try {
+      await runEvidenceUploads(
+        fileList,
+        (file) => uploadMutation.mutateAsync(file),
+        () => {
+          setUploading(false);
+          if (fileInputRef.current) fileInputRef.current.value = "";
+        },
+      );
+    } catch {
+      // The mutation's onError callback presents the upload failure to the user.
     }
-    setUploading(false);
-    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    handleUpload(e.dataTransfer.files);
+    if (!uploading) {
+      void handleUpload(e.dataTransfer.files);
+    }
   };
 
   const handleDownload = async (file: EvidenceFile) => {
@@ -201,12 +213,20 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
   };
 
   if (compact) {
+    const compactLabel = filesQuery.isLoading
+      ? "Loading evidence..."
+      : filesQuery.isError
+        ? "Evidence unavailable"
+        : files.length > 0
+          ? `${files.length} file${files.length > 1 ? "s" : ""}`
+          : "Attach";
+
     return (
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogTrigger asChild>
           <Button variant="outline" size="sm" className="h-7 text-[10px]" data-testid={`button-evidence-${controlId || workflowId || systemId}`}>
             <Paperclip className="h-3 w-3 mr-1" />
-            {files.length > 0 ? `${files.length} file${files.length > 1 ? "s" : ""}` : "Attach"}
+            {compactLabel}
           </Button>
         </DialogTrigger>
         <DialogContent className="max-w-md">
@@ -215,7 +235,9 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
           </DialogHeader>
           <EvidenceContent
             files={files}
-            isLoading={isLoading}
+            isLoading={filesQuery.isLoading}
+            isError={filesQuery.isError}
+            onRetry={() => void filesQuery.refetch()}
             uploading={uploading}
             dragOver={dragOver}
             fileInputRef={fileInputRef}
@@ -240,7 +262,9 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
   return (
     <EvidenceContent
       files={files}
-      isLoading={isLoading}
+      isLoading={filesQuery.isLoading}
+      isError={filesQuery.isError}
+      onRetry={() => void filesQuery.refetch()}
       uploading={uploading}
       dragOver={dragOver}
       fileInputRef={fileInputRef}
@@ -263,6 +287,8 @@ export function EvidenceUpload({ systemId, controlId, workflowId, compact }: Evi
 function EvidenceContent({
   files,
   isLoading,
+  isError,
+  onRetry,
   uploading,
   dragOver,
   fileInputRef,
@@ -281,6 +307,8 @@ function EvidenceContent({
 }: {
   files: EvidenceFile[];
   isLoading: boolean;
+  isError: boolean;
+  onRetry: () => void;
   uploading: boolean;
   dragOver: boolean;
   fileInputRef: React.RefObject<HTMLInputElement>;
@@ -341,11 +369,23 @@ function EvidenceContent({
       <div
         className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors cursor-pointer ${
           dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/20 hover:border-muted-foreground/40"
-        }`}
+        } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`}
+        role="button"
+        tabIndex={0}
+        aria-label="Upload evidence files"
+        aria-disabled={uploading}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={() => {
+          if (!uploading) fileInputRef.current?.click();
+        }}
+        onKeyDown={(event) => {
+          if (!uploading && (event.key === "Enter" || event.key === " ")) {
+            event.preventDefault();
+            fileInputRef.current?.click();
+          }
+        }}
         data-testid="dropzone-evidence"
       >
         <Upload className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
@@ -353,17 +393,32 @@ function EvidenceContent({
           {uploading ? "Uploading..." : "Drop files here or click to browse"}
         </p>
         <p className="text-[10px] text-muted-foreground mt-1">Max 50MB per file</p>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => onUpload(e.target.files)}
-          data-testid="input-evidence-file"
-        />
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        disabled={uploading}
+        className="hidden"
+        onChange={(e) => onUpload(e.target.files)}
+        data-testid="input-evidence-file"
+      />
 
-      {files.length > 0 && (
+      {isLoading ? (
+        <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground" role="status">
+          Loading evidence files...
+        </div>
+      ) : isError ? (
+        <Alert variant="destructive">
+          <AlertTitle>Evidence files could not be loaded</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>The existing evidence list is unavailable. Retry before treating this record as having no attachments.</p>
+            <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : files.length > 0 ? (
         <div className="space-y-1.5">
           <p className="text-xs font-medium text-muted-foreground">{files.length} file{files.length > 1 ? "s" : ""} attached</p>
           {files.map((file) => (
@@ -454,13 +509,13 @@ function EvidenceContent({
             </div>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
 export function EvidenceCount({ systemId }: { systemId: string }) {
-  const { data: files = [] } = useQuery<EvidenceFile[]>({
+  const evidenceCountQuery = useQuery<EvidenceFile[]>({
     queryKey: ["/api/evidence", `systemId=${systemId}`],
     queryFn: async ({ signal }) => {
       const res = await apiFetch(`/api/evidence?systemId=${encodeURIComponent(systemId)}`, { signal });
@@ -468,6 +523,38 @@ export function EvidenceCount({ systemId }: { systemId: string }) {
       return res.json();
     },
   });
+  const files = evidenceCountQuery.isError ? [] : evidenceCountQuery.data ?? [];
+
+  if (evidenceCountQuery.isLoading) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground" role="status">
+        <Paperclip className="h-3 w-3" />
+        Evidence: —
+      </span>
+    );
+  }
+
+  if (evidenceCountQuery.isError) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-[10px] text-destructive"
+        role="alert"
+        data-testid={`evidence-count-error-${systemId}`}
+      >
+        <Paperclip className="h-3 w-3" />
+        Evidence unavailable
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 px-1.5 text-[10px]"
+          onClick={() => void evidenceCountQuery.refetch()}
+        >
+          Retry
+        </Button>
+      </span>
+    );
+  }
 
   if (files.length === 0) return null;
 

@@ -1,6 +1,7 @@
 import "../server/load-env";
 import { createHash, randomUUID } from "crypto";
 import { hashPassword } from "../server/auth";
+import { digestInviteToken } from "../server/invite-token";
 
 type Filter =
   | { op: "eq"; value: string | number | boolean }
@@ -391,7 +392,7 @@ async function main() {
       email: `pending-reviewer@${spec.slug}.example`,
       role: "reviewer",
       status: "pending",
-      token: randomUUID().replace(/-/g, ""),
+      token: digestInviteToken(randomUUID().replace(/-/g, "")),
       invited_by: ensuredUsers.get("admin_test")?.id,
       expires_at: daysFromNow(7),
       resend_count: 1,

@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { requireAuth } from "../auth";
 import { requireTenant, requireOrgRole } from "../tenant";
 import { backgroundJobService } from "../services/backgroundJobService";
+import { backgroundJobClientView } from "../services/backgroundJobPayloadSecurity";
 import { inviteService } from "../services/inviteService";
 import { db } from "../db";
 import {
@@ -15,6 +16,16 @@ import {
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { routeParam, recordAdminAuditEvent, getOptionalString } from "./_helpers";
+import {
+  enforceSharedRateLimits,
+  getRateLimitClientAddress,
+  globalRateLimitIdentity,
+  publicRateLimitPolicies,
+} from "../public-rate-limit";
+import {
+  getInviteTokenFromAuthorizationHeader,
+  isPlausibleInviteBearerToken,
+} from "../invite-token";
 
 const inviteRoleOptions = ["owner", ...userRoles] as const;
 const assignableMembershipRoles = new Set<string>(inviteRoleOptions);
@@ -35,7 +46,7 @@ const updateMembershipSchema = z
   });
 
 const acceptInviteSchema = z.object({
-  token: z.string().trim().min(20),
+  token: z.string().trim().min(20).max(512).regex(/^\S+$/),
   username: z.string().trim().min(3).max(120),
   password: z.string().min(12),
   fullName: z.string().trim().min(1).max(200),
@@ -126,7 +137,7 @@ export function registerAdminRoutes(app: Express): void {
         },
       });
 
-      return res.json({ ok: true, job: retried });
+      return res.json({ ok: true, job: backgroundJobClientView(retried) });
     },
   );
 
@@ -357,10 +368,30 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/organization/invites/preview", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    const headerToken = getInviteTokenFromAuthorizationHeader(req.get("authorization"));
     const rawToken = req.query.token;
-    const token = getOptionalString(Array.isArray(rawToken) ? rawToken[0] : rawToken);
+    const legacyQueryToken = getOptionalString(
+      Array.isArray(rawToken) ? rawToken[0] : rawToken,
+    );
+    const token =
+      headerToken ||
+      (legacyQueryToken && isPlausibleInviteBearerToken(legacyQueryToken)
+        ? legacyQueryToken
+        : null);
     if (!token) {
       return res.status(400).json({ message: "Invite token is required" });
+    }
+
+    const clientAddress = getRateLimitClientAddress(req);
+    if (
+      !(await enforceSharedRateLimits(req, res, [
+        { policy: publicRateLimitPolicies.invitePreviewGlobal, identity: globalRateLimitIdentity() },
+        { policy: publicRateLimitPolicies.invitePreviewIp, identity: [clientAddress] },
+      ]))
+    ) {
+      return;
     }
 
     try {
@@ -372,8 +403,19 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.post("/api/organization/invites/accept", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
     try {
       const parsed = acceptInviteSchema.parse(req.body);
+      const clientAddress = getRateLimitClientAddress(req);
+      if (
+        !(await enforceSharedRateLimits(req, res, [
+          { policy: publicRateLimitPolicies.inviteAcceptGlobal, identity: globalRateLimitIdentity() },
+          { policy: publicRateLimitPolicies.inviteAcceptIp, identity: [clientAddress] },
+          { policy: publicRateLimitPolicies.inviteAcceptToken, identity: [parsed.token] },
+        ]))
+      ) {
+        return;
+      }
       const result = await inviteService.acceptInvite({
         token: parsed.token,
         username: parsed.username,

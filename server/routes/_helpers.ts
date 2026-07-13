@@ -1,4 +1,5 @@
 import type { Request } from "express";
+import { normalizeInternalPath } from "@shared/internal-path";
 import { randomBytes } from "crypto";
 import path from "path";
 import fs from "fs";
@@ -56,7 +57,7 @@ export const upload = multer({
       cb(null, orgUploadDir);
     },
     filename: (_req, file, cb) => {
-      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+      const uniqueSuffix = `${Date.now()}-${randomBytes(12).toString("hex")}`;
       cb(null, uniqueSuffix + "-" + sanitizeFilename(file.originalname));
     },
   }),
@@ -594,46 +595,6 @@ export function getErrorStatus(error: unknown, fallback = 400): number {
   return fallback;
 }
 
-export type RequestWindowState = {
-  count: number;
-  windowStart: number;
-};
-
-export const PASSWORD_RESET_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
-export const PASSWORD_RESET_RATE_LIMIT_ATTEMPTS = 5;
-export const passwordResetAttemptsByIp = new Map<string, RequestWindowState>();
-
-export function getClientIp(req: Request): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (Array.isArray(forwarded) && forwarded.length > 0) {
-    return forwarded[0].split(",")[0].trim();
-  }
-  if (typeof forwarded === "string") {
-    return forwarded.split(",")[0].trim();
-  }
-  return req.ip || "unknown";
-}
-
-export function getRequestWindowState(map: Map<string, RequestWindowState>, key: string, now: number): RequestWindowState {
-  const current = map.get(key);
-  if (!current || now - current.windowStart > PASSWORD_RESET_RATE_LIMIT_WINDOW_MS) {
-    const fresh = { count: 0, windowStart: now };
-    map.set(key, fresh);
-    return fresh;
-  }
-  return current;
-}
-
-export function isPasswordResetRateLimited(ip: string): boolean {
-  const windowState = getRequestWindowState(passwordResetAttemptsByIp, ip, Date.now());
-  return windowState.count >= PASSWORD_RESET_RATE_LIMIT_ATTEMPTS;
-}
-
-export function trackPasswordResetRequest(ip: string) {
-  const windowState = getRequestWindowState(passwordResetAttemptsByIp, ip, Date.now());
-  windowState.count += 1;
-}
-
 export async function recordAdminAuditEvent(input: {
   organizationId: string;
   actorUserId?: string | null;
@@ -660,10 +621,7 @@ export const routeParam = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 
 export function normalizeNextPath(nextPath?: string): string {
-  if (!nextPath) return "/";
-  if (!nextPath.startsWith("/")) return "/";
-  if (nextPath.startsWith("//")) return "/";
-  return nextPath;
+  return normalizeInternalPath(nextPath);
 }
 
 export function getOrganizationSettingsObject(rawSettings: unknown): Record<string, unknown> {

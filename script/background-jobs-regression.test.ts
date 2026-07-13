@@ -176,7 +176,11 @@ test("background job readiness and admin retry flow stay wired", async () => {
     const targetJob = listBody.jobs.find((job) => job.id === failedJob.id);
     assert.ok(targetJob, "Expected failed job to be returned");
     assert.equal(targetJob.status, "failed", "Expected failed job status");
-    assert.equal(targetJob.lastError, "SMTP timeout", "Expected last error to round-trip");
+    assert.equal(
+      targetJob.lastError,
+      "Background job failed; review protected service logs for details.",
+      "Expected a sanitized operator-facing error",
+    );
 
     const retried = await apiRequest(baseUrl, `/api/organization/background-jobs/${failedJob.id}/retry`, {
       method: "POST",

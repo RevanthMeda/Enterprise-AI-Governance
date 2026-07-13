@@ -8,7 +8,11 @@ import { setupAuth, hashPassword } from "../server/auth";
 import { registerRoutes } from "../server/routes";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
+import { domainService } from "../server/services/domainService";
 import { adminAuditEvents, memberships, organizations, users } from "../shared/schema";
+
+process.env.NODE_ENV = "test";
+process.env.ALLOW_INSECURE_SAML_TEST_FIXTURES = "true";
 
 type ApiResponse = {
   status: number;
@@ -154,6 +158,9 @@ test("sso provider identity conflicts fail closed and are audited", async () => 
       },
     });
     tracker.organizationIds.push(org.id);
+    await domainService.replaceAllowedDomains(org.id, [
+      { domain: "example.com", isVerified: true, verifiedAt: new Date() },
+    ]);
 
     const adminMembership = await storage.createMembership({
       userId: adminUser.id,
@@ -340,6 +347,9 @@ test("jit provisioning writes allow and create audit events", async () => {
       },
     });
     tracker.organizationIds.push(org.id);
+    await domainService.replaceAllowedDomains(org.id, [
+      { domain: "example.com", isVerified: true, verifiedAt: new Date() },
+    ]);
 
     const adminMembership = await storage.createMembership({
       userId: adminUser.id,

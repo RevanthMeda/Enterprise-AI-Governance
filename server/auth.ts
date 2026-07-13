@@ -29,9 +29,20 @@ import { getRuntimeConfig } from "./env";
 import { getVisibleActiveMemberships, pickCurrentOrganizationId } from "./auth-visibility";
 import { createSessionActivityMiddleware } from "./session-activity";
 import { sendAuthenticationRequired } from "./auth-errors";
+import {
+  getRateLimitClientAddress,
+  globalRateLimitIdentity,
+  publicRateLimitPolicies,
+} from "./public-rate-limit";
+import { sharedRateLimitService } from "./services/sharedRateLimitService";
+import type { RateLimitPolicy } from "./services/sharedRateLimitCore";
 
 declare global {
   namespace Express {
+    interface Request {
+      loginRateLimitRetryAfterMs?: number;
+    }
+
     interface User {
       id: string;
       username: string;
@@ -39,6 +50,7 @@ declare global {
       email: string | null;
       role: string;
       isPlatformAdmin: boolean;
+      sessionVersion: number;
     }
   }
 }
@@ -94,97 +106,55 @@ const PASSWORD_MIN_LENGTH = 12;
 const PASSWORD_ROTATION_MS = PASSWORD_ROTATION_DAYS * 24 * 60 * 60 * 1000;
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const ABSOLUTE_TIMEOUT_MS = 8 * 60 * 60 * 1000;
-const LOGIN_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
-const LOGIN_RATE_LIMIT_ATTEMPTS = 5;
 const MFA_TOTP_PERIOD_SECONDS = 30;
 const MFA_TOTP_DIGITS = 6;
 const MFA_RECOVERY_CODES_COUNT = 8;
 const MFA_RECOVERY_CODE_LENGTH = 10;
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
-type LoginWindowState = {
-  count: number;
-  windowStart: number;
-};
-
-// TTL-aware counter map that prunes expired entries to prevent unbounded growth.
-// NOTE: This is in-process only. On multi-instance deployments (e.g. Vercel serverless)
-// each instance has its own counter — use Upstash Redis for cross-instance enforcement.
-class BoundedTtlMap {
-  private readonly map = new Map<string, LoginWindowState>();
-
-  constructor(private readonly windowMs: number) {
-    setInterval(() => this.prune(), 5 * 60 * 1000).unref();
-  }
-
-  getOrReset(key: string, now: number): LoginWindowState {
-    const entry = this.map.get(key);
-    if (!entry || now - entry.windowStart > this.windowMs) {
-      const fresh: LoginWindowState = { count: 0, windowStart: now };
-      this.map.set(key, fresh);
-      return fresh;
-    }
-    return entry;
-  }
-
-  delete(key: string): void {
-    this.map.delete(key);
-  }
-
-  private prune(): void {
-    const cutoff = Date.now() - this.windowMs;
-    for (const [key, entry] of this.map) {
-      if (entry.windowStart < cutoff) this.map.delete(key);
-    }
-  }
-}
-
-const loginAttemptsByIpAndAccount = new BoundedTtlMap(LOGIN_RATE_LIMIT_WINDOW_MS);
-const loginAttemptsByAccount = new BoundedTtlMap(LOGIN_RATE_LIMIT_WINDOW_MS);
-
 function normalizeUsername(username: string): string {
   return username.trim().toLowerCase();
 }
 
-function getClientIp(req: Request): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (Array.isArray(forwarded) && forwarded.length > 0) {
-    return forwarded[0].split(",")[0].trim();
+async function consumeLoginRateLimits(
+  clientAddress: string,
+  username: string,
+): Promise<{ allowed: boolean; retryAfterMs: number }> {
+  const checks: Array<{ policy: RateLimitPolicy; identity: readonly string[] }> = [
+    { policy: publicRateLimitPolicies.loginGlobal, identity: globalRateLimitIdentity() },
+    { policy: publicRateLimitPolicies.loginIp, identity: [clientAddress] },
+    { policy: publicRateLimitPolicies.loginIpAccount, identity: [clientAddress, username] },
+    { policy: publicRateLimitPolicies.loginAccount, identity: [username] },
+  ];
+
+  for (const check of checks) {
+    const decision = await sharedRateLimitService.consume(check.policy, check.identity);
+    if (!decision.allowed) {
+      return { allowed: false, retryAfterMs: decision.retryAfterMs };
+    }
   }
-  if (typeof forwarded === "string") {
-    return forwarded.split(",")[0].trim();
-  }
-  return req.ip || "unknown";
+  return { allowed: true, retryAfterMs: 0 };
 }
 
-function isLoginRateLimited(ip: string, username: string): boolean {
-  const now = Date.now();
-  const ipAccountKey = `${ip}:${username}`;
-  const byIpAndAccount = loginAttemptsByIpAndAccount.getOrReset(ipAccountKey, now);
-  const byAccount = loginAttemptsByAccount.getOrReset(username, now);
-  return (
-    byIpAndAccount.count >= LOGIN_RATE_LIMIT_ATTEMPTS ||
-    byAccount.count >= LOGIN_RATE_LIMIT_ATTEMPTS
-  );
-}
-
-function trackFailedLogin(ip: string, username: string) {
-  const now = Date.now();
-  const ipAccountKey = `${ip}:${username}`;
-  const byIpAndAccount = loginAttemptsByIpAndAccount.getOrReset(ipAccountKey, now);
-  const byAccount = loginAttemptsByAccount.getOrReset(username, now);
-  byIpAndAccount.count += 1;
-  byAccount.count += 1;
-}
-
-function clearFailedLogins(ip: string, username: string) {
-  const ipAccountKey = `${ip}:${username}`;
-  loginAttemptsByIpAndAccount.delete(ipAccountKey);
-  loginAttemptsByAccount.delete(username);
+async function clearLoginAccountRateLimits(clientAddress: string, username: string): Promise<void> {
+  await Promise.all([
+    sharedRateLimitService.reset(publicRateLimitPolicies.loginIpAccount, [clientAddress, username]),
+    sharedRateLimitService.reset(publicRateLimitPolicies.loginAccount, [username]),
+  ]);
 }
 
 export function getPasswordExpiryDate(from: Date = new Date()): Date {
   return new Date(from.getTime() + PASSWORD_ROTATION_MS);
+}
+
+export async function finalizeSuccessfulLocalLogin(req: Request, userId: string): Promise<void> {
+  const identifier = normalizeUsername(
+    typeof req.body?.username === "string" ? req.body.username : "",
+  );
+  if (identifier) {
+    await clearLoginAccountRateLimits(getRateLimitClientAddress(req), identifier);
+  }
+  await storage.updateUserLastLogin(userId, new Date());
 }
 
 export function clearSessionCookie(res: Response): void {
@@ -494,9 +464,11 @@ export function setupAuth(app: Express) {
     new LocalStrategy({ passReqToCallback: true }, async (req: Request, username, password, done) => {
       try {
         const normalizedUsername = normalizeUsername(username);
-        const clientIp = getClientIp(req);
+        const clientAddress = getRateLimitClientAddress(req);
 
-        if (isLoginRateLimited(clientIp, normalizedUsername)) {
+        const rateLimit = await consumeLoginRateLimits(clientAddress, normalizedUsername);
+        if (!rateLimit.allowed) {
+          req.loginRateLimitRetryAfterMs = rateLimit.retryAfterMs;
           return done(null, false, {
             message: "RATE_LIMITED",
           });
@@ -504,12 +476,10 @@ export function setupAuth(app: Express) {
 
         const user = await storage.getUserByUsernameOrEmail(normalizedUsername);
         if (!user) {
-          trackFailedLogin(clientIp, normalizedUsername);
           return done(null, false, { message: "Invalid username or password" });
         }
         const valid = await comparePasswords(password, user.password);
         if (!valid) {
-          trackFailedLogin(clientIp, normalizedUsername);
           return done(null, false, { message: "Invalid username or password" });
         }
 
@@ -519,9 +489,6 @@ export function setupAuth(app: Express) {
           });
         }
 
-        clearFailedLogins(clientIp, normalizedUsername);
-        await storage.updateUserLastLogin(user.id, new Date());
-
         return done(null, {
           id: user.id,
           username: user.username,
@@ -529,6 +496,7 @@ export function setupAuth(app: Express) {
           email: user.email,
           role: user.role,
           isPlatformAdmin: user.isPlatformAdmin,
+          sessionVersion: user.sessionVersion,
         });
       } catch (err) {
         return done(err);
@@ -537,13 +505,23 @@ export function setupAuth(app: Express) {
   );
 
   passport.serializeUser((user: Express.User, done) => {
-    done(null, user.id);
+    done(null, { id: user.id, sessionVersion: user.sessionVersion });
   });
 
-  passport.deserializeUser(async (id: string, done) => {
+  passport.deserializeUser(async (serialized: unknown, done) => {
     try {
+      if (
+        !serialized ||
+        typeof serialized !== "object" ||
+        typeof (serialized as { id?: unknown }).id !== "string" ||
+        !Number.isInteger((serialized as { sessionVersion?: unknown }).sessionVersion)
+      ) {
+        // Invalidate the legacy ID-only session format once during rollout.
+        return done(null, false);
+      }
+      const { id, sessionVersion } = serialized as { id: string; sessionVersion: number };
       const user = await storage.getUser(id);
-      if (!user) {
+      if (!user || user.sessionVersion !== sessionVersion) {
         return done(null, false);
       }
       done(null, {
@@ -553,6 +531,7 @@ export function setupAuth(app: Express) {
         email: user.email,
         role: user.role,
         isPlatformAdmin: user.isPlatformAdmin,
+        sessionVersion: user.sessionVersion,
       });
     } catch (err) {
       done(err);

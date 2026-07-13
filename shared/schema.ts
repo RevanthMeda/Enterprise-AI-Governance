@@ -19,9 +19,13 @@ export const users = pgTable("users", {
   passwordHistory: jsonb("password_history").notNull().default(sql`'[]'::jsonb`),
   passwordChangedAt: timestamp("password_changed_at", { withTimezone: true }).notNull().defaultNow(),
   passwordExpiresAt: timestamp("password_expires_at", { withTimezone: true }).notNull().default(sql`now() + interval '90 days'`),
+  sessionVersion: integer("session_version").notNull().default(0),
   mfaEnabled: boolean("mfa_enabled").notNull().default(false),
   mfaSecret: text("mfa_secret"),
   mfaRecoveryCodes: jsonb("mfa_recovery_codes").notNull().default(sql`'[]'::jsonb`),
+  mfaFailedAttempts: integer("mfa_failed_attempts").notNull().default(0),
+  mfaFailureWindowStartedAt: timestamp("mfa_failure_window_started_at", { withTimezone: true }),
+  mfaLockedUntil: timestamp("mfa_locked_until", { withTimezone: true }),
   fullName: text("full_name").notNull().default(""),
   email: text("email"),
   authProvider: text("auth_provider").default("local"),
@@ -30,7 +34,9 @@ export const users = pgTable("users", {
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   role: text("role").notNull().default("reviewer"),
   isPlatformAdmin: boolean("is_platform_admin").notNull().default(false),
-});
+}, (table) => ({
+  emailLowerUnique: uniqueIndex("users_email_lower_unique").on(sql`lower(${table.email})`),
+}));
 
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
@@ -66,6 +72,113 @@ export const insertOrganizationSchema = createInsertSchema(organizations).omit({
 
 export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
 export type Organization = typeof organizations.$inferSelect;
+
+export const samlAuthnRequests = pgTable("saml_authn_requests", {
+  requestIdHash: text("request_id_hash").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  relayStateHash: text("relay_state_hash").notNull(),
+  requestCreatedAt: text("request_created_at").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type SamlAuthnRequest = typeof samlAuthnRequests.$inferSelect;
+
+/**
+ * IdP round-trip state that survives cookie partition changes. State values
+ * are stored only as digests and claimed with a single conditional update;
+ * provider-specific secrets (including the OIDC PKCE verifier) are encrypted
+ * in pendingPayload.
+ */
+export const ssoLoginAttempts = pgTable("sso_login_attempts", {
+  stateHash: text("state_hash").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  pendingPayload: text("pending_payload").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  expiresAtIdx: index("sso_login_attempts_expires_at_idx").on(table.expiresAt),
+  organizationIdIdx: index("sso_login_attempts_organization_id_idx").on(table.organizationId),
+}));
+
+export type SsoLoginAttempt = typeof ssoLoginAttempts.$inferSelect;
+
+/**
+ * One-time bridge between an IdP callback received on the API origin and the
+ * browser's public-app cookie partition. Only a digest of the bearer code is
+ * persisted; the plaintext code exists only long enough to be placed in the
+ * public-app URL fragment and exchanged from that frontend context.
+ */
+export const ssoLoginExchanges = pgTable("sso_login_exchanges", {
+  codeHash: text("code_hash").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  nextPath: text("next_path").notNull().default("/"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  expiresAtIdx: index("sso_login_exchanges_expires_at_idx").on(table.expiresAt),
+  userIdIdx: index("sso_login_exchanges_user_id_idx").on(table.userId),
+}));
+
+export type SsoLoginExchange = typeof ssoLoginExchanges.$inferSelect;
+
+/**
+ * Tenant- and issuer-scoped federation identities. A raw SAML NameID or OIDC
+ * `sub` is not globally unique; both uniqueness constraints prevent a subject
+ * collision across IdPs and prevent silently replacing a user's subject for
+ * the same organization/provider/issuer.
+ */
+export const externalAuthIdentities = pgTable("external_auth_identities", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  issuer: text("issuer").notNull(),
+  subject: text("subject").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  subjectUnique: uniqueIndex("external_auth_identities_subject_unique").on(
+    table.organizationId,
+    table.provider,
+    table.issuer,
+    table.subject,
+  ),
+  userIssuerUnique: uniqueIndex("external_auth_identities_user_issuer_unique").on(
+    table.userId,
+    table.organizationId,
+    table.provider,
+    table.issuer,
+  ),
+  organizationIdIdx: index("external_auth_identities_organization_id_idx").on(table.organizationId),
+  userIdIdx: index("external_auth_identities_user_id_idx").on(table.userId),
+}));
+
+export type ExternalAuthIdentity = typeof externalAuthIdentities.$inferSelect;
+
+/**
+ * Fixed-window counters shared by every API process. Only HMAC digests are
+ * stored in keyHash; client addresses, account identifiers, invite tokens,
+ * and email addresses must never be persisted in this table.
+ */
+export const rateLimitBuckets = pgTable("rate_limit_buckets", {
+  keyHash: varchar("key_hash", { length: 64 }).primaryKey(),
+  scope: text("scope").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  expiresAtIdx: index("rate_limit_buckets_expires_at_idx").on(table.expiresAt),
+  scopeExpiresAtIdx: index("rate_limit_buckets_scope_expires_at_idx").on(table.scope, table.expiresAt),
+}));
+
+export type RateLimitBucket = typeof rateLimitBuckets.$inferSelect;
 
 export const membershipProvisioningSources = ["manual", "invite", "jit", "seed"] as const;
 
@@ -232,6 +345,8 @@ export const organizationInvites = pgTable("organization_invites", {
   email: text("email").notNull(),
   role: text("role").notNull().default("reviewer"),
   status: text("status").notNull().default("pending"),
+  // Stores a versioned one-way digest. The legacy column name is retained to
+  // avoid a destructive database rename during the plaintext-token migration.
   token: text("token").notNull().unique(),
   invitedBy: varchar("invited_by").references(() => users.id, { onDelete: "set null" }),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -277,6 +392,7 @@ export const backgroundJobs = pgTable("background_jobs", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   statusRunAtIdx: index("background_jobs_status_run_at_idx").on(table.status, table.runAt),
+  statusLockedAtIdx: index("background_jobs_status_locked_at_idx").on(table.status, table.lockedAt),
   orgCreatedIdx: index("background_jobs_org_created_idx").on(table.organizationId, table.createdAt),
   typeStatusIdx: index("background_jobs_type_status_idx").on(table.type, table.status),
 }));
@@ -623,7 +739,7 @@ export const decisionAuditVersions = pgTable("decision_audit_versions", {
   createdBy: text("created_by").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
-  decisionVersionIdx: index("decision_audit_versions_decision_version_idx").on(table.decisionAuditId, table.versionNumber),
+  decisionVersionIdx: uniqueIndex("decision_audit_versions_decision_version_unique_idx").on(table.decisionAuditId, table.versionNumber),
   orgCreatedIdx: index("decision_audit_versions_org_created_idx").on(table.organizationId, table.createdAt),
 }));
 

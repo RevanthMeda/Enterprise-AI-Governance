@@ -66,14 +66,16 @@ const BASELINE_TEST_USERS: BaselineTestUser[] = [
 ];
 
 async function ensureBaselineTestUsers() {
+  const isProduction = isProductionEnvironment();
   const shouldSeedTestUsers =
-    process.env.SEED_TEST_USERS !== undefined
+    !isProduction && process.env.SEED_TEST_USERS !== undefined
       ? parseBooleanEnv(process.env.SEED_TEST_USERS, false)
-      : !isProductionEnvironment();
+      : !isProduction;
   if (!shouldSeedTestUsers) {
     return;
   }
-  const resetTestUserPasswords = parseBooleanEnv(process.env.RESET_TEST_USER_PASSWORDS, false);
+  const resetTestUserPasswords =
+    !isProduction && parseBooleanEnv(process.env.RESET_TEST_USER_PASSWORDS, false);
 
   const usernames = BASELINE_TEST_USERS.map((user) => user.username);
   const existingUsers = await db
@@ -116,6 +118,10 @@ async function ensureBaselineTestUsers() {
 }
 
 export async function seedDatabase() {
+  if (isProductionEnvironment()) {
+    throw new Error("Database seeding is disabled in production");
+  }
+
   const existingUsers = await db.select().from(users);
   let createdPlatformAdminId: string | null = null;
   if (existingUsers.length === 0) {
