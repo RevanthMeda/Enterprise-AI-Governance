@@ -9,6 +9,7 @@ import { registerRoutes } from "../server/routes";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
 import { backgroundJobService } from "../server/services/backgroundJobService";
+import { backgroundJobService } from "../server/services/backgroundJobService";
 import { backgroundJobs, memberships, organizations, users } from "../shared/schema";
 
 type ApiResponse = {
@@ -62,6 +63,16 @@ async function apiRequest(
     body,
     setCookie: res.headers.get("set-cookie") ?? undefined,
   };
+}
+
+async function waitForHealthyBackgroundWorker(timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const summary = await backgroundJobService.getGlobalSummary();
+    if (summary.workerHealthy) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Background job worker did not become healthy in time");
 }
 
 async function startTestServer(): Promise<{ server: Server; baseUrl: string }> {
@@ -151,6 +162,9 @@ test("background job readiness and admin retry flow stay wired", async () => {
     tracker.jobIds.push(failedJob.id);
 
     backgroundJobService.start();
+    backgroundJobService.start();
+    await waitForHealthyBackgroundWorker();
+
     server = (await startTestServer()).server;
     const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
