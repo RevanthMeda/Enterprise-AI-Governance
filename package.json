@@ -1,6 +1,8 @@
 {
-  "name": "rest-express",
-  "version": "1.0.0",
+  "name": "ai-control-grid",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-source enterprise AI governance and runtime oversight platform",
   "type": "module",
   "license": "MIT",
   "engines": {
