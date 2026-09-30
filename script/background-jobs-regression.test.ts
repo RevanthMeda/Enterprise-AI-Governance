@@ -8,6 +8,7 @@ import { hashPassword, setupAuth } from "../server/auth";
 import { registerRoutes } from "../server/routes";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
+import { backgroundJobService } from "../server/services/backgroundJobService";
 import { backgroundJobs, memberships, organizations, users } from "../shared/schema";
 
 type ApiResponse = {
@@ -149,6 +150,7 @@ test("background job readiness and admin retry flow stay wired", async () => {
       .returning();
     tracker.jobIds.push(failedJob.id);
 
+    backgroundJobService.start();
     server = (await startTestServer()).server;
     const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
@@ -160,8 +162,12 @@ test("background job readiness and admin retry flow stay wired", async () => {
     const cookie = cookieFromSetCookie(login.setCookie);
     assert.ok(cookie, "Expected authenticated cookie");
 
-    const ready = await apiRequest(baseUrl, "/api/ready");
-    assert.equal(ready.status, 200, "Expected readiness endpoint to succeed");
+    let ready = await apiRequest(baseUrl, "/api/ready");
+    for (let attempt = 0; ready.status !== 200 && attempt < 40; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      ready = await apiRequest(baseUrl, "/api/ready");
+    }
+    assert.equal(ready.status, 200, "Expected readiness endpoint to succeed once the test worker is healthy");
     const readyBody = ready.body as { queue?: { failed?: number; workerEnabled?: boolean } };
     assert.equal(readyBody.queue?.workerEnabled, true, "Expected queue worker to be enabled");
     assert.ok((readyBody.queue?.failed ?? 0) >= 1, "Expected readiness payload to include failed queue count");
@@ -196,6 +202,7 @@ test("background job readiness and admin retry flow stay wired", async () => {
     assert.equal(updatedJob.attempts, 0, "Expected attempts to be reset on retry");
     assert.equal(updatedJob.lastError, null, "Expected last error to be cleared on retry");
   } finally {
+    backgroundJobService.stop();
     await server?.close();
     if (tracker.jobIds.length > 0) {
       await db.delete(backgroundJobs).where(inArray(backgroundJobs.id, tracker.jobIds));
