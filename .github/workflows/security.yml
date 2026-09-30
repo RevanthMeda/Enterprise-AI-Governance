@@ -13,12 +13,18 @@ jobs:
     permissions:
       contents: read
       security-events: write
+    env:
+      NODE_ENV: test
+      SESSION_SECRET: ci-test-session-secret-000000000000000000000000
+      CONTROL_TOWER_VAULT_SECRET: ci-test-vault-secret-000000000000000000000000
+      RATE_LIMIT_HMAC_SECRET: ci-test-rate-limit-secret-0000000000000000000000
+      PASSWORD_RESET_SECRET: ci-test-password-reset-secret-00000000000000000000
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm

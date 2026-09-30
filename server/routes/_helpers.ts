@@ -1,5 +1,8 @@
 import type { Request } from "express";
 import { normalizeInternalPath } from "@shared/internal-path";
+import { sanitizeAnalyticsReportBuilderConfig } from "@shared/analytics-report-builder";
+import { sanitizeGovernanceAutomationConfig } from "@shared/governance-automation-builder";
+import { sanitizeThreatIntelConfig } from "@shared/threat-intelligence";
 import { randomBytes } from "crypto";
 import path from "path";
 import fs from "fs";
@@ -713,39 +716,33 @@ export function applyOrgAuthSettings(rawSettings: unknown, authSettings: OrgAuth
 }
 
 export function getAnalyticsReportBuilderSettings(rawSettings: unknown) {
-  const { sanitizeAnalyticsReportBuilderConfig } = require("@shared/analytics-report-builder");
   const settingsObject = getOrganizationSettingsObject(rawSettings);
   return sanitizeAnalyticsReportBuilderConfig(settingsObject.analyticsReportBuilder);
 }
 
 export function applyAnalyticsReportBuilderSettings(rawSettings: unknown, nextValue: unknown): Record<string, unknown> {
-  const { sanitizeAnalyticsReportBuilderConfig } = require("@shared/analytics-report-builder");
   const settingsObject = getOrganizationSettingsObject(rawSettings);
   settingsObject.analyticsReportBuilder = sanitizeAnalyticsReportBuilderConfig(nextValue);
   return settingsObject;
 }
 
 export function getGovernanceAutomationSettings(rawSettings: unknown) {
-  const { sanitizeGovernanceAutomationConfig } = require("@shared/governance-automation-builder");
   const settingsObject = getOrganizationSettingsObject(rawSettings);
   return sanitizeGovernanceAutomationConfig(settingsObject.governanceAutomationConfig);
 }
 
 export function applyGovernanceAutomationSettings(rawSettings: unknown, nextValue: unknown): Record<string, unknown> {
-  const { sanitizeGovernanceAutomationConfig } = require("@shared/governance-automation-builder");
   const settingsObject = getOrganizationSettingsObject(rawSettings);
   settingsObject.governanceAutomationConfig = sanitizeGovernanceAutomationConfig(nextValue);
   return settingsObject;
 }
 
 export function getThreatIntelligenceSettings(rawSettings: unknown) {
-  const { sanitizeThreatIntelConfig } = require("@shared/threat-intelligence");
   const settingsObject = getOrganizationSettingsObject(rawSettings);
   return sanitizeThreatIntelConfig(settingsObject.threatIntelligenceConfig);
 }
 
 export function applyThreatIntelligenceSettings(rawSettings: unknown, nextValue: unknown): Record<string, unknown> {
-  const { sanitizeThreatIntelConfig } = require("@shared/threat-intelligence");
   const settingsObject = getOrganizationSettingsObject(rawSettings);
   settingsObject.threatIntelligenceConfig = sanitizeThreatIntelConfig(nextValue);
   return settingsObject;

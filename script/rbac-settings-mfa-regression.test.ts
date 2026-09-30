@@ -112,8 +112,8 @@ test("settings route/nav follow active organization access gates", async () => {
   );
   assert.match(
     appSource,
-    /access\.canAccessSettings\s*\?\s*SettingsPage\s*:\s*Dashboard/,
-    "Expected /settings route to use active-organization access gating",
+    /access\.canAccessSettings\s*\?\s*SettingsPage\s*:\s*UnauthorizedPage/,
+    "Expected /settings route to deny unauthorized active-organization roles",
   );
 
   assert.match(
@@ -202,17 +202,18 @@ test("mfa endpoints are self-service while settings stay admin-only", async () =
 
     const reviewerEnroll = await apiRequest(baseUrl, "/api/auth/mfa/enroll", {
       method: "POST",
-      body: {},
+      body: { currentPassword: password },
       cookie: reviewerCookie,
     });
     assert.equal(reviewerEnroll.status, 200, "Expected reviewer to self-enroll in MFA");
     const reviewerEnrollBody = reviewerEnroll.body as { secret?: string; otpauthUrl?: string };
     assert.ok(reviewerEnrollBody.secret, "Expected MFA enroll secret for reviewer");
     assert.ok(reviewerEnrollBody.otpauthUrl?.startsWith("otpauth://"), "Expected otpauth URL for reviewer");
+    const reviewerCookieAfterEnroll = cookieFromSetCookie(reviewerEnroll.setCookie) ?? reviewerCookie;
 
     const reviewerSettings = await apiRequest(baseUrl, "/api/settings", {
       method: "GET",
-      cookie: reviewerCookie,
+      cookie: reviewerCookieAfterEnroll,
     });
     assert.equal(reviewerSettings.status, 403, "Expected reviewer to be denied /api/settings");
 
@@ -226,17 +227,18 @@ test("mfa endpoints are self-service while settings stay admin-only", async () =
 
     const enroll = await apiRequest(baseUrl, "/api/auth/mfa/enroll", {
       method: "POST",
-      body: {},
+      body: { currentPassword: password },
       cookie: adminCookie,
     });
     assert.equal(enroll.status, 200);
     const enrollBody = enroll.body as { secret?: string; otpauthUrl?: string };
     assert.ok(enrollBody.secret, "Expected MFA enroll secret for admin");
     assert.ok(enrollBody.otpauthUrl?.startsWith("otpauth://"), "Expected otpauth URL for admin");
+    const adminCookieAfterEnroll = cookieFromSetCookie(enroll.setCookie) ?? adminCookie;
 
     const adminSettings = await apiRequest(baseUrl, "/api/settings", {
       method: "GET",
-      cookie: adminCookie,
+      cookie: adminCookieAfterEnroll,
     });
     assert.equal(adminSettings.status, 200, "Expected admin access to /api/settings");
   } finally {

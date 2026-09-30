@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/RevanthMeda/Enterprise-AI-Governance/security
+    about: Please use a private security channel for vulnerabilities rather than a public issue.

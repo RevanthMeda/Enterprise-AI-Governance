@@ -1,0 +1,35 @@
+name: Feature request
+description: Propose a product, governance, integration, or developer-experience improvement
+title: "[FEATURE] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Describe the user or maintainer problem this would solve.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Describe the behavior or interface you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: governance
+    attributes:
+      label: Governance or security implications
+      description: Note any impact on tenant isolation, authorization, policy decisions, auditability, secrets, legal-source handling, or data retention.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and roadmap items first.
+          required: true
