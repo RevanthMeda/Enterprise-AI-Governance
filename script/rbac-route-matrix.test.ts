@@ -13,6 +13,7 @@ import { db } from "../server/db";
 import { getUploadsRoot } from "../server/runtime-paths";
 import { decisionAuditService } from "../server/services/decisionAuditService";
 import { incidentService } from "../server/services/incidentService";
+import { auditService } from "../server/services/auditService";
 import { memberships, organizations, users } from "../shared/schema";
 
 type ApiResponse = {
@@ -671,12 +672,22 @@ test("sensitive governance routes enforce role matrix consistently", async () =>
     assert.equal(evidenceUpload.status, 201, "Expected seeded evidence upload to succeed");
     const evidence = evidenceUpload.body as { id: string };
 
-    await storage.createAuditLogForOrg(org.id, {
-      entityType: "ai_system",
-      entityId: system.id,
-      action: "updated",
-      performedBy: adminUser.fullName,
-      details: "RBAC route matrix seed log",
+    await auditService.createLog({
+      organizationId: org.id,
+      actor: {
+        id: adminUser.id,
+        username: adminUser.username,
+        fullName: adminUser.fullName,
+        email: adminUser.email,
+        role: adminUser.role,
+      },
+      input: {
+        entityType: "ai_system",
+        entityId: system.id,
+        action: "updated",
+        performedBy: adminUser.fullName,
+        details: "RBAC route matrix seed log",
+      },
     });
 
     const seed: SeedContext = {
