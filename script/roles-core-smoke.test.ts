@@ -228,7 +228,7 @@ test("core API smoke across all role personas", async () => {
         body: { username: entry.user.username, password },
       });
       assert.equal(login.status, 200, `Expected login success for ${entry.spec.role}`);
-      const cookie = cookieFromSetCookie(login.setCookie);
+      let cookie = cookieFromSetCookie(login.setCookie);
       assert.ok(cookie, `Expected session cookie for ${entry.spec.role}`);
 
       for (const endpoint of coreEndpoints) {
@@ -243,9 +243,15 @@ test("core API smoke across all role personas", async () => {
       for (const restricted of restrictedChecks) {
         const res = await apiRequest(baseUrl, restricted.path, {
           method: restricted.method,
-          body: restricted.body,
+          body:
+            restricted.path === "/api/auth/mfa/enroll"
+              ? { currentPassword: password }
+              : restricted.body,
           cookie,
         });
+        if (restricted.path === "/api/auth/mfa/enroll" && res.status === 200) {
+          cookie = cookieFromSetCookie(res.setCookie) ?? cookie;
+        }
         if (restricted.allowedRoles.includes(entry.spec.role)) {
           assert.equal(
             res.status,
