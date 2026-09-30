@@ -1051,6 +1051,9 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid SSO start request" });
       }
+      if (Number.isInteger(err?.status) && err.status >= 400 && err.status < 500) {
+        return res.status(err.status).json({ message: err.message || "Unable to start SAML login" });
+      }
       console.error("Failed to start SAML login:", err);
       return res.status(500).json({ message: "Unable to start SAML login" });
     }
@@ -1096,6 +1099,9 @@ export async function registerAuthRoutes(app: Express): Promise<void> {
       }
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid OIDC start request" });
+      }
+      if (Number.isInteger(err?.status) && err.status >= 400 && err.status < 500) {
+        return res.status(err.status).json({ message: err.message || "Unable to start OIDC login" });
       }
       console.error("Failed to start OIDC login:", err);
       return res.status(500).json({ message: "Unable to start OIDC login" });
