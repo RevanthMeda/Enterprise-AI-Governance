@@ -14,3 +14,7 @@ examples/.env
 cookie.txt
 ct.cookies
 ct.headers
+.codex-docx-qa/
+attached_assets/
+.firebase/
+sbom.cdx.json
