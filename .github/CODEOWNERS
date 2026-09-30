@@ -1,0 +1,9 @@
+# Primary maintainer and default reviewer
+* @RevanthMeda
+
+# Security, governance, and CI-sensitive areas
+/.github/ @RevanthMeda
+/server/ @RevanthMeda
+/shared/ @RevanthMeda
+/packages/ @RevanthMeda
+/script/ @RevanthMeda
