@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { and, eq, inArray } from "drizzle-orm";
 import { hashPassword } from "../server/auth";
 import { db } from "../server/db";
@@ -234,7 +235,7 @@ async function ensureComplianceControlPool() {
   return db.select().from(complianceControls);
 }
 
-async function seed() {
+export async function seedHeavyData() {
   console.log(`[seed:heavy] Starting heavy data seed (batch=${config.batchTag})`);
   const commonPassword = "TestUser123!";
   const passwordHash = await hashPassword(commonPassword);
@@ -549,7 +550,10 @@ async function seed() {
   }
 }
 
-seed().catch((error) => {
-  console.error("[seed:heavy] Failed:", error);
-  process.exit(1);
-});
+const invokedPath = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;
+if (invokedPath === import.meta.url) {
+  seedHeavyData().catch((error) => {
+    console.error("[seed:heavy] Failed:", error);
+    process.exit(1);
+  });
+}
