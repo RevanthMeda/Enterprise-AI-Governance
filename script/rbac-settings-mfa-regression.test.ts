@@ -112,8 +112,8 @@ test("settings route/nav follow active organization access gates", async () => {
   );
   assert.match(
     appSource,
-    /access\.canAccessSettings\s*\?\s*SettingsPage\s*:\s*Dashboard/,
-    "Expected /settings route to use active-organization access gating",
+    /access\.canAccessSettings\s*\?\s*SettingsPage\s*:\s*UnauthorizedPage/,
+    "Expected /settings route to deny unauthorized active-organization roles",
   );
 
   assert.match(
@@ -202,7 +202,7 @@ test("mfa endpoints are self-service while settings stay admin-only", async () =
 
     const reviewerEnroll = await apiRequest(baseUrl, "/api/auth/mfa/enroll", {
       method: "POST",
-      body: {},
+      body: { currentPassword: password },
       cookie: reviewerCookie,
     });
     assert.equal(reviewerEnroll.status, 200, "Expected reviewer to self-enroll in MFA");
@@ -226,7 +226,7 @@ test("mfa endpoints are self-service while settings stay admin-only", async () =
 
     const enroll = await apiRequest(baseUrl, "/api/auth/mfa/enroll", {
       method: "POST",
-      body: {},
+      body: { currentPassword: password },
       cookie: adminCookie,
     });
     assert.equal(enroll.status, 200);
