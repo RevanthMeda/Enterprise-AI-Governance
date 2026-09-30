@@ -461,7 +461,6 @@ export function createSafeOutboundHttpClient(dependencies: SafeOutboundHttpClien
       timedOut = true;
       controller.abort();
     }, timeoutMs);
-    timer.unref?.();
 
     try {
       const url = validateOutboundUrlPolicy(input, getIsProduction());
