@@ -706,13 +706,13 @@ test("sensitive governance routes enforce role matrix consistently", async () =>
           const allowedStatuses = routeCheck.allowedStatuses ?? [successStatus];
           assert.ok(
             allowedStatuses.includes(response.status),
-            `${routeCheck.name} returned ${response.status} for ${spec.role}`,
+            `${routeCheck.name} returned ${response.status} for ${spec.role}: ${JSON.stringify(response.body)}`,
           );
         } else {
           assert.equal(
             response.status,
             expectedStatus,
-            `${routeCheck.name} returned ${response.status} for ${spec.role}`,
+            `${routeCheck.name} returned ${response.status} for ${spec.role}: ${JSON.stringify(response.body)}`,
           );
         }
       }
