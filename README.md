@@ -36,6 +36,7 @@ Key areas:
 - `client/` — operator and administrator user interface
 - `shared/` — governance rules, policy catalogs, schemas, and shared domain logic
 - `packages/telemetry-sdk-node/` — Node.js telemetry SDK
+  - [SDK quickstart](packages/telemetry-sdk-node/README.md)
 - `script/` — validation, migration, security, test, and operational tooling
 - `examples/` — integration and runtime examples
 - `docs/` — product, deployment, architecture, and operator documentation
