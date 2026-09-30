@@ -123,6 +123,8 @@ Contributions are welcome. Please read:
 - [GOVERNANCE.md](GOVERNANCE.md)
 - [SECURITY.md](SECURITY.md)
 - [ROADMAP.md](ROADMAP.md)
+- [CHANGELOG.md](CHANGELOG.md)
+- [Release process](docs/releasing.md)
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
 Good first areas include documentation, regression tests, accessibility, example integrations, developer tooling, deployment guidance, and reproducible bug reports.
