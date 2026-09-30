@@ -143,7 +143,8 @@ async function runGoldenSeed() {
     );
   } else {
     console.log(`[seed:heavy:golden] Running snapshot batch=${snapshot.batchTag}`);
-    await import("./seed-heavy-data.ts");
+    const { seedHeavyData } = await import("./seed-heavy-data.ts");
+    await seedHeavyData();
   }
 
   await validateSnapshot(snapshot);
