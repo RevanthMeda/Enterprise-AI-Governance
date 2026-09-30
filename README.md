@@ -70,11 +70,17 @@ Requirements:
 - npm
 - PostgreSQL for database-backed workflows
 
+For the quickest contributor setup with Docker:
+
 ```bash
 npm ci
+npm run dev:db:up
 cp .env.example .env.local
+npm run db:push -- --force
 npm run dev
 ```
+
+See the [local development guide](docs/local-development.md) for Windows commands, database reset instructions, and troubleshooting.
 
 Default local endpoints include:
 

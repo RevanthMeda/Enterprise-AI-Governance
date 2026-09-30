@@ -93,7 +93,10 @@
     "security:deps": "npm audit --audit-level=high",
     "security:secrets": "tsx script/scan-secrets.ts",
     "security:sbom": "npm sbom --sbom-format cyclonedx --sbom-type application --package-lock-only --omit optional > sbom.cdx.json",
-    "security:all": "npm run security:sast && npm run security:deps && npm run security:secrets && npm run security:sbom"
+    "security:all": "npm run security:sast && npm run security:deps && npm run security:secrets && npm run security:sbom",
+    "dev:db:up": "docker compose -f docker-compose.dev.yml up -d postgres",
+    "dev:db:down": "docker compose -f docker-compose.dev.yml down",
+    "dev:db:reset": "docker compose -f docker-compose.dev.yml down -v && docker compose -f docker-compose.dev.yml up -d postgres"
   },
   "dependencies": {
     "@ai-control-grid/telemetry-sdk-node": "file:packages/telemetry-sdk-node",
