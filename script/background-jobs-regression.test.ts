@@ -9,7 +9,6 @@ import { registerRoutes } from "../server/routes";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
 import { backgroundJobService } from "../server/services/backgroundJobService";
-import { backgroundJobService } from "../server/services/backgroundJobService";
 import { backgroundJobs, memberships, organizations, users } from "../shared/schema";
 
 type ApiResponse = {
@@ -161,7 +160,6 @@ test("background job readiness and admin retry flow stay wired", async () => {
       .returning();
     tracker.jobIds.push(failedJob.id);
 
-    backgroundJobService.start();
     backgroundJobService.start();
     await waitForHealthyBackgroundWorker();
 
