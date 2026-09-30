@@ -209,10 +209,11 @@ test("mfa endpoints are self-service while settings stay admin-only", async () =
     const reviewerEnrollBody = reviewerEnroll.body as { secret?: string; otpauthUrl?: string };
     assert.ok(reviewerEnrollBody.secret, "Expected MFA enroll secret for reviewer");
     assert.ok(reviewerEnrollBody.otpauthUrl?.startsWith("otpauth://"), "Expected otpauth URL for reviewer");
+    const reviewerCookieAfterEnroll = cookieFromSetCookie(reviewerEnroll.setCookie) ?? reviewerCookie;
 
     const reviewerSettings = await apiRequest(baseUrl, "/api/settings", {
       method: "GET",
-      cookie: reviewerCookie,
+      cookie: reviewerCookieAfterEnroll,
     });
     assert.equal(reviewerSettings.status, 403, "Expected reviewer to be denied /api/settings");
 
@@ -233,10 +234,11 @@ test("mfa endpoints are self-service while settings stay admin-only", async () =
     const enrollBody = enroll.body as { secret?: string; otpauthUrl?: string };
     assert.ok(enrollBody.secret, "Expected MFA enroll secret for admin");
     assert.ok(enrollBody.otpauthUrl?.startsWith("otpauth://"), "Expected otpauth URL for admin");
+    const adminCookieAfterEnroll = cookieFromSetCookie(enroll.setCookie) ?? adminCookie;
 
     const adminSettings = await apiRequest(baseUrl, "/api/settings", {
       method: "GET",
-      cookie: adminCookie,
+      cookie: adminCookieAfterEnroll,
     });
     assert.equal(adminSettings.status, 200, "Expected admin access to /api/settings");
   } finally {
