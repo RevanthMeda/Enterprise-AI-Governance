@@ -45,6 +45,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate Vercel deployment configs
+        run: npm run test:deployment:vercel
+
       - name: Apply schema
         run: npm run db:push -- --force
 
