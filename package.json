@@ -96,7 +96,8 @@
     "security:all": "npm run security:sast && npm run security:deps && npm run security:secrets && npm run security:sbom",
     "dev:db:up": "docker compose -f docker-compose.dev.yml up -d postgres",
     "dev:db:down": "docker compose -f docker-compose.dev.yml down",
-    "dev:db:reset": "docker compose -f docker-compose.dev.yml down -v && docker compose -f docker-compose.dev.yml up -d postgres"
+    "dev:db:reset": "docker compose -f docker-compose.dev.yml down -v && docker compose -f docker-compose.dev.yml up -d postgres",
+    "test:deployment:vercel": "tsx --test script/vercel-deployment-config.test.ts"
   },
   "dependencies": {
     "@ai-control-grid/telemetry-sdk-node": "file:packages/telemetry-sdk-node",
