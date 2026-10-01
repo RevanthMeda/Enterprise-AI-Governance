@@ -12,12 +12,15 @@ test("repository runtime baseline is Node.js 24", async () => {
   assert.equal((await read(".nvmrc")).trim(), "24");
 });
 
-test("Vercel configs use the Node.js 24 function runtime", async () => {
+test("Vercel configs rely on the supported package engine for Node.js version selection", async () => {
   for (const path of ["vercel.json", "vercel.production.json"]) {
     const config = JSON.parse(await read(path)) as {
-      functions?: Record<string, { runtime?: string }>;
+      functions?: Record<string, { runtime?: string; maxDuration?: number }>;
     };
-    assert.equal(config.functions?.["api/[...route].ts"]?.runtime, "nodejs24.x", path);
+    const fn = config.functions?.["api/[...route].ts"];
+    assert.ok(fn, path);
+    assert.equal(fn.runtime, undefined, `${path} should not declare a community runtime`);
+    assert.equal(fn.maxDuration, 30, path);
   }
 });
 
