@@ -13,7 +13,7 @@ Both configs use the same application runtime:
 
 - Vite static frontend served from `dist/public`
 - Express API served through `api/[...route].ts`
-- Node.js 20 Vercel Function runtime
+- Node.js 24 Vercel Function runtime
 - the authenticated cron endpoints remain available at:
   - `/api/cron/background-jobs`
   - `/api/cron/retention`
