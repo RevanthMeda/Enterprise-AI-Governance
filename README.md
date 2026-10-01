@@ -66,7 +66,7 @@ The pitch scenario uses synthetic data and deterministic local responses. See th
 
 Requirements:
 
-- Node.js 20.x
+- Node.js 24.x
 - npm
 - PostgreSQL for database-backed workflows
 
