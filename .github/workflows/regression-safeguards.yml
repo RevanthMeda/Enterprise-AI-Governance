@@ -48,6 +48,9 @@ jobs:
       - name: Apply schema
         run: npm run db:push -- --force
 
+      - name: Run database-backed CSRF security test
+        run: npm run test:security:csrf
+
       - name: Run regression suite
         run: npm run test:regression:all
 
