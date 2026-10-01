@@ -4,7 +4,7 @@ This guide provides the shortest supported path for contributors who want to run
 
 ## Prerequisites
 
-- Node.js 20.x
+- Node.js 24.x
 - npm
 - Docker with Docker Compose
 

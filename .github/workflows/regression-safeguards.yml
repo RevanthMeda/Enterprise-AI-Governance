@@ -39,7 +39,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -47,6 +47,9 @@ jobs:
 
       - name: Validate Vercel deployment configs
         run: npm run test:deployment:vercel
+
+      - name: Validate Node.js runtime baseline
+        run: npm run test:runtime:node
 
       - name: Apply schema
         run: npm run db:push -- --force
