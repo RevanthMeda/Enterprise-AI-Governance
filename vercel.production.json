@@ -9,6 +9,16 @@
       "maxDuration": 30
     }
   },
+  "crons": [
+    {
+      "path": "/api/cron/background-jobs",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/retention",
+      "schedule": "*/15 * * * *"
+    }
+  ],
   "routes": [
     {
       "handle": "filesystem"
