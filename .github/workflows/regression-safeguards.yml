@@ -48,6 +48,9 @@ jobs:
       - name: Validate Vercel deployment configs
         run: npm run test:deployment:vercel
 
+      - name: Validate Node.js runtime baseline
+        run: npm run test:runtime:node
+
       - name: Apply schema
         run: npm run db:push -- --force
 
