@@ -16,6 +16,7 @@ type ApiResponse = {
   body: unknown;
   setCookie?: string;
   csrfToken?: string;
+  errorCode?: string;
 };
 
 type Tracker = {
@@ -102,6 +103,7 @@ async function apiRequest(
     body,
     setCookie: res.headers.get("set-cookie") ?? undefined,
     csrfToken: res.headers.get("x-csrf-token") ?? undefined,
+    errorCode: res.headers.get("x-error-code") ?? undefined,
   };
 }
 
@@ -123,14 +125,7 @@ test("csrf enforcement: denies missing token and allows valid token", async () =
       plan: "starter",
       settings: {},
     });
-    const orgB = await storage.createOrganization({
-      slug: `csrf-b-${suffix}`,
-      name: `CSRF B ${suffix}`,
-      status: "active",
-      plan: "starter",
-      settings: {},
-    });
-    tracker.organizationIds.push(orgA.id, orgB.id);
+    tracker.organizationIds.push(orgA.id);
 
     const user = await storage.createUser({
       username: `csrf_user_${suffix}`,
@@ -149,15 +144,7 @@ test("csrf enforcement: denies missing token and allows valid token", async () =
       isDefault: true,
       invitedBy: null,
     });
-    const m2 = await storage.createMembership({
-      userId: user.id,
-      organizationId: orgB.id,
-      role: "owner",
-      membershipState: "active",
-      isDefault: false,
-      invitedBy: null,
-    });
-    tracker.membershipIds.push(m1.id, m2.id);
+    tracker.membershipIds.push(m1.id);
 
     const appServer = await startTestServer();
     server = appServer.server;
@@ -174,18 +161,20 @@ test("csrf enforcement: denies missing token and allows valid token", async () =
     let csrfToken = login.csrfToken;
     assert.ok(csrfToken);
 
+    // Use the current organization so route authorization cannot mask CSRF behavior.
     const switchDenied = await apiRequest(baseUrl, "/api/auth/switch-organization", {
       method: "POST",
-      body: { organizationId: orgB.id },
+      body: { organizationId: orgA.id },
       cookie,
       csrfToken,
       includeCsrf: false,
     });
     assert.equal(switchDenied.status, 403);
+    assert.equal(switchDenied.errorCode, "CSRF_TOKEN_INVALID");
 
     const switchAllowed = await apiRequest(baseUrl, "/api/auth/switch-organization", {
       method: "POST",
-      body: { organizationId: orgB.id },
+      body: { organizationId: orgA.id },
       cookie,
       csrfToken,
       includeCsrf: true,
