@@ -2,13 +2,78 @@
 
 ## Deployment model
 
-This repo is prepared for Vercel as:
+AI CONTROL GRID supports two explicit Vercel deployment modes.
+
+| Mode | Config | Scheduling | Intended use |
+| --- | --- | --- | --- |
+| Portable / preview | `vercel.json` | No Vercel Cron registration | Contributor previews, Hobby-compatible deployments, or production deployments using an external scheduler |
+| Production cron | `vercel.production.json` | Background jobs every 5 minutes; retention every 15 minutes | Production deployments on a Vercel plan that supports per-minute cron schedules |
+
+Both configs use the same application runtime:
 
 - Vite static frontend served from `dist/public`
-- Express API served through the serverless function at `api/[...route].ts`
-- Vercel Cron triggering:
+- Express API served through `api/[...route].ts`
+- Node.js 20 Vercel Function runtime
+- the authenticated cron endpoints remain available at:
   - `/api/cron/background-jobs`
   - `/api/cron/retention`
+
+The only intentional difference between the two config files is Vercel Cron registration. A regression test enforces that invariant.
+
+## Why the default config is cron-free
+
+Vercel Hobby allows cron jobs only once per day, while the production AI CONTROL GRID schedules require 5-minute and 15-minute intervals. A repository-level `vercel.json` containing those schedules causes Hobby deployments to fail configuration validation before the application is deployed.
+
+The default `vercel.json` therefore does not register cron jobs. This keeps pull-request previews and contributor deployments portable without silently changing the production cadence to an unsafe once-per-day schedule.
+
+Current Vercel references:
+
+- [Cron Jobs](https://vercel.com/docs/cron-jobs)
+- [Vercel CLI local config option](https://vercel.com/docs/cli/global-options#local-config)
+
+## Portable / preview deployment
+
+Git-integrated Vercel deployments use the repository's default `vercel.json`.
+
+You can also deploy it explicitly:
+
+```bash
+npx vercel
+```
+
+This mode deploys the UI, API, and authenticated cron endpoints but does **not** schedule background processing automatically.
+
+For a production system that uses the portable config, configure an external scheduler to invoke:
+
+- `GET /api/cron/background-jobs` every 5 minutes
+- `GET /api/cron/retention` every 15 minutes
+
+Each request must include:
+
+```text
+Authorization: Bearer <CRON_SECRET>
+```
+
+Do not treat a production deployment as complete if neither Vercel Cron nor an external scheduler is configured.
+
+## Production deployment with Vercel Cron
+
+Use `vercel.production.json` only on a plan that supports the required per-minute cron frequency.
+
+Deploy from the CLI with Vercel's supported local-config option:
+
+```bash
+npx vercel --prod --local-config vercel.production.json
+```
+
+The production config registers:
+
+```text
+/api/cron/background-jobs   */5 * * * *
+/api/cron/retention         */15 * * * *
+```
+
+Vercel Git integration reads `vercel.json`; it does not automatically select `vercel.production.json`. If production is deployed through Git integration, keep the default config and use an external scheduler, or move the production deployment into CI/CLI where the production config can be selected explicitly.
 
 ## Required environment variables
 
@@ -19,6 +84,8 @@ This repo is prepared for Vercel as:
 - `CRON_SECRET`
 - `PUBLIC_APP_URL`
 - `CORS_ALLOWED_ORIGINS`
+
+`CRON_SECRET` is required for Vercel production deployments even when `vercel.json` is cron-free because the scheduler endpoints remain deployed and must stay authenticated.
 
 Recommended:
 
@@ -41,7 +108,8 @@ Optional path overrides:
 
 - Process-based background workers are not started on Vercel.
 - Retention polling timers are not started on Vercel.
-- Both are replaced by Vercel Cron routes.
+- Scheduled execution must therefore come from Vercel Cron or an external scheduler.
+- The cron routes are protected by `CRON_SECRET`; an unauthenticated scheduler request is rejected.
 
 ## Important storage limitation
 
@@ -62,6 +130,22 @@ For production-safe evidence handling, move uploads and exports to durable stora
 - Framework preset: `Vite`
 - Build command: `npm run build:vercel`
 - Output directory: `dist/public`
+
+## Validate deployment configs
+
+Run:
+
+```bash
+npm run test:deployment:vercel
+```
+
+The test verifies that:
+
+- `vercel.json` remains cron-free;
+- `vercel.production.json` retains the required 5-minute and 15-minute schedules;
+- both configurations remain otherwise identical.
+
+The same validation runs in the pull-request Regression Safeguards workflow.
 
 ## Platform administrator rollout
 
@@ -91,16 +175,6 @@ Roll this change out in this order:
 
 Revoke the entitlement with the same immutable-ID process by setting `is_platform_admin = FALSE`. Never bulk-grant it from `role`, username, email, email domain, or organization membership. Existing users default to no platform access until explicitly granted.
 
-## Cron security
-
-Set `CRON_SECRET` in Vercel.
-
-Vercel Cron will send:
-
-- `Authorization: Bearer <CRON_SECRET>`
-
-The cron endpoints reject unauthorized requests.
-
 ## After deploy
 
 Verify:
@@ -115,6 +189,7 @@ Verify:
 8. `/runtime-monitoring`
 9. background jobs summary
 10. retention summary
+11. confirm the selected scheduler is successfully invoking both cron endpoints
 
 ## Remaining production hardening
 
