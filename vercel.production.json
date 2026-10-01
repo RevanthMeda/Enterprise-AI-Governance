@@ -5,7 +5,6 @@
   "outputDirectory": "dist/public",
   "functions": {
     "api/[...route].ts": {
-      "runtime": "nodejs24.x",
       "maxDuration": 30
     }
   },
