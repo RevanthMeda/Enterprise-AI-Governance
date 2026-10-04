@@ -37,3 +37,11 @@ Contributions should preserve:
 - fail-closed behavior for governance-critical decisions where documented.
 
 The repository includes automated security and regression workflows, but automated checks do not replace review.
+
+## Dependency audit policy
+
+High-severity vulnerabilities in production/runtime dependencies remain release-blocking through `npm run security:deps`.
+
+The CI workflow also runs a full dependency audit, including development/build tooling, and keeps that result visible even when an upstream package has no compatible patched release. Such exceptions must be tracked in a public maintenance issue rather than silently suppressed.
+
+As of October 2026, issue #36 tracks CVE-2026-93687 / GHSA-vfj7-8cjw-p6xm in the Tailwind 3 development dependency chain. The advisory currently has no patched `braces` release. A forced Tailwind 4 migration is intentionally not applied without compatibility validation.
