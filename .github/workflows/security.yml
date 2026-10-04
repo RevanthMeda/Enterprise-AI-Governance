@@ -41,8 +41,12 @@ jobs:
       - name: CSP header smoke test
         run: npm run test:security:csp
 
-      - name: Dependency audit
+      - name: Production dependency audit
         run: npm run security:deps
+
+      - name: Full dependency audit
+        continue-on-error: true
+        run: npm run security:deps:all
 
       - name: Secret scan
         run: npm run security:secrets
