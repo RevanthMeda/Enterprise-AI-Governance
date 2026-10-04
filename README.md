@@ -45,6 +45,8 @@ See [Architecture and data flow summary](docs/architecture-data-flow-summary.md)
 
 ## Quick start
 
+**New to the project?** Start with the [10-minute external evaluation guide](docs/evaluate-in-10-minutes.md) for a synthetic, no-database/no-provider walkthrough.
+
 ### Offline pitch/demo mode
 
 This is the fastest way to explore the governance flow without configuring a database or external AI provider:
@@ -114,6 +116,7 @@ Start with the [application documentation index](docs/application-documentation-
 
 Useful references:
 
+- [10-minute external evaluation guide](docs/evaluate-in-10-minutes.md)
 - [Product overview](docs/product-overview.md)
 - [Route-by-route user manual](docs/route-by-route-user-manual.md)
 - [Admin operations guide](docs/admin-operations-guide.md)
