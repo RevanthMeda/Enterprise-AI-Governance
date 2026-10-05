@@ -10,6 +10,9 @@ import { storage } from "../server/storage";
 import { db } from "../server/db";
 import { memberships, organizations, users } from "../shared/schema";
 
+// MFA enrollment stores encrypted credentials, including in the role smoke test.
+process.env.CONTROL_TOWER_VAULT_SECRET ||= "roles-core-smoke-test-vault-secret-with-stable-entropy";
+
 type ApiResponse = {
   status: number;
   body: unknown;
