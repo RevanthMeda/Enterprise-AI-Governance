@@ -21,7 +21,7 @@ jobs:
       PASSWORD_RESET_SECRET: ci-test-password-reset-secret-00000000000000000000
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
