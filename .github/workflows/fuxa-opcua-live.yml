@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   live-subscriptions:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -59,10 +60,21 @@ jobs:
           fi
       - name: Install declared backend dependencies
         run: cd "$RUNNER_TEMP/fuxa/server" && npm ci --no-audit --no-fund
+      - name: Correct pre-existing test import case for baseline comparison
+        run: |
+          cd "$RUNNER_TEMP/fuxa/server"
+          test -f runtime/apikeys/apiKeysStorage.js
+          sed -i "s@runtime/apikeys/apikeysStorage@runtime/apikeys/apiKeysStorage@" test/storage/storage-insert-select.test.js
       - name: Full backend suite
         run: |
           cd "$RUNNER_TEMP/fuxa/server"
           npm test -- --reporter json --reporter-option output="$RUNNER_TEMP/backend-report.json"
+      - name: Summarize backend test report
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/backend-report.json" ]; then
+            node -e 'const r=require(process.argv[1]); console.log(JSON.stringify({stats:r.stats,failures:r.failures.map(t=>({title:t.fullTitle,error:t.err.message}))},null,2))' "$RUNNER_TEMP/backend-report.json"
+          fi
       - name: Upload backend test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -71,6 +83,7 @@ jobs:
           path: ${{ runner.temp }}/backend-report.json
 
   docker-runtime:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:

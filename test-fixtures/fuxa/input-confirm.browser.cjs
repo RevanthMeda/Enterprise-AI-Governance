@@ -39,7 +39,7 @@ async function run() {
                     new Function('exports', 'require', code)(exports, name => imports[name] || {});
                     return exports;
                 }
-                const hmi = load(sources.hmi, {});
+                const hmi = load(sources.hmi, { './device': { Tag: class {} } });
                 class GaugeBaseComponent {
                     static getEvents(property) { return property.events || []; }
                 }
