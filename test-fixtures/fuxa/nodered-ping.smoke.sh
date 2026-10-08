@@ -19,7 +19,7 @@ JSON
 cat > "$fixture_dir/settings.js" <<'JS'
 module.exports = { flowFile: 'flows.json', uiPort: 1880, uiHost: '0.0.0.0', logging: { console: { level: 'info' } } };
 JS
-container_id=$(docker run -d -p 127.0.0.1::1880 -v "$fixture_dir:/tmp/ping-fixture" "$image" node node_modules/node-red/red.js --userDir /tmp/ping-fixture --settings /tmp/ping-fixture/settings.js)
+container_id=$(docker run -d --user "$(id -u):$(id -g)" -p 127.0.0.1::1880 -v "$fixture_dir:/tmp/ping-fixture" "$image" node node_modules/node-red/red.js --userDir /tmp/ping-fixture --settings /tmp/ping-fixture/settings.js)
 port=$(docker port "$container_id" 1880/tcp | cut -d: -f2)
 for attempt in {1..30}; do
     if curl --fail --silent "http://127.0.0.1:$port/ping-test" > "$fixture_dir/result.txt"; then break; fi

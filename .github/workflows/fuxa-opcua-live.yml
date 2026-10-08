@@ -54,7 +54,7 @@ jobs:
           git clone --filter=blob:none --sparse https://github.com/RevanthMeda/FUXA.git "$RUNNER_TEMP/fuxa"
           git -C "$RUNNER_TEMP/fuxa" sparse-checkout set server
           if [ '${{ matrix.revision }}' = base ]; then
-            git -C "$RUNNER_TEMP/fuxa" checkout d183acb9ef41ac02fc66db72527d2fb6c959395f
+            git -C "$RUNNER_TEMP/fuxa" checkout b1da1293ca5cbece49ceda049f5b10380205f876
           else
             git -C "$RUNNER_TEMP/fuxa" checkout e4f076d604cd1ed9d8b4f4d420afcdb8c1773e86
           fi
@@ -83,7 +83,6 @@ jobs:
           path: ${{ runner.temp }}/backend-report.json
 
   docker-runtime:
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -139,4 +138,4 @@ jobs:
           result=$?
           cat "$RUNNER_TEMP/browser-base.log"
           test "$result" = 1
-          grep -q 'BROWSER REGRESSION: 2 passed, 4 failed' "$RUNNER_TEMP/browser-base.log"
+          grep -q 'BROWSER REGRESSION: 3 passed, 3 failed' "$RUNNER_TEMP/browser-base.log"
