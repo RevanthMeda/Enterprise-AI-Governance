@@ -21,7 +21,7 @@ jobs:
         run: |
           git clone --depth 1 --filter=blob:none --sparse --branch fix/opcua-preserve-array-values https://github.com/RevanthMeda/FUXA.git "$RUNNER_TEMP/fuxa"
           git -C "$RUNNER_TEMP/fuxa" sparse-checkout set server/runtime server/test/devices server/test/integration
-          test "$(git -C "$RUNNER_TEMP/fuxa" rev-parse HEAD)" = df5eceed3aafe7afcf58a26ee10b7a9566089a54
+          test "$(git -C "$RUNNER_TEMP/fuxa" rev-parse HEAD)" = e4f076d604cd1ed9d8b4f4d420afcdb8c1773e86
       - name: Install isolated validation dependencies
         run: npm install --prefix "$RUNNER_TEMP/opcua-validation" --ignore-scripts --no-audit --no-fund async@3.2.3 dayjs@1.11.9 mocha@10.8.2 sinon@19.0.2 node-opcua@2.186.17
       - name: Focused regression tests
@@ -36,3 +36,94 @@ jobs:
         run: |
           cd "$RUNNER_TEMP/fuxa/server"
           timeout 120 node test/integration/opcuaArrays.live.cjs
+
+  backend-suite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: [base, patch]
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Fetch pinned backend revision
+        run: |
+          git clone --filter=blob:none --sparse https://github.com/RevanthMeda/FUXA.git "$RUNNER_TEMP/fuxa"
+          git -C "$RUNNER_TEMP/fuxa" sparse-checkout set server
+          if [ '${{ matrix.revision }}' = base ]; then
+            git -C "$RUNNER_TEMP/fuxa" checkout d183acb9ef41ac02fc66db72527d2fb6c959395f
+          else
+            git -C "$RUNNER_TEMP/fuxa" checkout e4f076d604cd1ed9d8b4f4d420afcdb8c1773e86
+          fi
+      - name: Install declared backend dependencies
+        run: cd "$RUNNER_TEMP/fuxa/server" && npm ci --no-audit --no-fund
+      - name: Full backend suite
+        run: |
+          cd "$RUNNER_TEMP/fuxa/server"
+          npm test -- --reporter json --reporter-option output="$RUNNER_TEMP/backend-report.json"
+      - name: Upload backend test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-${{ matrix.revision }}
+          path: ${{ runner.temp }}/backend-report.json
+
+  docker-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned Docker patch
+        run: |
+          git clone --depth 1 --branch fix/docker-node-red-ping https://github.com/RevanthMeda/FUXA.git "$RUNNER_TEMP/fuxa"
+          test "$(git -C "$RUNNER_TEMP/fuxa" rev-parse HEAD)" = 6a70b57d1127d587e9e3eca0d57c0f58c09b00aa
+      - name: Build actual Dockerfile with ODBC disabled
+        run: docker build --build-arg INSTALL_ODBC=false --tag fuxa-ping-validation "$RUNNER_TEMP/fuxa"
+      - name: Verify runtime ping
+        run: |
+          docker run --rm fuxa-ping-validation ping -V
+          docker run --rm fuxa-ping-validation ping -n -c 1 -W 2 127.0.0.1
+      - name: Verify Node-RED built-in exec flow
+        run: bash test-fixtures/fuxa/nodered-ping.smoke.sh fuxa-ping-validation
+
+  browser-input:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Fetch pinned HMI patch
+        run: |
+          git clone --filter=blob:none --sparse --branch fix/input-confirm-double-submit https://github.com/RevanthMeda/FUXA.git "$RUNNER_TEMP/fuxa"
+          git -C "$RUNNER_TEMP/fuxa" sparse-checkout set client/src client/test
+          test "$(git -C "$RUNNER_TEMP/fuxa" rev-parse HEAD)" = 946fb8cf3c410daf2052bdc581e03c3a173e2815
+          git -C "$RUNNER_TEMP/fuxa" show d183acb9ef41ac02fc66db72527d2fb6c959395f:client/src/app/fuxa-view/fuxa-view.component.ts > "$RUNNER_TEMP/base-view.ts"
+      - name: Install browser validation dependencies
+        run: |
+          npm install --prefix "$RUNNER_TEMP/browser-validation" --no-audit --no-fund typescript@5.4.5 playwright@1.62.1
+          node "$RUNNER_TEMP/browser-validation/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Existing input regression tests
+        env:
+          NODE_PATH: ${{ runner.temp }}/browser-validation/node_modules
+        run: node --test "$RUNNER_TEMP/fuxa/client/test/input-confirm.test.cjs"
+      - name: Real Chromium input events
+        env:
+          NODE_PATH: ${{ runner.temp }}/browser-validation/node_modules
+          FUXA_CLIENT: ${{ runner.temp }}/fuxa/client
+        run: node test-fixtures/fuxa/input-confirm.browser.cjs
+      - name: Verify browser regression detects original bug
+        env:
+          NODE_PATH: ${{ runner.temp }}/browser-validation/node_modules
+          FUXA_CLIENT: ${{ runner.temp }}/fuxa/client
+          FUXA_VIEW_SOURCE: ${{ runner.temp }}/base-view.ts
+        run: |
+          set +e
+          node test-fixtures/fuxa/input-confirm.browser.cjs > "$RUNNER_TEMP/browser-base.log" 2>&1
+          result=$?
+          cat "$RUNNER_TEMP/browser-base.log"
+          test "$result" = 1
+          grep -q 'BROWSER REGRESSION: 2 passed, 4 failed' "$RUNNER_TEMP/browser-base.log"
