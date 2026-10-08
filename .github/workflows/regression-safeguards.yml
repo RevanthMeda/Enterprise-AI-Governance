@@ -60,6 +60,9 @@ jobs:
       - name: Run regression suite
         run: npm run test:regression:all
 
+      - name: Validate telemetry SDK governance responses
+        run: npm run test:regression:telemetry-sdk
+
       - name: Run golden heavy seed
         run: npm run seed:heavy:golden
 
