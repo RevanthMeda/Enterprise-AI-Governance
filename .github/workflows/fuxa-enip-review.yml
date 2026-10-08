@@ -1,0 +1,91 @@
+name: FUXA Generic EtherNet/IP review validation
+
+on:
+  push:
+    branches: [test/fuxa-enip-review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: [original, patched]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Fetch pinned maintainer PR
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse --branch feature/generic-ethernetip https://github.com/frangoteam/FUXA.git "$RUNNER_TEMP/fuxa"
+          git -C "$RUNNER_TEMP/fuxa" sparse-checkout set server
+          test "$(git -C "$RUNNER_TEMP/fuxa" rev-parse HEAD)" = 1b31f6e9778f244055c68a3a5d0356546beb97d3
+      - name: Apply fix or regression tests only
+        run: |
+          patch="$GITHUB_WORKSPACE/test-fixtures/fuxa/generic-enip-explicit-hex.patch"
+          cd "$RUNNER_TEMP/fuxa"
+          if [ '${{ matrix.revision }}' = patched ]; then
+            git apply --check "$patch"
+            git apply "$patch"
+          else
+            git apply --include=server/test/devices/genericEthernetIpWrite.test.js "$patch"
+          fi
+          git diff --check
+      - name: Correct pre-existing storage test import for Linux
+        run: |
+          cd "$RUNNER_TEMP/fuxa/server"
+          test -f runtime/apikeys/apiKeysStorage.js
+          sed -i "s@runtime/apikeys/apikeysStorage@runtime/apikeys/apiKeysStorage@" test/storage/storage-insert-select.test.js
+      - name: Install declared dependencies
+        run: cd "$RUNNER_TEMP/fuxa/server" && npm ci --no-audit --no-fund
+      - name: Full backend suite
+        run: |
+          cd "$RUNNER_TEMP/fuxa/server"
+          if [ '${{ matrix.revision }}' = original ]; then
+            npm test -- --exclude test/devices/genericEthernetIpWrite.test.js --reporter json --reporter-option output="$RUNNER_TEMP/backend-report.json"
+          else
+            npm test -- --reporter json --reporter-option output="$RUNNER_TEMP/backend-report.json"
+          fi
+      - name: Verify original code reproduces the five regressions
+        if: matrix.revision == 'original'
+        run: |
+          cd "$RUNNER_TEMP/fuxa/server"
+          set +e
+          node node_modules/mocha/bin/mocha.js test/devices/genericEthernetIpWrite.test.js --reporter json --reporter-option output="$RUNNER_TEMP/original-regressions.json"
+          result=$?
+          set -e
+          test "$result" = 5
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const report = require(process.env.RUNNER_TEMP + '/original-regressions.json');
+          assert.equal(report.stats.tests, 15);
+          assert.equal(report.stats.passes, 10);
+          assert.deepEqual(report.failures.map(test => test.title).sort(), [
+            'writes numeric-only hexadecimal 0102 without losing bytes',
+            'writes numeric-only hexadecimal 1234 without losing bytes',
+            'writes numeric-only hexadecimal 0000 without losing bytes',
+            'keeps raw hex payloads out of scalar numeric scaling',
+            'passes the original hex text to a configured write script'
+          ].sort());
+          console.log('EXPECTED BASELINE REGRESSIONS VERIFIED: 5 failures, 10 compatibility tests pass');
+          JS
+      - name: Summarize backend results
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/backend-report.json" ]; then
+            node -e 'const r=require(process.argv[1]); console.log(JSON.stringify({stats:r.stats,failures:r.failures.map(t=>({title:t.fullTitle,error:t.err.message}))},null,2))' "$RUNNER_TEMP/backend-report.json"
+          fi
+      - name: Upload validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enip-${{ matrix.revision }}
+          path: |
+            ${{ runner.temp }}/backend-report.json
+            ${{ runner.temp }}/original-regressions.json

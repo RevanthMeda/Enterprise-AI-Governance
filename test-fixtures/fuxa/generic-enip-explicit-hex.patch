@@ -1,0 +1,176 @@
+From 9e1a25fa90cd2e86471bc02ba2dfd7a837b41585 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Fri, 9 Oct 2026 04:25:02 +0800
+Subject: [PATCH] fix: preserve Generic EtherNet/IP explicit write payloads
+
+---
+ server/runtime/devices/device-utils.js        |   5 +-
+ .../devices/genericethernetip/index.js        |   4 +-
+ .../devices/genericEthernetIpWrite.test.js    | 120 ++++++++++++++++++
+ 3 files changed, 126 insertions(+), 3 deletions(-)
+ create mode 100644 server/test/devices/genericEthernetIpWrite.test.js
+
+diff --git a/server/runtime/devices/device-utils.js b/server/runtime/devices/device-utils.js
+index c2d48b1..69d582c 100644
+--- a/server/runtime/devices/device-utils.js
++++ b/server/runtime/devices/device-utils.js
+@@ -56,12 +56,13 @@ module.exports = {
+         return value;
+     },
+ 
+-    tagRawCalculator: async function (value, tag, runtime = undefined) {
++    tagRawCalculator: async function (value, tag, runtime = undefined, options = {}) {
+         var obj = {value: null };
+ 
+         if (tag) {
+             try {
+-                if (utils.isNumber(value, obj)) {
++                // Opaque payloads must keep their bytes; configured write scripts still run below.
++                if (!options.skipNumericConversion && utils.isNumber(value, obj)) {
+                     value = obj.value;
+                     if (tag.scale && tag.scale.mode === 'linear') {
+                         value = tag.scale.rawLow + ((tag.scale.rawHigh - tag.scale.rawLow) * (value - tag.scale.scaledLow)) / (tag.scale.scaledHigh - tag.scale.scaledLow);
+diff --git a/server/runtime/devices/genericethernetip/index.js b/server/runtime/devices/genericethernetip/index.js
+index cd05398..dc3f058 100644
+--- a/server/runtime/devices/genericethernetip/index.js
++++ b/server/runtime/devices/genericethernetip/index.js
+@@ -273,7 +273,9 @@ function GenericEthernetIPclient(_data, _logger, _events, _runtime) {
+             }
+             const tag = device.tags[tagId];
+             const isStringTag = _isStringTag(tag);
+-            let valueToSend = isStringTag ? value : await deviceUtils.tagRawCalculator(value, tag, runtime);
++            let valueToSend = isStringTag ? value : await deviceUtils.tagRawCalculator(value, tag, runtime, {
++                skipNumericConversion: tag.enipOptions?.tagType === EnipTagType.explicit
++            });
+             if (tag.enipOptions?.tagType === EnipTagType.symbolic &&
+                 (tag.enipOptions?.symbolicOpt.dataType === EnipTypes.BOOL)) {
+                 if (valueToSend === 'true') {
+diff --git a/server/test/devices/genericEthernetIpWrite.test.js b/server/test/devices/genericEthernetIpWrite.test.js
+new file mode 100644
+index 0000000..2eb0741
+--- /dev/null
++++ b/server/test/devices/genericEthernetIpWrite.test.js
+@@ -0,0 +1,120 @@
++'use strict';
++
++const assert = require('node:assert/strict');
++const EventEmitter = require('node:events');
++
++describe('Generic EtherNet/IP explicit writes', function () {
++    let device;
++    let calls;
++    let tag;
++    let runtime;
++    let writeResult;
++
++    beforeEach(async function () {
++        calls = [];
++        writeResult = () => Promise.resolve();
++        class Controller extends EventEmitter {
++            async connect() { this.established_conn = true; }
++            async disconnect() { this.established_conn = false; }
++            setAttributeSingle(classId, instance, attribute, payload) {
++                calls.push({ classId, instance, attribute, payload });
++                return writeResult();
++            }
++            async writeTag(value) { calls.push(value); }
++        }
++        class Tag {
++            constructor(name) { this.name = name; }
++        }
++        tag = { id: 'write', name: 'Command', address: 'Command', type: 'number',
++            enipOptions: { tagType: 1, explicitOpt: { class: 4, instance: 100, attribute: 3 } } };
++        const data = { id: 'plc', name: 'PLC', property: { address: '127.0.0.1' }, tags: { write: tag } };
++        runtime = { logger: { error() {} }, scriptsMgr: { runScript: async script => script.parameters[0].value } };
++        const filename = require.resolve('../../runtime/devices/genericethernetip');
++        delete require.cache[filename];
++        const driver = require(filename);
++        device = driver.create(data, { error() {}, debug() {}, info() {}, warn() {} }, new EventEmitter(),
++            { require: () => ({ Controller, Tag }) }, runtime);
++        device.load(data);
++        await device.connect();
++    });
++
++    afterEach(async function () { if (device) await device.disconnect(); });
++
++    async function expectBytes(value, expected) {
++        assert.equal(await device.setValue('write', value), true);
++        assert.equal(calls.length, 1);
++        assert.deepEqual(calls[0], { classId: 4, instance: 100, attribute: 3, payload: Buffer.from(expected, 'hex') });
++    }
++
++    for (const payload of ['0102', '1234', '0000']) {
++        it(`writes numeric-only hexadecimal ${payload} without losing bytes`, async function () {
++            await expectBytes(payload, payload);
++        });
++    }
++
++    it('keeps raw hex payloads out of scalar numeric scaling', async function () {
++        tag.scale = { mode: 'linear', rawLow: 0, rawHigh: 100, scaledLow: 0, scaledHigh: 10 };
++        device.load({ id: 'plc', name: 'PLC', property: { address: '127.0.0.1' }, tags: { write: tag } });
++        await expectBytes('0102', '0102');
++    });
++
++    it('passes the original hex text to a configured write script', async function () {
++        tag.scaleWriteFunction = 'encode';
++        let input;
++        runtime.scriptsMgr.runScript = async script => {
++            input = script.parameters[0].value;
++            return input;
++        };
++        device.load({ id: 'plc', name: 'PLC', property: { address: '127.0.0.1' }, tags: { write: tag } });
++        await expectBytes('0102', '0102');
++        assert.equal(input, '0102');
++    });
++
++    it('sends the transformed hexadecimal result of a configured write script', async function () {
++        tag.scaleWriteFunction = 'encode';
++        runtime.scriptsMgr.runScript = async () => 'abcd';
++        device.load({ id: 'plc', name: 'PLC', property: { address: '127.0.0.1' }, tags: { write: tag } });
++        await expectBytes('0102', 'abcd');
++    });
++
++    it('preserves mixed-case hexadecimal and whitespace', async function () {
++        await expectBytes('0a BC 00', '0abc00');
++    });
++
++    it('uses the configured send buffer when no value is supplied', async function () {
++        tag.enipOptions.explicitOpt.sendBuffer = '0102';
++        device.load({ id: 'plc', name: 'PLC', property: { address: '127.0.0.1' }, tags: { write: tag } });
++        await expectBytes(undefined, '0102');
++    });
++
++    for (const value of ['123', 'gg', '0x0102', 102]) {
++        it(`rejects malformed or non-string payload ${JSON.stringify(value)} without a CIP write`, async function () {
++            assert.equal(await device.setValue('write', value), false);
++            assert.equal(calls.length, 0);
++        });
++    }
++
++    it('reports a rejected CIP write as failure', async function () {
++        writeResult = () => Promise.reject(new Error('Attribute not settable'));
++        assert.equal(await device.setValue('write', 'abcd'), false);
++        assert.equal(calls.length, 1);
++    });
++
++    it('does not report success before the CIP write completes', async function () {
++        let finish;
++        let settled = false;
++        writeResult = () => new Promise(resolve => { finish = resolve; });
++        const pending = device.setValue('write', 'abcd').then(result => { settled = true; return result; });
++        await new Promise(resolve => setImmediate(resolve));
++        assert.equal(settled, false);
++        finish();
++        assert.equal(await pending, true);
++    });
++
++    it('preserves scalar conversion for symbolic numeric writes', async function () {
++        tag.enipOptions = { tagType: 0, symbolicOpt: { dataType: 0xc4 } };
++        device.load({ id: 'plc', name: 'PLC', property: { address: '127.0.0.1' }, tags: { write: tag } });
++        assert.equal(await device.setValue('write', '42'), true);
++        assert.equal(calls[0].value, 42);
++    });
++});
+-- 
+2.51.1
+
