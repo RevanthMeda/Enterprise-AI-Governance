@@ -246,7 +246,13 @@ export class AiControlGridTelemetryClient {
         });
       }
 
-      return responseBody as TelemetryIngestResult;
+      if (!isTelemetryIngestResult(responseBody)) {
+        throw new TelemetrySdkError("Invalid telemetry governance response", {
+          status: response.status,
+          responseBody,
+        });
+      }
+      return responseBody;
     } finally {
       if (timeout) {
         clearTimeout(timeout);
@@ -353,6 +359,23 @@ export function createTelemetryClient(config: TelemetryClientConfig) {
 
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+function isTelemetryIngestResult(value: unknown): value is TelemetryIngestResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const result = value as Record<string, unknown>;
+  const isStringArray = (items: unknown): items is string[] =>
+    Array.isArray(items) && items.every((item) => typeof item === "string");
+  return (
+    typeof result.id === "string" && result.id.trim().length > 0 &&
+    result.ok === true &&
+    ["allow", "warn", "escalate", "block"].includes(result.decision as string) &&
+    typeof result.blocked === "boolean" &&
+    (result.decision !== "block" || result.blocked === true) &&
+    isStringArray(result.thresholdBreaches) &&
+    isStringArray(result.restrictedPromptMatches) &&
+    (result.escalatedIncidentId === null || typeof result.escalatedIncidentId === "string")
+  );
+}
 
 function normalizeEvent(input: TelemetryEventInput): Record<string, unknown> {
   if (!input.eventType.trim()) {
