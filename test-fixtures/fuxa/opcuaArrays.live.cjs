@@ -41,12 +41,19 @@ async function run() {
         let lastDaq;
         events.on('device-value:changed', event => { lastEmission = event.values; });
         const errors = [];
+        let subscriptionReady = false;
         device = driver.create({
             id: 'live', name: 'Live array regression', polling: 100,
             property: { address: 'opc.tcp://localhost:24871/ArrayRegression' }, tags
-        }, { info() {}, warn() {}, error: message => errors.push(message) }, events, null, {});
+        }, {
+            info: message => { if (message.includes('subscription created!')) subscriptionReady = true; },
+            warn() {}, error: message => errors.push(message)
+        }, events, null, {});
         device.bindAddDaq(values => { lastDaq = { ...lastDaq, ...values }; });
         await device.connect();
+        const readyDeadline = Date.now() + 20000;
+        while (!subscriptionReady && Date.now() < readyDeadline) await pause(50);
+        assert.ok(subscriptionReady, `Subscription creation timed out: ${errors.join('; ')}`);
 
         async function waitFor(check) {
             const deadline = Date.now() + 20000;
