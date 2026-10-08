@@ -44,6 +44,13 @@ jobs:
           sed -i "s@runtime/apikeys/apikeysStorage@runtime/apikeys/apiKeysStorage@" test/storage/storage-insert-select.test.js
       - name: Install declared dependencies
         run: cd "$RUNNER_TEMP/fuxa/server" && npm ci --no-audit --no-fund
+      - name: Install isolated real EtherNet/IP controller
+        run: npm install --prefix "$RUNNER_TEMP/enip-wire" --ignore-scripts --no-audit --no-fund --save-exact st-ethernet-ip@2.7.5
+      - name: Validate real controller bytes and lifecycle against loopback CIP peer
+        env:
+          REVISION: ${{ matrix.revision }}
+        run: |
+          NODE_PATH="$RUNNER_TEMP/enip-wire/node_modules" FUXA_ROOT="$RUNNER_TEMP/fuxa" REPORT_PATH="$RUNNER_TEMP/wire-report.json" timeout 60 node "$GITHUB_WORKSPACE/test-fixtures/fuxa/generic-enip-wire.cjs"
       - name: Full backend suite
         run: |
           cd "$RUNNER_TEMP/fuxa/server"
@@ -89,3 +96,4 @@ jobs:
           path: |
             ${{ runner.temp }}/backend-report.json
             ${{ runner.temp }}/original-regressions.json
+            ${{ runner.temp }}/wire-report.json
