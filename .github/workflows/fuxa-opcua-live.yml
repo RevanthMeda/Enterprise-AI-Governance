@@ -20,9 +20,8 @@ jobs:
       - name: Fetch pinned FUXA patch
         run: |
           git clone --depth 1 --filter=blob:none --sparse --branch fix/opcua-preserve-array-values https://github.com/RevanthMeda/FUXA.git "$RUNNER_TEMP/fuxa"
-          git -C "$RUNNER_TEMP/fuxa" sparse-checkout set server/runtime server/test/devices
-          test "$(git -C "$RUNNER_TEMP/fuxa" rev-parse HEAD)" = df853a625fd5d57664b13a48f79219e8be030d5a
-          install -D test-fixtures/fuxa/opcuaArrays.live.cjs "$RUNNER_TEMP/fuxa/server/test/integration/opcuaArrays.live.cjs"
+          git -C "$RUNNER_TEMP/fuxa" sparse-checkout set server/runtime server/test/devices server/test/integration
+          test "$(git -C "$RUNNER_TEMP/fuxa" rev-parse HEAD)" = df5eceed3aafe7afcf58a26ee10b7a9566089a54
       - name: Install isolated validation dependencies
         run: npm install --prefix "$RUNNER_TEMP/opcua-validation" --ignore-scripts --no-audit --no-fund async@3.2.3 dayjs@1.11.9 mocha@10.8.2 sinon@19.0.2 node-opcua@2.186.17
       - name: Focused regression tests
