@@ -96,7 +96,7 @@ jobs:
   deploy:
     name: Trigger production deploys
     needs: test-and-build
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: production
