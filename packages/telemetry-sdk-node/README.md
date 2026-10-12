@@ -160,6 +160,13 @@ A telemetry key is a credential. Do not commit it to source control.
 
 Non-successful ingest responses throw `TelemetrySdkError`.
 
+Successful HTTP responses are also checked for the required governance fields.
+Missing or invalid decisions, non-boolean `blocked` values, and a `block` decision
+paired with `blocked: false` throw `TelemetrySdkError`. Optional response metadata
+is preserved. An invalid preflight response prevents the callback from executing;
+an invalid postflight response rejects without returning the model output. Keep
+these errors propagating rather than treating a failed evaluation as permission.
+
 ```ts
 import { TelemetrySdkError } from "@ai-control-grid/telemetry-sdk-node";
 
