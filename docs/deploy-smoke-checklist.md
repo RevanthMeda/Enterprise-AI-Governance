@@ -73,8 +73,13 @@ GitHub Actions production promotion uses:
 
 The workflow triggers Render and waits until `/api/ready` reports `release.commit` equal to `${{ github.sha }}` before Firebase or Netlify can publish. A healthy older backend therefore cannot accidentally satisfy the release gate. Render supplies `RENDER_GIT_COMMIT` automatically for a Git-backed service; another host must set `RELEASE_COMMIT_SHA` to its deployed Git revision.
 
-Production jobs in both workflows share the `production-deploy` concurrency
-group, so an automatic push deployment and a manual promotion cannot interleave.
+PRs and pushes to `main` run validation and builds. Production deployment
+requires an explicit dispatch of either `deploy.yml` or
+`promote-production.yml` on `main`. These production jobs share the
+`production-deploy` concurrency group so separate promotions cannot interleave.
+Hosting-provider Git integrations operate independently of these workflow
+conditions; verify their production auto-deployment settings before treating
+maintenance merges as deployment-free.
 Before either job can modify the database, the production environment variable
 `PRODUCTION_DB_BACKUP_CONFIRMED` must equal the full `${{ github.sha }}` being
 promoted. This makes backup acknowledgement release-specific instead of a
