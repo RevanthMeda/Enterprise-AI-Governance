@@ -18,3 +18,8 @@ ct.headers
 attached_assets/
 .firebase/
 sbom.cdx.json
+
+# Local authentication captures and runtime output
+*.cookies
+*.headers
+*.log

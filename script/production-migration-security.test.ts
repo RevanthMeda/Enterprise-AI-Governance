@@ -2,6 +2,33 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import vm from "node:vm";
+
+test("production deployment requires an explicit dispatch on main", () => {
+  const source = fs.readFileSync(
+    path.join(process.cwd(), ".github", "workflows", "deploy.yml"),
+    "utf8",
+  );
+  const deployJob = source.slice(source.indexOf("\n  deploy:"));
+  const condition = deployJob.match(/^    if: (.+)$/m)?.[1];
+  assert.ok(condition, "production deploy job must have an explicit condition");
+  // Evaluate the workflow's actual condition for the supported release events.
+  // This expression uses GitHub string comparisons and boolean operators, which
+  // have the same semantics here; other expression syntax needs explicit review.
+  const expression = condition.replace(/^\$\{\{\s*|\s*\}\}$/g, "");
+  for (const [event_name, ref, expected] of [
+    ["push", "refs/heads/main", false],
+    ["pull_request", "refs/pull/46/merge", false],
+    ["workflow_dispatch", "refs/heads/maintenance", false],
+    ["workflow_dispatch", "refs/heads/main", true],
+  ] as const) {
+    assert.equal(
+      vm.runInNewContext(expression, { github: { event_name, ref } }, { timeout: 100 }),
+      expected,
+      `${event_name} on ${ref}`,
+    );
+  }
+});
 
 test("production workflows use the versioned expand migration and require a backup gate", () => {
   for (const fileName of ["deploy.yml", "promote-production.yml"]) {
