@@ -18,7 +18,7 @@ Useful contributions include:
 
 Requirements:
 
-- Node.js 20.x
+- Node.js 24.x
 - npm
 - PostgreSQL 16 for the full regression suite
 
