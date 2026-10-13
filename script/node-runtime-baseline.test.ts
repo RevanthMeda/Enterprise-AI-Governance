@@ -12,6 +12,21 @@ test("repository runtime baseline is Node.js 24", async () => {
   assert.equal((await read(".nvmrc")).trim(), "24");
 });
 
+test("contributor-facing setup docs use the supported Node.js 24 runtime", async () => {
+  const documentationPaths = [
+    "README.md",
+    "CONTRIBUTING.md",
+    "docs/evaluate-in-10-minutes.md",
+    "docs/local-development.md",
+  ];
+
+  for (const path of documentationPaths) {
+    const content = await read(path);
+    assert.match(content, /Node\.js 24\.x/, `${path} should document Node.js 24.x`);
+    assert.doesNotMatch(content, /Node\.js 20\.x/, `${path} should not document Node.js 20.x`);
+  }
+});
+
 test("Vercel configs rely on the supported package engine for Node.js version selection", async () => {
   for (const path of ["vercel.json", "vercel.production.json"]) {
     const config = JSON.parse(await read(path)) as {
