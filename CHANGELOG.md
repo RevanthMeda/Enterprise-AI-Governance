@@ -6,7 +6,9 @@ The project is currently pre-stable. Until version 1.0.0, minor releases may inc
 
 ## [Unreleased]
 
-No user-facing changes have been queued since the v0.1.0 release baseline.
+### Added
+
+- `npm run test:demo:offline` verifies the synthetic evaluation workflow over loopback HTTP, including login, allowed and blocked requests, evidence views and logout. It requires no database or provider credentials and also runs in the regression suite.
 
 ## [0.1.0] - 2026-09-30
 

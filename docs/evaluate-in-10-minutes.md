@@ -36,6 +36,18 @@ http://127.0.0.1:18080/control-grid
 
 The offline demo uses deterministic synthetic responses. It does not call an external model provider.
 
+### Verify the demo automatically
+
+Before opening the UI, you can run the same synthetic allow/block workflow over local HTTP:
+
+```bash
+npm run test:demo:offline
+```
+
+This starts a temporary demo on a free loopback port, checks login, submits a safe request and a sensitive-data request, and verifies their runtime evidence, incident and decision views. It logs out and stops its own server afterward. No database, provider key or deployed service is required. The child process receives synthetic configuration and the check fails if it attempts an upstream `fetch`, even if a fallback catches the error.
+
+This is an HTTP smoke test, not a browser UI test or validation of production governance rules. It also runs as part of `npm run test:regression:all` through the model-gateway suite.
+
 ## 3. What to inspect
 
 In the first few minutes, focus on the control-grid flow rather than every page in the application.

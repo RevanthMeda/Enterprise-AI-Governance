@@ -64,6 +64,8 @@ http://127.0.0.1:18080/control-grid
 
 The pitch scenario uses synthetic data and deterministic local responses. See the [pitch demo runbook](docs/pitch-demo-runbook.md).
 
+To verify login, safe/blocked requests and their evidence over local HTTP without a database or model provider, run `npm run test:demo:offline`. See the [evaluation guide](docs/evaluate-in-10-minutes.md#verify-the-demo-automatically) for scope and limitations.
+
 ### Local development
 
 Requirements:
