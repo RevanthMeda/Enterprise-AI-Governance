@@ -6,7 +6,9 @@ The project is currently pre-stable. Until version 1.0.0, minor releases may inc
 
 ## [Unreleased]
 
-No user-facing changes have been queued since the v0.1.0 release baseline.
+### Security
+
+- The Node telemetry SDK now rejects HTTP redirects rather than forwarding telemetry credentials or event content. Configure the final deployment origin and serve the ingest endpoint directly; custom fetch implementations must honor the no-redirect policy. Transport failures remain fail-closed during preflight and postflight governance.
 
 ## [0.1.0] - 2026-09-30
 
