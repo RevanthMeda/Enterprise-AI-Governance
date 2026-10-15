@@ -4,10 +4,21 @@ import { readFile } from "node:fs/promises";
 
 type VercelConfig = Record<string, unknown> & {
   crons?: Array<{ path?: string; schedule?: string }>;
+  git?: { deploymentEnabled?: boolean | Record<string, boolean> };
 };
 
 async function loadConfig(path: string): Promise<VercelConfig> {
   return JSON.parse(await readFile(path, "utf8")) as VercelConfig;
+}
+
+for (const path of ["vercel.json", "vercel.production.json"]) {
+  test(`${path} disables Git deployments from main while preserving branch previews`, async () => {
+    const config = await loadConfig(path);
+
+    // Vercel enables unspecified branches by default. An exact main-only deny
+    // also prevents a wildcard allow rule from overriding the production gate.
+    assert.deepEqual(config.git?.deploymentEnabled, { main: false });
+  });
 }
 
 test("default Vercel config stays cron-free for portable preview deployments", async () => {

@@ -20,6 +20,34 @@ Both configs use the same application runtime:
 
 The only intentional difference between the two config files is Vercel Cron registration. A regression test enforces that invariant.
 
+## Manual production release boundary
+
+Both configs set `git.deploymentEnabled.main` to `false`. Once this configuration
+is present on `main`, Vercel's Git integration must not create a deployment for a
+push or maintenance merge to that branch. Other branches remain enabled by
+default, so pull-request previews can continue. This is a Git-trigger control;
+it does not disable an existing deployment or prevent an explicitly authorized
+CLI/API deployment, promotion, redeploy or deploy hook.
+
+Do not add a wildcard allow rule alongside the `main` deny: Vercel creates a
+deployment if any matching rule is `true`. See the official
+[Git configuration reference](https://vercel.com/docs/project-configuration/git-configuration#git.deploymentenabled).
+
+Before describing maintenance merges as deployment-free, an operator with access
+to the connected hosting projects must verify:
+
+- the Vercel project is linked to the intended repository and configuration root;
+- its production branch is `main`, and the checked-in Git deployment rule applies;
+- no independent deploy hooks, integrations, Render auto-deploy or Netlify
+  production-branch builds can release the same merge automatically;
+- production release still requires an explicit action and the existing security,
+  regression, backup, migration and production-environment gates.
+
+Record provider verification in issue #45. A passing config test or skipped
+GitHub Actions deploy job alone does not establish the live provider state.
+Until that audit is complete, leave maintenance PRs unmerged. No production
+deployment is required to validate this configuration change.
+
 ## Why the default config is cron-free
 
 Vercel Hobby allows cron jobs only once per day, while the production AI CONTROL GRID schedules require 5-minute and 15-minute intervals. A repository-level `vercel.json` containing those schedules causes Hobby deployments to fail configuration validation before the application is deployed.
@@ -33,7 +61,8 @@ Current Vercel references:
 
 ## Portable / preview deployment
 
-Git-integrated Vercel deployments use the repository's default `vercel.json`.
+Git-integrated branch previews use the repository's default `vercel.json`;
+automatic Git deployments from `main` are disabled.
 
 You can also deploy it explicitly:
 
@@ -73,7 +102,10 @@ The production config registers:
 /api/cron/retention         */15 * * * *
 ```
 
-Vercel Git integration reads `vercel.json`; it does not automatically select `vercel.production.json`. If production is deployed through Git integration, keep the default config and use an external scheduler, or move the production deployment into CI/CLI where the production config can be selected explicitly.
+Vercel Git integration reads `vercel.json`; it does not automatically select
+`vercel.production.json`, and `main` Git deployments are disabled by both configs.
+Use an explicitly authorized release through CI/CLI to select the production
+config, or select the portable config and configure an external scheduler.
 
 ## Required environment variables
 
@@ -141,6 +173,8 @@ npm run test:deployment:vercel
 
 The test verifies that:
 
+- both configurations disable automatic Git deployments from `main` while leaving
+  other branch previews enabled;
 - `vercel.json` remains cron-free;
 - `vercel.production.json` retains the required 5-minute and 15-minute schedules;
 - both configurations remain otherwise identical.
