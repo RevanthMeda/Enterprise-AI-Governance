@@ -101,7 +101,7 @@ export function encryptPersistedSecret(
   }
 
   const iv = randomBytes(IV_BYTES);
-  const cipher = createCipheriv("aes-256-gcm", deriveKey(options), iv);
+  const cipher = createCipheriv("aes-256-gcm", deriveKey(options), iv, { authTagLength: TAG_BYTES });
   cipher.setAAD(purposeAad(normalizedPurpose));
   const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
@@ -159,7 +159,7 @@ export function resolvePersistedSecret(
       throw new PersistedSecretError();
     }
 
-    const decipher = createDecipheriv("aes-256-gcm", deriveKey(options), iv);
+    const decipher = createDecipheriv("aes-256-gcm", deriveKey(options), iv, { authTagLength: TAG_BYTES });
     decipher.setAAD(purposeAad(normalizedPurpose));
     decipher.setAuthTag(tag);
     const plaintext = Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
