@@ -7,6 +7,8 @@
     "node": "24.x"
   },
   "scripts": {
+    "test:ci:semgrep": "node --test script/semgrep-gate.test.mjs script/workflow-action-pins.test.mjs",
+    "test:ci:semgrep:integration": "node --test script/semgrep-cli.integration.test.mjs",
     "test:regression:telemetry-sdk": "node --import tsx --test script/telemetry-sdk-response.test.ts",
     "predev": "npm run openapi:sync-public",
     "dev": "tsx server/index.ts",

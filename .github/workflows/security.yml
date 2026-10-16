@@ -10,6 +10,7 @@ jobs:
   security:
     name: Security Gates
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
@@ -21,10 +22,10 @@ jobs:
       PASSWORD_RESET_SECRET: ci-test-password-reset-secret-00000000000000000000
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
           cache: npm
@@ -55,15 +56,31 @@ jobs:
         run: npm run security:sbom
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom
           path: sbom.cdx.json
 
+      - name: Install pinned Semgrep
+        run: |
+          python3 -m venv "$RUNNER_TEMP/semgrep-venv"
+          "$RUNNER_TEMP/semgrep-venv/bin/python" -m pip install --disable-pip-version-check -r script/requirements-semgrep.txt
+          echo "$RUNNER_TEMP/semgrep-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Validate Semgrep fail-closed behavior
+        run: |
+          npm run test:ci:semgrep
+          npm run test:ci:semgrep:integration
+
       - name: Semgrep
-        uses: returntocorp/semgrep-action@v1
+        id: semgrep
+        run: node script/semgrep-gate.mjs "$RUNNER_TEMP/semgrep-summary.json"
+
+      - name: Upload sanitized Semgrep summary
+        if: always() && steps.semgrep.outcome != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          config: |
-            p/owasp-top-ten
-            p/nodejs
-            p/secrets
+          name: semgrep-summary
+          path: ${{ runner.temp }}/semgrep-summary.json
+          if-no-files-found: error
+          retention-days: 7

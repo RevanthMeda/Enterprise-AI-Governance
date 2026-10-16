@@ -315,7 +315,7 @@ export default function BulkControls() {
                 data-testid="button-review-assignment"
               >
                 <Layers className="h-4 w-4 mr-2" />
-                Review & Assign
+                Review &amp; Assign
               </Button>
             </CardContent>
           </Card>
