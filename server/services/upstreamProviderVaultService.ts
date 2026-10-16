@@ -62,6 +62,8 @@ export type ResolvedProviderConfig = {
   baseUrlSource: "request" | "stored" | "environment" | "canonical";
 };
 
+const GCM_TAG_BYTES = 16;
+
 const DEFAULT_BASE_URLS: Record<UpstreamProviderName, string> = {
   openai: "https://api.openai.com",
   anthropic: "https://api.anthropic.com",
@@ -96,7 +98,7 @@ function getVaultSecret() {
 function encryptSecret(plainText: string) {
   const key = getVaultSecret();
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: GCM_TAG_BYTES });
   const encrypted = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   return `${iv.toString("base64")}.${tag.toString("base64")}.${encrypted.toString("base64")}`;
@@ -109,7 +111,7 @@ function decryptSecret(value: string) {
   }
 
   const key = getVaultSecret();
-  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivPart, "base64"));
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivPart, "base64"), { authTagLength: GCM_TAG_BYTES });
   decipher.setAuthTag(Buffer.from(tagPart, "base64"));
   const decrypted = Buffer.concat([
     decipher.update(Buffer.from(cipherPart, "base64")),
