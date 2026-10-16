@@ -4,6 +4,9 @@ import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 // Use only the disposable local database already initialized by CI/the operator.
 // Never run schema setup or infer credentials from a production configuration.
@@ -62,6 +65,7 @@ async function unusedPort() {
 }
 
 test("shipped sidecar runs without root and retains working storage/HTTP", { timeout: 1_200_000 }, async t => {
+  const temporary = mkdtempSync(join(tmpdir(), "sidecar-compose-"));
   t.after(() => {
     // Exact random test resources only. No pruning, host data or production resources.
     spawnSync("docker", ["rm", "-f", container], { timeout: 30_000 });
@@ -69,6 +73,56 @@ test("shipped sidecar runs without root and retains working storage/HTTP", { tim
       spawnSync("docker", ["volume", "rm", volume], { timeout: 30_000 });
     }
     spawnSync("docker", ["image", "rm", image], { timeout: 30_000 });
+    rmSync(temporary, { recursive: true, force: true });
+  });
+
+  const env = {
+    ...process.env,
+    SESSION_SECRET: randomUUID() + randomUUID(),
+    PASSWORD_RESET_SECRET: randomUUID() + randomUUID(),
+    CONTROL_TOWER_VAULT_SECRET: randomUUID() + randomUUID(),
+    RATE_LIMIT_HMAC_SECRET: randomUUID() + randomUUID(),
+    PUBLIC_APP_URL: "https://sidecar-smoke.invalid",
+    CORS_ALLOWED_ORIGINS: "https://sidecar-smoke.invalid",
+    DB_SSL_MODE: "disable", // Only the guarded, disposable loopback CI database.
+    OPENAI_API_KEY: "",
+    ANTHROPIC_API_KEY: "",
+    GEMINI_API_KEY: "",
+  };
+  const required = ["DATABASE_URL", "SESSION_SECRET", "PASSWORD_RESET_SECRET",
+    "CONTROL_TOWER_VAULT_SECRET", "PUBLIC_APP_URL", "CORS_ALLOWED_ORIGINS"];
+  const compose = ["compose", "--env-file", "/dev/null", "--project-name", `sidecar-${suffix}`,
+    "-f", resolve("deploy/sidecar/docker-compose.yml")];
+
+  await t.test("shipped Compose forwards the complete production startup contract", () => {
+    const config = JSON.parse(docker([...compose, "config", "--format", "json"], { env }));
+    const actual = config.services["aict-gateway-sidecar"].environment;
+    for (const name of [...required, "RATE_LIMIT_HMAC_SECRET", "DB_SSL_MODE"]) {
+      assert.ok(actual[name] === env[name], `Compose must forward ${name}`);
+    }
+    assert.equal(actual.NODE_ENV, "production");
+    assert.equal(String(actual.PORT), "8080");
+    const defaults = { ...env };
+    delete defaults.DB_SSL_MODE;
+    delete defaults.RATE_LIMIT_HMAC_SECRET;
+    const defaultConfig = JSON.parse(docker([...compose, "config", "--format", "json"], { env: defaults }));
+    assert.equal(defaultConfig.services["aict-gateway-sidecar"].environment.DB_SSL_MODE, "verify-full");
+    assert.equal(defaultConfig.services["aict-gateway-sidecar"].environment.RATE_LIMIT_HMAC_SECRET, "");
+  });
+
+  await t.test("Compose rejects each missing or empty required setting before starting containers", () => {
+    for (const name of required) {
+      for (const value of [undefined, ""]) {
+        const missing = { ...env };
+        if (value === undefined) delete missing[name];
+        else missing[name] = value;
+        const result = spawnSync("docker", [...compose, "config", "--quiet"],
+          { env: missing, encoding: "utf8", timeout: 30_000 });
+        assert.ifError(result.error);
+        assert.notEqual(result.status, 0, `Compose must reject missing/empty ${name}`);
+        assert.ok(result.stderr.includes(`${name} must be set`), `Compose must identify ${name}`);
+      }
+    }
   });
 
   docker(["build", "-f", "deploy/sidecar/Dockerfile", "-t", image, "."], { timeout: 900_000 });
@@ -94,26 +148,23 @@ test("shipped sidecar runs without root and retains working storage/HTTP", { tim
   });
 
   await t.test("real production entrypoint serves health, readiness and client assets", { timeout: 120_000 }, async () => {
-    const env = {
-      ...process.env,
-      PORT: String(await unusedPort()),
-      SESSION_SECRET: randomUUID() + randomUUID(),
-      PASSWORD_RESET_SECRET: randomUUID() + randomUUID(),
-      CONTROL_TOWER_VAULT_SECRET: randomUUID() + randomUUID(),
-      RATE_LIMIT_HMAC_SECRET: randomUUID() + randomUUID(),
-      PUBLIC_APP_URL: "https://sidecar-smoke.invalid",
-      CORS_ALLOWED_ORIGINS: "https://sidecar-smoke.invalid",
-      DB_SSL_MODE: "disable",
-    };
-    const names = ["DATABASE_URL", "PORT", "SESSION_SECRET", "PASSWORD_RESET_SECRET",
-      "CONTROL_TOWER_VAULT_SECRET", "RATE_LIMIT_HMAC_SECRET", "PUBLIC_APP_URL",
-      "CORS_ALLOWED_ORIGINS", "DB_SSL_MODE"];
-    docker(["run", "-d", "--name", container, "--network", "host", ...mounts,
-      ...names.flatMap(name => ["--env", name]), image], { env });
+    const port = String(await unusedPort());
+    const override = join(temporary, "smoke.json");
+    // Only test transport/storage differs: same Compose environment and production CMD.
+    // No extra startup setting may be supplied here to conceal a missing forwarding entry.
+    writeFileSync(override, JSON.stringify({
+      services: { "aict-gateway-sidecar": {
+        image, network_mode: "host", environment: { PORT: port },
+        volumes: ["uploads:/app/uploads", "exports:/app/exports"],
+      } },
+      volumes: { uploads: { name: volumes[0] }, exports: { name: volumes[1] } },
+    }));
+    docker([...compose, "-f", override, "run", "--no-deps", "--pull", "never", "-d", "--name", container,
+      "aict-gateway-sidecar"], { env });
 
     try {
       let ready = false;
-      const base = `http://127.0.0.1:${env.PORT}`;
+      const base = `http://127.0.0.1:${port}`;
       const deadline = Date.now() + 90_000;
       while (Date.now() < deadline) {
         assert.equal(docker(["inspect", "--format", "{{.State.Running}}", container]), "true",
