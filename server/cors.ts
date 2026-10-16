@@ -7,6 +7,9 @@ export function applyCors(app: Express, configuredOrigins: string[]): void {
   }
 
   app.use((req, res, next) => {
+    // Denied/non-CORS responses must vary too, or caches can reuse them for
+    // a later allowed origin without its required CORS response headers.
+    res.vary("Origin");
     const origin = req.headers.origin;
     if (!origin || !allowedOrigins.has(origin)) {
       return next();
@@ -26,8 +29,6 @@ export function applyCors(app: Express, configuredOrigins: string[]): void {
       "Access-Control-Expose-Headers",
       "X-CSRF-Token, X-Error-Code",
     );
-    res.append("Vary", "Origin");
-
     if (req.method === "OPTIONS") {
       return res.sendStatus(204);
     }
