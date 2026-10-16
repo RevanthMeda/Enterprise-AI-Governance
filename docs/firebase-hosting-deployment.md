@@ -66,6 +66,8 @@ ALLOW_SELF_SIGNUP=false
 
 Production database connections now default to certificate-verified TLS when the database URL does not specify an SSL mode. Set `DB_SSL_MODE=disable` only for a deliberately private, non-TLS database network; public database endpoints must keep verified TLS.
 
+SSL mode precedence is `DB_SSL_MODE`, then `PGSSLMODE`, then the URL's `sslmode`. The selected configuration is applied explicitly so the PostgreSQL driver cannot replace it with conflicting URL parameters or environment defaults. Empty-host URLs such as `postgresql://user:password@/app?host=db.example.com` are supported, including Unix socket paths in `host`. Invalid URLs fail with a credential-free error before the driver is created. Explicit `no-verify` and certificate-verification overrides retain their existing behavior; use `verify-full` for public endpoints.
+
 The shared backend has one canonical `PUBLIC_APP_URL`. Keep that exact canonical origin plus every enabled Netlify/Firebase preview origin in `CORS_ALLOWED_ORIGINS`; production validation requires the public origin to be present in that union.
 
 ## Why these backend settings are required
