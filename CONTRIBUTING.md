@@ -48,6 +48,8 @@ Security-focused changes should also run the relevant `test:security:*` scripts.
 npm run security:all
 ```
 
+The separate CI Semgrep scan has a [fail-closed execution and findings policy](docs/security-scanning.md). Its gate-contract tests run with `npm run test:ci:semgrep`; real scanner fixtures require the reviewed pinned CLI.
+
 ## Pull request expectations
 
 Keep pull requests focused. A good PR should:

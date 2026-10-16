@@ -1,0 +1,2 @@
+# Reviewed CLI release: https://github.com/semgrep/semgrep/releases/tag/v1.181.0
+semgrep==1.181.0

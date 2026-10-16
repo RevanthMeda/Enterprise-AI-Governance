@@ -10,6 +10,7 @@ jobs:
   security:
     name: Security Gates
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
@@ -60,10 +61,26 @@ jobs:
           name: sbom
           path: sbom.cdx.json
 
+      - name: Install pinned Semgrep
+        run: |
+          python3 -m venv "$RUNNER_TEMP/semgrep-venv"
+          "$RUNNER_TEMP/semgrep-venv/bin/python" -m pip install --disable-pip-version-check -r script/requirements-semgrep.txt
+          echo "$RUNNER_TEMP/semgrep-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Validate Semgrep fail-closed behavior
+        run: |
+          npm run test:ci:semgrep
+          npm run test:ci:semgrep:integration
+
       - name: Semgrep
-        uses: returntocorp/semgrep-action@v1
+        id: semgrep
+        run: node script/semgrep-gate.mjs "$RUNNER_TEMP/semgrep-summary.json"
+
+      - name: Upload sanitized Semgrep summary
+        if: always() && steps.semgrep.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
         with:
-          config: |
-            p/owasp-top-ten
-            p/nodejs
-            p/secrets
+          name: semgrep-summary
+          path: ${{ runner.temp }}/semgrep-summary.json
+          if-no-files-found: error
+          retention-days: 7
