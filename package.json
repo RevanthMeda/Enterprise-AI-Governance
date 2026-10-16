@@ -26,6 +26,7 @@
     "build:sdk:telemetry": "tsc -p packages/telemetry-sdk-node/tsconfig.json",
     "start": "node dist/index.cjs",
     "docker:gateway:build": "docker build -f deploy/sidecar/Dockerfile -t aict-gateway-sidecar .",
+    "test:deployment:sidecar": "node --test script/sidecar-container.test.mjs",
     "check": "tsc && npm run check:demo",
     "check:demo": "tsc --noEmit --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck --types node --lib ES2022,DOM examples/linked-runtime-demo/server.ts examples/linked-runtime-demo/model-gateway.ts script/configure-demo-gateway.ts script/configure-demo-remote.ts script/check-demo-remote.ts script/deploy-smoke.ts",
     "openapi:sync-public": "tsx script/sync-openapi-public.ts",
