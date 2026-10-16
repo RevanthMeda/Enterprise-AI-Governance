@@ -17,7 +17,7 @@ try {
 assert.ok(["postgres:", "postgresql:"].includes(databaseUrl.protocol), "PostgreSQL URL required");
 assert.ok(["localhost", "127.0.0.1", "[::1]"].includes(databaseUrl.hostname),
   "Container smoke tests accept loopback database hosts only");
-assert.equal(databaseUrl.search, "", "Query parameters must not override the local database destination");
+assert.ok(databaseUrl.search === "", "Query parameters must not override the local database destination");
 assert.equal(process.platform, "linux", "This smoke test uses Linux Docker host networking");
 
 const suffix = randomUUID();
@@ -114,7 +114,8 @@ test("shipped sidecar runs without root and retains working storage/HTTP", { tim
     try {
       let ready = false;
       const base = `http://127.0.0.1:${env.PORT}`;
-      for (let attempt = 0; attempt < 180; attempt++) {
+      const deadline = Date.now() + 90_000;
+      while (Date.now() < deadline) {
         assert.equal(docker(["inspect", "--format", "{{.State.Running}}", container]), "true",
           "Sidecar exited before becoming ready");
         try {
