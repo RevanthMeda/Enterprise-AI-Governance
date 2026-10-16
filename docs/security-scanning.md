@@ -51,3 +51,7 @@ Official references:
 - [CLI flags and exit codes](https://semgrep.dev/docs/cli-reference)
 - [Semgrep CE in GitHub Actions](https://semgrep.dev/docs/semgrep-ci/sample-ci-configs)
 - [Pinned 1.181.0 release](https://github.com/semgrep/semgrep/releases/tag/v1.181.0)
+
+## Immutable workflow actions
+
+External workflow actions are pinned to full upstream commit hashes, with their existing major versions retained in comments. The hashes were resolved from the official action repositories. The workflow action regression guard runs with `npm run test:ci:semgrep` and rejects moving tags, branches, short hashes and unpinned container references. Local repository actions remain supported. Dependabot continues to maintain action updates; review the proposed commit and required checks before accepting an update.
