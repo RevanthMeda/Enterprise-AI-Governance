@@ -36,7 +36,7 @@
     "test:security:csrf": "tsx --test script/csrf-integration.test.ts",
     "test:security:csrf-middleware": "tsx --test script/csrf-middleware-regression.test.ts",
     "test:security:csrf-client": "tsx --test script/api-client-csrf.test.ts",
-    "test:security:http-headers": "tsx --test script/session-cors-http.test.ts script/session-revocation-security.test.ts",
+    "test:security:http-headers": "tsx --test script/session-cors-http.test.ts script/session-revocation-security.test.ts script/cors-cache-variants.test.ts",
     "test:security:mfa": "tsx --test script/mfa-security-state.test.ts script/mfa-login-integration.test.ts",
     "test:security:csp": "tsx --test script/csp-headers.test.ts",
     "test:security:hosting": "tsx --test script/static-hosting-security.test.ts",
