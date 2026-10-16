@@ -25,6 +25,11 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 
+# Keep code/dependencies root-owned; only runtime data belongs to the app user.
+RUN mkdir -p /app/uploads /app/exports \
+    && chown node:node /app/uploads /app/exports
+USER node:node
+
 EXPOSE 8080
 
 CMD ["node", "dist/index.cjs"]

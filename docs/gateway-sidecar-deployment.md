@@ -51,6 +51,25 @@ Optional provider fallbacks:
 npm run docker:gateway:build
 ```
 
+The final image runs as `node:node` (UID/GID 1000 in the official Node Alpine
+image), not root. Application code and dependencies remain root-owned. Only
+`/app/uploads` and `/app/exports` are writable application directories. Container
+storage is ephemeral; mount durable storage when evidence must survive replacement.
+Bind mounts or custom `UPLOAD_ROOT`/`EXPORTS_ROOT` paths must be writable by that
+user; prepare ownership on the host rather than running the sidecar as root.
+
+On Linux with Docker and a disposable, schema-initialized local PostgreSQL database:
+
+```bash
+DATABASE_URL=... npm run test:deployment:sidecar
+```
+
+This builds the actual image, checks its default user, verifies code is not writable
+and uploads/exports are writable (including Docker named volumes), then starts the
+shipped production command and checks HTTP health, readiness and static assets.
+The test accepts only loopback database hosts and uses host networking; it does not
+apply migrations or deploy an image. CI runs it against its ephemeral database.
+
 ## Run with Docker Compose
 
 ```bash
