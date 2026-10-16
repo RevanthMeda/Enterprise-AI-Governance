@@ -208,7 +208,9 @@ jobs:
         run: npm run smoke:deploy
 
       - name: Deployment hook summary
+        env:
+          NETLIFY_TRIGGERED: ${{ steps.netlify.outputs.triggered }}
         run: |
           echo "Render deploy triggered: true"
           echo "Firebase Hosting deployed: true"
-          echo "Netlify build hook triggered: ${{ steps.netlify.outputs.triggered }}"
+          echo "Netlify build hook triggered: $NETLIFY_TRIGGERED"

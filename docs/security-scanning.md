@@ -40,6 +40,10 @@ npm run test:ci:semgrep:integration
 
 These tests run the actual CLI against temporary synthetic JavaScript/rules: a clean scan with MEDIUM severity, a matching finding, invalid YAML, an invalid pattern and a missing executable. Security runs them before scanning the real repository. `SEMGREP_BIN` can identify a local CLI executable without changing the pin or scan flags.
 
+They also copy the five application pages and deployment workflow that previously produced `PartialParsing` diagnostics into a temporary directory and scan them with the same three production packs. This case requires all six files to be scanned with zero diagnostics; findings must still produce a blocked gate. Minimal syntax-only rules did not reproduce the embedded parsing errors, so they are not used as a substitute for this regression. Network access to the rule registry is required, just as for the full repository scan.
+
+The pages use entity-encoded ampersands in JSX text/attributes. A TypeScript emit comparison checks that these labels compile to exactly the same JavaScript as their raw-ampersand equivalents. The deployment summary passes its hook status through an environment variable; a real Bash test checks literal output for true/false/empty and shell-like values. These compatibility changes neither add exclusions nor alter deployment conditions.
+
 Passing synthetic cases establishes the gate behavior, not that the repository scan is clean. Required checks must be reviewed against the actual proposed commit. This change does not resolve the independent provider/deployment audit in issue #45 or authorize a production release.
 
 Official references:
