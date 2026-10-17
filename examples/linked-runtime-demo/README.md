@@ -173,6 +173,7 @@ Notes:
 
 - `AICT_MODEL_API_KEY` enables live responses through `AICT_MODEL_ENDPOINT`. `demo:pitch:live` requires this dedicated key and never forwards `OPENAI_API_KEY` to a third-party gateway; linked OpenAI mode retains the backward-compatible fallback.
 - `AICT_MODEL_REQUEST_FORMAT=dynamic` sends only the gateway-documented `messages` array. Use `openai` only for an OpenAI-compatible endpoint that expects `model` and `temperature`.
+- Model gateway requests have one absolute deadline covering headers and the complete response body. Responses are limited to 1,000,000 UTF-8 bytes, including chunked responses; stalled or oversized bodies are cancelled and rejected without releasing a draft.
 - Governance critic, shadow policy, and enforcement settings belong on the deployed Render service or in the hosted Telemetry Policy page; local Northstar variables cannot change them.
 - without a model API key, linked mode falls back to realistic simulated answers; `demo:pitch:live` instead fails at startup so a supposedly live pitch cannot silently start unconfigured.
 - leave `AICT_SYSTEM_ID` blank only when the hosted telemetry adapter binds Northstar as its default system.
