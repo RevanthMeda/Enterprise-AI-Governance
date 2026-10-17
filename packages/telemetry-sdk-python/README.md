@@ -106,6 +106,18 @@ client.emit_override_spike(
 
 ## Error handling
 
+Both endpoints reject HTTP redirects, including same-origin redirects, rather
+than forwarding credentials or event content. Configure `base_url` with the final
+deployment URL (HTTPS in production) and serve the SDK endpoints directly, without
+login, canonical-host or HTTP-to-HTTPS redirects. Redirect responses raise
+`TelemetrySdkError` with their original 3xx status; other HTTP errors retain their
+status and payload. Do not treat a request failure as governance approval.
+
+The default transport uses a private urllib opener and does not change the
+process-global opener. Custom `post_func` implementations must not follow redirects
+or forward credentials to another endpoint; a returned non-2xx status is rejected,
+but the SDK cannot undo a redirect already followed by custom transport code.
+
 ```python
 from ai_control_grid_telemetry import TelemetrySdkError
 
@@ -128,3 +140,11 @@ Authentication headers supported by the platform:
 - `Authorization: Bearer ...`
 
 The SDK uses `x-telemetry-key` by default.
+
+## Regression tests
+
+From the repository root, run `npm run test:regression:telemetry-sdk:python`
+(Python 3.10+; standard library only). The tests use synthetic credentials and
+loopback HTTP servers, never a deployed service. They also run as part of
+`npm run test:regression:telemetry-sdk` alongside the Node SDK contract tests.
+The outbound-HTTP security gate runs the combined SDK tests as well.
