@@ -230,6 +230,8 @@ export class AiControlGridTelemetryClient {
     try {
       const response = await this.fetchImpl(new URL("/api/telemetry/sdk-ingest", this.baseUrl), {
         method: "POST",
+        // Never forward the telemetry credential or event content to a redirect target.
+        redirect: "error",
         headers: {
           "content-type": "application/json",
           [this.headerName]: this.telemetryKey,

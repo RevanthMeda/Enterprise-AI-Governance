@@ -156,9 +156,19 @@ Applications should:
 
 A telemetry key is a credential. Do not commit it to source control.
 
+Ingest requests do not follow HTTP redirects, including same-origin redirects.
+This prevents forwarding the telemetry key or event content to another endpoint.
+Configure `baseUrl` with the final deployment origin (use HTTPS in production),
+and route `/api/telemetry/sdk-ingest` directly rather than redirecting it through
+a login page, canonical-host redirect, or HTTP-to-HTTPS redirect.
+
 ## Error handling
 
 Non-successful ingest responses throw `TelemetrySdkError`.
+
+Network failures, timeouts, and rejected redirects propagate as transport errors.
+Do not treat these failures as an approval: a preflight failure prevents the
+execution callback, and a postflight failure rejects without releasing output.
 
 Successful HTTP responses are also checked for the required governance fields.
 Missing or invalid decisions, non-boolean `blocked` values, and a `block` decision
@@ -188,6 +198,9 @@ Avoid logging `responseBody` blindly in production because a server error payloa
 ## Custom fetch and testing
 
 The client accepts a custom `fetch` implementation. This is useful for tests, controlled transports, or runtimes that do not expose global `fetch`.
+
+Custom transports must honor `RequestInit.redirect: "error"` and the abort signal;
+ignoring the redirect policy can expose the telemetry key and event content.
 
 ```ts
 const client = new AiControlGridTelemetryClient({

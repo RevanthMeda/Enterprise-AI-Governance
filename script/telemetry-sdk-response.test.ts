@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createServer, type RequestListener } from "node:http";
+import { once } from "node:events";
+import type { TestContext } from "node:test";
 import { AiControlGridTelemetryClient, TelemetrySdkError } from "../packages/telemetry-sdk-node/src/index";
 
 const allowed = {
@@ -114,4 +117,127 @@ test("HTTP and transport failures retain their existing error behavior", async (
   });
   await assert.rejects(offline.ingest({ eventType: "synthetic.test", summary: "Synthetic event" }),
     (error: unknown) => error === transportError);
+});
+
+async function serve(t: TestContext, handler: RequestListener): Promise<string> {
+  const server = createServer(handler);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => new Promise<void>((resolve, reject) => {
+    server.close(error => error ? reject(error) : resolve());
+    server.closeAllConnections();
+  }));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  return `http://127.0.0.1:${address.port}`;
+}
+
+function approve(response: import("node:http").ServerResponse) {
+  response.writeHead(201, { "content-type": "application/json" });
+  response.end(JSON.stringify(allowed));
+}
+
+test("native fetch never forwards telemetry credentials or payloads through redirects", async t => {
+  for (const status of [301, 302, 303, 307, 308]) {
+    for (const crossOrigin of [false, true]) {
+      await t.test(`${status}, ${crossOrigin ? "cross-origin" : "same-origin"}`, async t => {
+        let redirectedRequests = 0;
+        let ingestRequests = 0;
+        const target = await serve(t, (request, response) => {
+          redirectedRequests++;
+          request.resume();
+          approve(response);
+        });
+        const source = await serve(t, (request, response) => {
+          request.resume();
+          if (request.url !== "/api/telemetry/sdk-ingest") {
+            redirectedRequests++;
+            approve(response);
+            return;
+          }
+          ingestRequests++;
+          response.writeHead(status, { location: crossOrigin ? `${target}/capture` : "/capture" });
+          response.end();
+        });
+        const sdk = new AiControlGridTelemetryClient({
+          baseUrl: source, telemetryKey: "synthetic-redirect-key", timeoutMs: 2_000,
+        });
+        await assert.rejects(sdk.ingest({
+          eventType: "synthetic.redirect", summary: "Synthetic event",
+          promptText: "synthetic-private-input", modelOutput: "synthetic-private-output",
+        }));
+        assert.equal(ingestRequests, 1);
+        assert.equal(redirectedRequests, 0, "redirect destination must never receive any request");
+      });
+    }
+  }
+});
+
+test("redirect failures prevent preflight execution and postflight output release", async t => {
+  for (const stage of ["input", "output"]) {
+    await t.test(stage, async t => {
+      let requests = 0;
+      let executions = 0;
+      let redirectedRequests = 0;
+      const target = await serve(t, (request, response) => {
+        redirectedRequests++;
+        request.resume();
+        approve(response);
+      });
+      const source = await serve(t, (request, response) => {
+        request.resume();
+        requests++;
+        if (stage === "output" && requests === 1) {
+          approve(response);
+        } else {
+          response.writeHead(307, { location: `${target}/capture` });
+          response.end();
+        }
+      });
+      const sdk = new AiControlGridTelemetryClient({
+        baseUrl: source, telemetryKey: "synthetic-redirect-key", timeoutMs: 2_000,
+        headerName: "x-custom-telemetry-key",
+      });
+      await assert.rejects(sdk.guardRuntimeExecution({ preflight, execute: async () => {
+        executions++;
+        return { output: "synthetic-output", postflight: { summary: "Synthetic postflight" } };
+      } }));
+      assert.equal(executions, stage === "input" ? 0 : 1);
+      assert.equal(requests, stage === "input" ? 1 : 2);
+      assert.equal(redirectedRequests, 0);
+    });
+  }
+});
+
+test("direct native-fetch ingestion still sends credentials and returns valid decisions", async t => {
+  let requests = 0;
+  let receivedKey: string | string[] | undefined;
+  let receivedBody = "";
+  const source = await serve(t, (request, response) => {
+    requests++;
+    receivedKey = request.headers["x-telemetry-key"];
+    request.setEncoding("utf8");
+    request.on("data", chunk => { receivedBody += chunk; });
+    request.on("end", () => approve(response));
+  });
+  const sdk = new AiControlGridTelemetryClient({
+    baseUrl: source, telemetryKey: "synthetic-direct-key", timeoutMs: 2_000,
+  });
+  assert.deepEqual(await sdk.ingest({
+    eventType: "synthetic.direct", summary: "Synthetic direct request", promptText: "synthetic-input",
+  }), allowed);
+  assert.equal(requests, 1);
+  assert.equal(receivedKey, "synthetic-direct-key");
+  assert.equal(JSON.parse(receivedBody).promptText, "synthetic-input");
+});
+
+test("custom fetch implementations receive the no-redirect transport policy", async () => {
+  const sdk = new AiControlGridTelemetryClient({
+    baseUrl: "https://synthetic.example", telemetryKey: "synthetic-test-key",
+    fetch: async (_input, init) => {
+      assert.equal(init?.redirect, "error");
+      return new Response(JSON.stringify(allowed), { headers: { "content-type": "application/json" } });
+    },
+  });
+  assert.deepEqual(await sdk.ingest({ eventType: "synthetic.test", summary: "Synthetic event" }), allowed);
 });

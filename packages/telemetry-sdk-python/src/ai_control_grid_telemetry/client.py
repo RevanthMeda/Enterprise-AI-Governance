@@ -137,7 +137,7 @@ class AiControlGridTelemetryClient:
             self.config.timeout,
         )
 
-        if status_code >= 400:
+        if not 200 <= status_code < 300:
             raise TelemetrySdkError(
                 parsed_payload.get("message", "AI CONTROL GRID telemetry request failed."),
                 status_code=status_code,
@@ -182,10 +182,18 @@ def create_client(
     )
 
 
+class _RejectTelemetryRedirects(request.HTTPRedirectHandler):
+    def redirect_request(self, req: request.Request, fp: Any, code: int,
+                         msg: str, headers: Any, newurl: str) -> None:
+        # Never forward telemetry credentials or event content to a redirect target.
+        raise error.HTTPError(req.full_url, code, "Telemetry redirects are not allowed", headers, fp)
+
+
 def _default_post(url: str, body: bytes, headers: Mapping[str, str], timeout: float) -> tuple[int, JsonDict]:
     req = request.Request(url, data=body, headers=dict(headers), method="POST")
+    opener = request.build_opener(_RejectTelemetryRedirects())
     try:
-        with request.urlopen(req, timeout=timeout) as response:
+        with opener.open(req, timeout=timeout) as response:
             raw = response.read().decode("utf-8")
             return response.status, _parse_json(raw)
     except error.HTTPError as exc:
