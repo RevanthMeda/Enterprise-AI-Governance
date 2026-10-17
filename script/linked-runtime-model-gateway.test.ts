@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createServer, type ServerResponse } from "node:http";
 import {
   buildModelGatewayPayload,
   extractModelGatewayText,
@@ -167,4 +168,155 @@ test("gateway timeout is bounded and returns a safe error", async () => {
       }),
     /Model gateway timed out after 5ms/,
   );
+});
+
+async function withGateway(
+  respond: (response: ServerResponse) => void,
+  run: (endpoint: string) => Promise<void>,
+) {
+  const server = createServer((request, response) => {
+    request.resume();
+    respond(response);
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  try {
+    await run(`http://127.0.0.1:${address.port}/chat`);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+const gatewayConfig = { apiKey: "synthetic-fixture", requestFormat: "dynamic" as const, timeoutMs: 1000 };
+
+test("gateway deadline includes a body stalled after real HTTP headers", { timeout: 5000 }, async () => {
+  await withGateway(response => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.flushHeaders();
+    const finish = setTimeout(() => response.end('{"output_text":"late draft"}'), 1000);
+    response.on("close", () => clearTimeout(finish));
+  }, async endpoint => {
+    let headersReceived = false;
+    await assert.rejects(requestModelGatewayChat(messages, { ...gatewayConfig, endpoint, timeoutMs: 200,
+      fetchImpl: (async (...args: Parameters<typeof fetch>) => {
+        const response = await fetch(...args); headersReceived = true; return response;
+      }) as typeof fetch,
+    }), /Model gateway timed out after 200ms/);
+    assert.equal(headersReceived, true, "Exercise the deadline after headers, not only connection setup");
+  });
+});
+
+test("gateway deadline remains absolute while a real HTTP body trickles", { timeout: 5000 }, async () => {
+  await withGateway(response => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.write('{"output_text":"');
+    let writes = 0;
+    const drip = setInterval(() => {
+      response.write("x");
+      if (++writes === 60) { clearInterval(drip); response.end('"}'); }
+    }, 20);
+    response.on("close", () => clearInterval(drip));
+  }, async endpoint => {
+    let headersReceived = false;
+    await assert.rejects(requestModelGatewayChat(messages, { ...gatewayConfig, endpoint, timeoutMs: 200,
+      fetchImpl: (async (...args: Parameters<typeof fetch>) => {
+        const response = await fetch(...args); headersReceived = true; return response;
+      }) as typeof fetch,
+    }), /Model gateway timed out after 200ms/);
+    assert.equal(headersReceived, true, "Exercise a trickling body after headers");
+  });
+});
+
+test("chunked HTTP response limits count UTF-8 bytes rather than JavaScript characters", { timeout: 5000 }, async () => {
+  await withGateway(response => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.write('{"output_text":"'); // Force chunked encoding without Content-Length.
+    response.end("é".repeat(550_000) + '"}');
+  }, async endpoint => {
+    await assert.rejects(requestModelGatewayChat(messages, { ...gatewayConfig, endpoint, timeoutMs: 2000 }),
+      /Model gateway response exceeded the safe size limit/);
+  });
+});
+
+test("oversized body streams are cancelled without awaiting their remainder", { timeout: 5000 }, async () => {
+  let cancelled = false;
+  let release: ReturnType<typeof setTimeout>;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array(1_000_001));
+      // Bound the old implementation's wait so the negative regression cannot hang.
+      release = setTimeout(() => controller.close(), 300);
+    },
+    cancel() { cancelled = true; clearTimeout(release); },
+  });
+  try {
+    await assert.rejects(requestModelGatewayChat(messages, {
+      ...gatewayConfig, endpoint: "https://synthetic.invalid/chat", timeoutMs: 2000,
+      fetchImpl: (async () => new Response(body)) as typeof fetch,
+    }), /Model gateway response exceeded the safe size limit/);
+    assert.equal(cancelled, true);
+  } finally { clearTimeout(release!); }
+});
+
+test("body deadline cancels a supplied fetch stream that does not observe aborts", { timeout: 5000 }, async () => {
+  let cancelled = false;
+  let release: ReturnType<typeof setTimeout>;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      release = setTimeout(() => {
+        controller.enqueue(new TextEncoder().encode('{"output_text":"late custom draft"}'));
+        controller.close();
+      }, 300);
+    },
+    cancel() { cancelled = true; clearTimeout(release); },
+  });
+  try {
+    await assert.rejects(requestModelGatewayChat(messages, {
+      ...gatewayConfig, endpoint: "https://synthetic.invalid/chat", timeoutMs: 25,
+      fetchImpl: (async () => new Response(body)) as typeof fetch,
+    }), /Model gateway timed out after 25ms/);
+    assert.equal(cancelled, true);
+  } finally { clearTimeout(release!); }
+});
+
+test("declared oversized responses are cancelled with a safe error", async () => {
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({ cancel() { cancelled = true; } });
+  await assert.rejects(requestModelGatewayChat(messages, {
+    ...gatewayConfig, endpoint: "https://synthetic.invalid/chat",
+    fetchImpl: (async () => new Response(body, { headers: { "content-length": "1000001" } })) as typeof fetch,
+  }), /Model gateway response exceeded the safe size limit/);
+  assert.equal(cancelled, true);
+});
+
+test("stream decoding retains multibyte characters split between chunks", async () => {
+  const bytes = new TextEncoder().encode('{"output_text":"é😀 accepted"}');
+  const split = bytes.indexOf(0xc3) + 1;
+  const body = new ReadableStream<Uint8Array>({ start(controller) {
+    controller.enqueue(bytes.slice(0, split));
+    controller.enqueue(bytes.slice(split, split + 3));
+    controller.enqueue(bytes.slice(split + 3));
+    controller.close();
+  } });
+  const output = await requestModelGatewayChat(messages, {
+    ...gatewayConfig, endpoint: "https://synthetic.invalid/chat",
+    fetchImpl: (async () => new Response(body)) as typeof fetch,
+  });
+  assert.equal(output, "é😀 accepted");
+});
+
+test("a response exactly at the byte limit remains supported", async () => {
+  const output = "x".repeat(1_000_000 - new TextEncoder().encode('{"output_text":""}').byteLength);
+  assert.equal(new TextEncoder().encode(JSON.stringify({ output_text: output })).byteLength, 1_000_000);
+  const result = await requestModelGatewayChat(messages, {
+    ...gatewayConfig, endpoint: "https://synthetic.invalid/chat", timeoutMs: 2000,
+    fetchImpl: (async () => new Response(JSON.stringify({ output_text: output }))) as typeof fetch,
+  });
+  assert.equal(result.length, output.length);
+  assert.equal(result, output);
 });
