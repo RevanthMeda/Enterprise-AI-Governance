@@ -1093,7 +1093,7 @@ export default function SettingsPage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <Shield className="h-4 w-4 text-muted-foreground" />
-              Identity & Enterprise SSO
+              Identity &amp; Enterprise SSO
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">

@@ -521,7 +521,7 @@ export default function RiskAssessment() {
             {currentStep === 1 && (
               <div className="space-y-4" data-testid="wizard-step-1">
                 <div>
-                  <h2 className="text-base font-semibold mb-1">Intended Use & Purpose</h2>
+                  <h2 className="text-base font-semibold mb-1">Intended Use &amp; Purpose</h2>
                   <p className="text-xs text-muted-foreground">
                     Describe how the AI system will be used and in what domain.
                   </p>
@@ -603,7 +603,7 @@ export default function RiskAssessment() {
             {currentStep === 2 && (
               <div className="space-y-4" data-testid="wizard-step-2">
                 <div>
-                  <h2 className="text-base font-semibold mb-1">Data & Users Affected</h2>
+                  <h2 className="text-base font-semibold mb-1">Data &amp; Users Affected</h2>
                   <p className="text-xs text-muted-foreground">
                     What type of personal data does the system process and how many users are affected?
                   </p>
@@ -690,7 +690,7 @@ export default function RiskAssessment() {
             {currentStep === 3 && (
               <div className="space-y-4" data-testid="wizard-step-3">
                 <div>
-                  <h2 className="text-base font-semibold mb-1">Decision Impact & Autonomy</h2>
+                  <h2 className="text-base font-semibold mb-1">Decision Impact &amp; Autonomy</h2>
                   <p className="text-xs text-muted-foreground">
                     What is the impact of the system's decisions and how autonomous is it?
                   </p>

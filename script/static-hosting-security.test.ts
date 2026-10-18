@@ -55,7 +55,7 @@ test("production workflows deploy Firebase and run authenticated smoke checks", 
   ]);
 
   for (const workflow of workflows) {
-    assert.match(workflow, /google-github-actions\/auth@v2/);
+    assert.match(workflow, /google-github-actions\/auth@[a-f0-9]{40}/);
     assert.match(workflow, /FIREBASE_SERVICE_ACCOUNT/);
     assert.match(workflow, /firebase-tools@15\.23\.0 deploy --only hosting/);
     assert.match(workflow, /npm run smoke:deploy/);

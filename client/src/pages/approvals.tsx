@@ -474,7 +474,7 @@ export default function Approvals() {
                       <BooleanField control={form.control} name="usesPii" label="Uses PII" />
                       <BooleanField control={form.control} name="customerFacing" label="Customer-facing decision" />
                       <BooleanField control={form.control} name="reversible" label="Reversible outcome" />
-                      <BooleanField control={form.control} name="strategicImpact" label="Strategic or M&A impact" />
+                      <BooleanField control={form.control} name="strategicImpact" label="Strategic or M&amp;A impact" />
                       <BooleanField control={form.control} name="safetyCritical" label="Safety or compliance critical" />
                     </div>
                     <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">

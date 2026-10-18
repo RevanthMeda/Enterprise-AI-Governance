@@ -248,7 +248,7 @@ function LegalGovernanceCard({ system, canEdit }: { system: AiSystem; canEdit: b
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-xs font-semibold">Legal & Jurisdiction Profile</CardTitle>
+        <CardTitle className="text-xs font-semibold">Legal &amp; Jurisdiction Profile</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap gap-2">
@@ -442,7 +442,7 @@ function CapabilityGovernanceCard({ system, canEdit }: { system: AiSystem; canEd
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-xs font-semibold">Capability & Strictness</CardTitle>
+        <CardTitle className="text-xs font-semibold">Capability &amp; Strictness</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap gap-2">
@@ -670,7 +670,7 @@ function AgentGovernanceOverridesCard({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-xs font-semibold">Agent & Workflow Overrides</CardTitle>
+        <CardTitle className="text-xs font-semibold">Agent &amp; Workflow Overrides</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-lg border bg-muted/20 p-3 text-[11px] text-muted-foreground">
@@ -952,7 +952,7 @@ function GovernanceCatalogCard({ system, canEdit }: { system: AiSystem; canEdit:
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-xs font-semibold">Approved Sources & Authoritative Facts</CardTitle>
+        <CardTitle className="text-xs font-semibold">Approved Sources &amp; Authoritative Facts</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-lg border bg-muted/20 p-3 text-[11px] text-muted-foreground">
