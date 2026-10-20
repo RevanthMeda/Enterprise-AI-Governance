@@ -473,3 +473,29 @@ test("DNS-private destinations and redirects are stopped by the gateway-safe tra
   assert.equal(redirectCalls, 1, "the redirect target must never receive a second request");
   assert.equal(redirectDestroyed, true);
 });
+
+test("provider vault accepts existing full tags and rejects truncated GCM tags", (t) => {
+  const previous = process.env.CONTROL_TOWER_VAULT_SECRET;
+  process.env.CONTROL_TOWER_VAULT_SECRET = "provider-tag-length-test-vault-secret";
+  t.after(() => {
+    if (previous === undefined) delete process.env.CONTROL_TOWER_VAULT_SECRET;
+    else process.env.CONTROL_TOWER_VAULT_SECRET = previous;
+  });
+  // Frozen pre-hardening ciphertext uses synthetic test data only.
+  const previousVault = {"openai":{"enabled":true,"encryptedApiKey":"wYfvoQ09ZWz47UJh.wdQ5jjR2ciDdNI/o2U6UeA==.ae44IenZzHV+4J1GvVAogF5twhd0f5//Vhav","apiKeyOrigin":"https://api.openai.com","encryptedAccessKeyId":null,"encryptedSecretAccessKey":null,"encryptedSessionToken":null,"awsCredentialOrigin":null,"baseUrl":"https://api.openai.com","encryptedHeaders":null,"headerNames":[],"headersOrigin":null,"headers":{},"modelAllowlist":[],"apiVersion":null,"region":null}};
+  assert.equal(upstreamProviderVaultService.resolveProviderConfig(previousVault, "openai", { protocol: "openai" }).apiKey, "synthetic-provider-tag-test");
+  const vault = upstreamProviderVaultService.mergeForStorage({}, {
+    openai: { enabled: true, apiKey: "synthetic-provider-tag-test", baseUrl: "https://api.openai.com" },
+  });
+  assert.equal(upstreamProviderVaultService.resolveProviderConfig(vault, "openai", { protocol: "openai" }).apiKey, "synthetic-provider-tag-test");
+  const encrypted = vault.openai.encryptedApiKey!;
+  const parts = encrypted.split(".");
+  const tag = Buffer.from(parts[1], "base64");
+  assert.equal(tag.length, 16);
+  for (const length of [4, 8, 12, 13, 14, 15, 17]) {
+    const modified = structuredClone(vault);
+    const invalidTag = length < 16 ? tag.subarray(0, length) : Buffer.concat([tag, Buffer.from([0])]);
+    modified.openai.encryptedApiKey = [parts[0], invalidTag.toString("base64"), parts[2]].join(".");
+    assert.throws(() => upstreamProviderVaultService.resolveProviderConfig(modified, "openai", { protocol: "openai" }), `tag length ${length} must fail`);
+  }
+});

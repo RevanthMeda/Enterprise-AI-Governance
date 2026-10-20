@@ -57,6 +57,9 @@ jobs:
       - name: Apply schema
         run: npm run db:push -- --force
 
+      - name: Build and validate non-root sidecar
+        run: npm run test:deployment:sidecar
+
       - name: Run database-backed CSRF security test
         run: npm run test:security:csrf
 

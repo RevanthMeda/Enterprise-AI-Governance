@@ -115,3 +115,22 @@ test("credential state is boolean-only and encryption requires the dedicated vau
     /CONTROL_TOWER_VAULT_SECRET must be configured/,
   );
 });
+
+
+test("existing v1 envelopes remain readable with explicit GCM tag length", () => {
+  // Captured from the pre-hardening implementation using synthetic test data.
+  const previousEnvelope = "aict:secret:v1:aW50ZWdyYXRpb246amlyYTphcGktdG9rZW46b3JnYW5pemF0aW9uOm9yZy0xMjM:1qiaBlC0o8jsaiA0:hw7DZgeH0gued_ogkvx81g:IoAm36mp5qaPbaWXId9yPuYPprB9";
+  assert.equal(resolvePersistedSecret(previousEnvelope, PURPOSE, OPTIONS).plaintext, "compatibility-fixture");
+});
+
+test("GCM envelopes require a full 16-byte authentication tag", () => {
+  const envelope = encryptPersistedSecret("tag-length-test", PURPOSE, OPTIONS);
+  const parts = envelope.split(":");
+  const tag = Buffer.from(parts[5], "base64url");
+  assert.equal(tag.length, 16);
+  for (const length of [0, 4, 8, 12, 13, 14, 15, 17]) {
+    const modified = [...parts];
+    modified[5] = (length < 16 ? tag.subarray(0, length) : Buffer.concat([tag, Buffer.from([0])])).toString("base64url");
+    assert.throws(() => resolvePersistedSecret(modified.join(":"), PURPOSE, OPTIONS), PersistedSecretError);
+  }
+});

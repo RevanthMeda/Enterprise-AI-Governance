@@ -28,7 +28,20 @@ The container exposes:
 
 - `DATABASE_URL`
 - `SESSION_SECRET`
+- `PASSWORD_RESET_SECRET` (dedicated, different from the session secret)
 - `CONTROL_TOWER_VAULT_SECRET`
+- `PUBLIC_APP_URL` (the real HTTPS frontend origin, with no path)
+- `CORS_ALLOWED_ORIGINS` (exact HTTPS origins, including `PUBLIC_APP_URL`)
+
+Generate separate long random secrets (at least 32 characters); never commit them.
+Production startup also validates secret quality and origin/cookie configuration.
+Compose checks that these six settings are nonempty before creating containers.
+Host environment values are not automatically forwarded into a container: use the
+settings declared in the Compose service.
+
+`RATE_LIMIT_HMAC_SECRET` is optional but recommended; use a separate stable secret.
+`DB_SSL_MODE` defaults to `verify-full` in Compose. Use a database with a trusted
+TLS certificate; do not disable verification to get past a connection error.
 
 Optional provider fallbacks:
 
@@ -51,11 +64,48 @@ Optional provider fallbacks:
 npm run docker:gateway:build
 ```
 
-## Run with Docker Compose
+The final image runs as `node:node` (UID/GID 1000 in the official Node Alpine
+image), not root. Application code and dependencies remain root-owned. Only
+`/app/uploads` and `/app/exports` are writable application directories. Container
+storage is ephemeral; mount durable storage when evidence must survive replacement.
+Bind mounts or custom `UPLOAD_ROOT`/`EXPORTS_ROOT` paths must be writable by that
+user; prepare ownership on the host rather than running the sidecar as root.
+
+On Linux with Docker and a disposable, schema-initialized local PostgreSQL database:
 
 ```bash
-docker compose -f deploy/sidecar/docker-compose.yml up --build
+DATABASE_URL=... npm run test:deployment:sidecar
 ```
+
+This builds the actual image, checks its default user, verifies code is not writable
+and uploads/exports are writable (including Docker named volumes), then starts the
+shipped production command and checks HTTP health, readiness and static assets.
+It also renders the shipped Compose configuration, rejects each missing/empty
+required variable and starts that actual service (using test-only host networking,
+a free port and disposable volumes), rather than bypassing Compose with direct
+environment injection.
+The test accepts only loopback database hosts and uses host networking; it does not
+apply migrations or deploy an image. CI runs it against its ephemeral database.
+
+## Run with Docker Compose
+
+From the repository root, export the six required settings above or put them in a
+private environment file outside the repository. Use the same `--env-file` for
+validation and startup; it supplies Compose interpolation, not an arbitrary
+container environment. For example, after preparing `/secure/sidecar.env`:
+
+```bash
+docker compose --env-file /secure/sidecar.env -f deploy/sidecar/docker-compose.yml config --quiet
+docker compose --env-file /secure/sidecar.env -f deploy/sidecar/docker-compose.yml up --build -d
+```
+
+Do not publish `docker compose config` output without `--quiet`: it includes
+resolved secrets. The Compose stack does not provision PostgreSQL or apply schema
+migrations. Point `DATABASE_URL` at an approved, initialized database reachable
+from inside the container (`localhost` normally means the container itself).
+Terminate HTTPS at your trusted reverse proxy and verify `/api/health` and
+`/api/ready` before directing traffic to the sidecar. This example is not a
+production deployment or provider-settings audit.
 
 ## Deployment model
 

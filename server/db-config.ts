@@ -2,34 +2,45 @@ import type { PoolConfig } from "pg";
 
 type PgSslConfig = NonNullable<PoolConfig["ssl"]>;
 
-function stripSslQueryParams(connectionString: string): string {
+function parseConnectionUrl(connectionString: string): { url: URL; emptyHost: boolean } {
   try {
-    const url = new URL(connectionString);
-    [
-      "sslmode",
-      "ssl",
-      "sslcert",
-      "sslkey",
-      "sslrootcert",
-      "sslaccept",
-    ].forEach((key) => url.searchParams.delete(key));
-    return url.toString();
+    return { url: new URL(connectionString), emptyHost: false };
   } catch {
-    return connectionString;
+    // pg also accepts user:password@/database with a host query parameter.
+    // Parse that form without leaving its SSL parameters for pg to override us.
+    try {
+      return {
+        url: new URL(connectionString.replace("@/", "@pg-empty-host.invalid/")),
+        emptyHost: true,
+      };
+    } catch {
+      // URL errors can contain credentials. Never include the input or cause.
+      throw new Error("DATABASE_URL must be a valid PostgreSQL connection URL");
+    }
   }
+}
+
+function stripSslQueryParams(connectionString: string): string {
+  const { url, emptyHost } = parseConnectionUrl(connectionString);
+  [
+    "sslmode",
+    "ssl",
+    "sslcert",
+    "sslkey",
+    "sslrootcert",
+    "sslaccept",
+  ].forEach((key) => url.searchParams.delete(key));
+  const sanitized = url.toString();
+  return emptyHost ? sanitized.replace("@pg-empty-host.invalid/", "@/") : sanitized;
 }
 
 function getConfiguredSslMode(connectionString: string): string | null {
   const explicitMode = process.env.DB_SSL_MODE ?? process.env.PGSSLMODE;
   if (explicitMode) return explicitMode.trim().toLowerCase();
 
-  try {
-    const url = new URL(connectionString);
-    const sslMode = url.searchParams.get("sslmode");
-    return sslMode ? sslMode.trim().toLowerCase() : null;
-  } catch {
-    return null;
-  }
+  const { url } = parseConnectionUrl(connectionString);
+  const sslMode = url.searchParams.get("sslmode");
+  return sslMode ? sslMode.trim().toLowerCase() : null;
 }
 
 function getConfiguredRejectUnauthorized(): boolean {
@@ -47,7 +58,7 @@ function buildSslConfig(connectionString: string): PgSslConfig | undefined {
   }
 
   if (sslMode === "disable" || sslMode === "allow") {
-    return undefined;
+    return false;
   }
 
   if (sslMode === "verify-ca" || sslMode === "verify-full") {
@@ -68,5 +79,5 @@ export function getPgPoolConfig(connectionString: string = process.env.DATABASE_
 
   const ssl = buildSslConfig(connectionString);
   const sanitizedConnectionString = stripSslQueryParams(connectionString);
-  return ssl ? { connectionString: sanitizedConnectionString, ssl } : { connectionString: sanitizedConnectionString };
+  return ssl === undefined ? { connectionString: sanitizedConnectionString } : { connectionString: sanitizedConnectionString, ssl };
 }
