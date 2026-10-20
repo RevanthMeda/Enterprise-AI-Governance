@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./server/load-env";
 import { defineConfig } from "drizzle-kit";
 import { getPgPoolConfig } from "./server/db-config";
 
