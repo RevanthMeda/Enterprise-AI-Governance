@@ -2,9 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { sql } from "drizzle-orm";
-import { db } from "../server/db";
 import { getPublicAppBaseUrl, normalizeOptionalString } from "../server/env";
-import { seedRealWorldDemo } from "./seed-real-world-demo";
 
 const currentFile = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFile);
@@ -43,7 +41,7 @@ const resettableTables = [
   "users",
 ];
 
-async function truncateForDemoReset() {
+async function truncateForDemoReset(db: typeof import("../server/db").db) {
   const truncateSql = `TRUNCATE TABLE ${resettableTables.join(", ")} RESTART IDENTITY CASCADE`;
   await db.execute(sql.raw(truncateSql));
 }
@@ -111,8 +109,20 @@ function getControlTowerConsoleBaseUrl() {
 }
 
 async function main() {
+  if (process.env.NODE_ENV?.trim().toLowerCase() === "production") {
+    throw new Error("demo:prep must not run in production mode. Use an intentionally isolated demo database.");
+  }
+  if (!process.argv.slice(2).includes("--confirm-reset-isolated-demo")) {
+    throw new Error(
+      "demo:prep deletes the connected database's application data. Verify DATABASE_URL targets an isolated demo database, then run npm run demo:prep -- --confirm-reset-isolated-demo.",
+    );
+  }
+
+  const { db } = await import("../server/db");
+  const { seedRealWorldDemo } = await import("./seed-real-world-demo");
+
   console.log("[demo:prep] Resetting demo dataset");
-  await truncateForDemoReset();
+  await truncateForDemoReset(db);
 
   console.log("[demo:prep] Seeding curated real-world demo");
   const summary = await seedRealWorldDemo();

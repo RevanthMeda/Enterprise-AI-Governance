@@ -40,7 +40,7 @@
     "test:security:mfa": "tsx --test script/mfa-security-state.test.ts script/mfa-login-integration.test.ts",
     "test:security:csp": "tsx --test script/csp-headers.test.ts",
     "test:security:hosting": "tsx --test script/static-hosting-security.test.ts",
-    "test:security:config": "tsx --test script/runtime-config-validation.test.ts script/db-config-security.test.ts script/runtime-readiness.test.ts script/secret-comparison.test.ts script/production-migration-security.test.ts",
+    "test:security:config": "tsx --test script/runtime-config-validation.test.ts script/db-config-security.test.ts script/runtime-readiness.test.ts script/secret-comparison.test.ts script/production-migration-security.test.ts script/demo-reset-confirmation.test.ts",
     "test:security:outbound-http": "tsx --test script/safe-outbound-http.test.ts script/provider-egress-security.test.ts",
     "test:security:secrets-at-rest": "tsx --test script/persisted-secret.test.ts script/integration-secret-boundary.test.ts script/credential-origin-security.test.ts",
     "test:security:saml": "tsx --test script/saml-security.test.ts script/sso-login-exchange.test.ts script/oidc-security.test.ts",

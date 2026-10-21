@@ -111,8 +111,10 @@ The live gateway pitch mode above still uses a local Control Grid console. It is
 Only for a deliberately isolated database, from the repo root:
 
 ```bash
-npm run demo:prep
+npm run demo:prep -- --confirm-reset-isolated-demo
 ```
+
+The flag confirms that all application data in the connected database may be deleted. Verify `DATABASE_URL` points at an intentionally isolated demo database before using it. The command rejects production mode and requires this explicit flag before importing database or seed code; it cannot determine whether a database is isolated from its URL alone.
 
 Never run this against the deployed production Render database. The script:
 
