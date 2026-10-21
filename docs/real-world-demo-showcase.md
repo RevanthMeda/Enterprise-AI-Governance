@@ -1,10 +1,12 @@
 # Real-world demo showcase guide
 
-This guide is for tomorrow's demo flow after running:
+This guide is for a deliberately isolated demo database. Verify `DATABASE_URL` points at that database before running:
 
 ```bash
-npm run demo:prep
+npm run demo:prep -- --confirm-reset-isolated-demo
 ```
+
+This command deletes the connected database's application data before reseeding it. Never use it against a production or shared database. The confirmation flag is required, and production mode is rejected. Use `npm run demo:pitch` for a database-free demo instead.
 
 The dataset is realistic but synthetic. It uses public-framework-inspired scenarios, not customer data.
 
