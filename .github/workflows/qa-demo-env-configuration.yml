@@ -1,0 +1,53 @@
+name: Demo configuration isolated validation
+
+on:
+  push:
+    branches:
+      - qa/demo-env-configuration-20261023
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: source
+    env:
+      NODE_ENV: test
+    steps:
+      - name: Checkout exact contribution
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: 660081ef8a0de235fec9cc6d674d97c90f3ea5f6
+          path: source
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - name: Verify source and runtime
+        run: |
+          test "$(git rev-parse HEAD)" = 660081ef8a0de235fec9cc6d674d97c90f3ea5f6
+          node --version
+          npm --version
+      - name: Install dependencies
+        run: npm ci
+      - name: Build telemetry SDK
+        run: npm run build:sdk:telemetry
+      - name: Configuration command contracts
+        run: npm run test:security:config
+      - name: Application and demo TypeScript
+        run: npm run check
+      - name: Strict command and test TypeScript
+        run: node node_modules/typescript/bin/tsc --noEmit --target ES2022 --module ESNext --moduleResolution bundler --strict --esModuleInterop --skipLibCheck --types node script/demo-env-configuration.test.ts script/configure-demo-remote.ts script/configure-demo-gateway.ts
+      - name: Production dependency audit
+        run: npm run security:deps
+      - name: Production application build
+        run: npm run build
+      - name: Secret scan
+        run: npm run security:secrets
