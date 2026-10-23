@@ -61,16 +61,18 @@ function readHiddenValue(prompt: string): Promise<string> {
 }
 
 function upsertEnvValues(existing: string, values: Record<string, string>): string {
+  const managedKeys = new Set(Object.keys(values));
   const remaining = new Map(Object.entries(values));
   const output: string[] = [];
 
   for (const line of existing.split(/\r?\n/)) {
-    const match = line.match(/^\s*([A-Z][A-Z0-9_]*)\s*=/);
+    const match = line.match(/^\s*(?:export |[sS][eE][tT] )?\s*([A-Z][A-Z0-9_]*)\s*=/);
     const key = match?.[1];
-    if (!key || !remaining.has(key)) {
+    if (!key || !managedKeys.has(key)) {
       output.push(line);
       continue;
     }
+    if (!remaining.has(key)) continue;
     output.push(`${key}=${remaining.get(key)}`);
     remaining.delete(key);
   }
