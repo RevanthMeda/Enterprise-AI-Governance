@@ -21,7 +21,7 @@ jobs:
       - name: Checkout exact contribution
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: 660081ef8a0de235fec9cc6d674d97c90f3ea5f6
+          ref: 2409d26dbea14860dd70876a9553e4f9867ea5ac
           path: source
           persist-credentials: false
       - name: Setup Node.js
@@ -32,7 +32,7 @@ jobs:
           cache-dependency-path: source/package-lock.json
       - name: Verify source and runtime
         run: |
-          test "$(git rev-parse HEAD)" = 660081ef8a0de235fec9cc6d674d97c90f3ea5f6
+          test "$(git rev-parse HEAD)" = 2409d26dbea14860dd70876a9553e4f9867ea5ac
           node --version
           npm --version
       - name: Install dependencies
