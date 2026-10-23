@@ -14,10 +14,10 @@ function readHiddenValue(prompt: string): Promise<string> {
     throw new Error("This command must be run in an interactive terminal.");
   }
 
-  process.stdout.write(prompt);
   const previousRawMode = process.stdin.isRaw;
   process.stdin.setEncoding("utf8");
   process.stdin.setRawMode(true);
+  process.stdout.write(prompt);
   process.stdin.resume();
 
   return new Promise((resolve, reject) => {

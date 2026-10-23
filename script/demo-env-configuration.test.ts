@@ -35,6 +35,13 @@ const runCommand = `
     if (raw) queueMicrotask(() => process.stdin.emit("data", process.env.SYNTHETIC_CONFIG_INPUT + "\\n"));
     return process.stdin;
   };
+  const write = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (chunk, ...args) => {
+    if (process.env.ASSERT_HIDDEN_PROMPT === "1" && String(chunk).includes("(input hidden): ")) {
+      assert.equal(process.stdin.isRaw, true, "disable terminal echo before displaying the credential prompt");
+    }
+    return write(chunk, ...args);
+  };
   await import(process.argv[1]);
 `;
 
@@ -57,7 +64,7 @@ const commands = [
   },
 ];
 
-function configure(command: typeof commands[number], existing: string | undefined, input = command.token()) {
+function configure(command: typeof commands[number], existing: string | undefined, input = command.token(), requireHiddenPrompt = false) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "grid-demo-env-"));
   const examples = path.join(directory, "examples");
   const target = path.join(examples, ".env.local");
@@ -68,7 +75,7 @@ function configure(command: typeof commands[number], existing: string | undefine
       "--import", tsxLoader, "--input-type=module", "--eval", runCommand, command.url,
     ], {
       cwd: directory,
-      env: { NODE_ENV: "test", SYNTHETIC_CONFIG_INPUT: input },
+      env: { NODE_ENV: "test", SYNTHETIC_CONFIG_INPUT: input, ASSERT_HIDDEN_PROMPT: requireHiddenPrompt ? "1" : "0" },
       encoding: "utf8",
       timeout: 10_000,
     });
@@ -94,6 +101,10 @@ function assertConfigured(command: typeof commands[number], result: ReturnType<t
 }
 
 for (const command of commands) {
+  test(`${command.name} configuration disables terminal echo before showing the credential prompt`, () => {
+    assertConfigured(command, configure(command, "KEEP_SETTING=unchanged\n", command.token(), true));
+  });
+
   test(`${command.name} configuration replaces every duplicate managed assignment`, () => {
     const result = configure(command,
       `# retained\nKEEP_SETTING=left=right\n${command.key}=stale-first\n${command.endpointKey}=https://first.invalid\n${command.key}=stale-last\n${command.endpointKey}=https://last.invalid\n`);
