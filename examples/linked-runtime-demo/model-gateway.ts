@@ -66,7 +66,7 @@ export function normalizeModelGatewayEndpoint(value: string): string {
 
   const localHttp =
     url.protocol === "http:" &&
-    (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1");
+    (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]");
   if (url.protocol !== "https:" && !localHttp) {
     throw new Error("AICT_MODEL_ENDPOINT must use HTTPS unless it targets localhost.");
   }
@@ -160,6 +160,41 @@ function normalizeBearerToken(value: string): string {
   return token;
 }
 
+async function readGatewayBody(response: Response, signal: AbortSignal): Promise<string> {
+  const contentLength = Number(response.headers.get("content-length") || "0");
+  if (Number.isFinite(contentLength) && contentLength > MAX_GATEWAY_RESPONSE_BYTES) {
+    void response.body?.cancel().catch(() => {});
+    throw new Error("Model gateway response exceeded the safe size limit.");
+  }
+  if (!response.body) return "";
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let body = "";
+  // Also stop a supplied fetch implementation's stream if it doesn't propagate aborts.
+  const abort = () => { void reader.cancel().catch(() => {}); };
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    if (signal.aborted) abort();
+    while (true) {
+      const chunk = await reader.read();
+      if (signal.aborted) throw new Error("Model gateway response aborted.");
+      if (chunk.done) break;
+      bytes += chunk.value.byteLength;
+      if (bytes > MAX_GATEWAY_RESPONSE_BYTES) {
+        void reader.cancel().catch(() => {});
+        throw new Error("Model gateway response exceeded the safe size limit.");
+      }
+      body += decoder.decode(chunk.value, { stream: true });
+    }
+    return body + decoder.decode();
+  } finally {
+    signal.removeEventListener("abort", abort);
+    reader.releaseLock();
+  }
+}
+
 export async function requestModelGatewayChat(
   messages: ModelGatewayMessage[],
   config: ModelGatewayConfig,
@@ -177,46 +212,40 @@ export async function requestModelGatewayChat(
   );
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-  let response: Response;
   try {
-    response = await (config.fetchImpl ?? fetch)(endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: "Bearer " + token,
-      },
-      body: JSON.stringify(buildModelGatewayPayload(messages, config)),
-      signal: controller.signal,
-      redirect: "error",
-    });
+    let response: Response;
+    try {
+      response = await (config.fetchImpl ?? fetch)(endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer " + token,
+        },
+        body: JSON.stringify(buildModelGatewayPayload(messages, config)),
+        signal: controller.signal,
+        redirect: "error",
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
+      throw new Error("Model gateway could not be reached.");
+    }
+
+    const payload = parseGatewayJson(await readGatewayBody(response, controller.signal));
+    if (!response.ok) {
+      throw new Error("Model gateway request failed with HTTP " + response.status + ".");
+    }
+
+    const output = extractModelGatewayText(payload);
+    if (!output) {
+      throw new Error("Model gateway returned no supported text content.");
+    }
+    return output;
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
+    if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) {
       throw new Error("Model gateway timed out after " + timeoutMs + "ms.");
     }
-    throw new Error("Model gateway could not be reached.");
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
-
-  const contentLength = Number(response.headers.get("content-length") || "0");
-  if (Number.isFinite(contentLength) && contentLength > MAX_GATEWAY_RESPONSE_BYTES) {
-    await response.body?.cancel();
-    throw new Error("Model gateway response exceeded the safe size limit.");
-  }
-
-  const responseBody = await response.text();
-  if (responseBody.length > MAX_GATEWAY_RESPONSE_BYTES) {
-    throw new Error("Model gateway response exceeded the safe size limit.");
-  }
-  const payload = parseGatewayJson(responseBody);
-
-  if (!response.ok) {
-    throw new Error("Model gateway request failed with HTTP " + response.status + ".");
-  }
-
-  const output = extractModelGatewayText(payload);
-  if (!output) {
-    throw new Error("Model gateway returned no supported text content.");
-  }
-  return output;
 }
