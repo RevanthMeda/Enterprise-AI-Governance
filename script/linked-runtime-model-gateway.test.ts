@@ -58,6 +58,17 @@ test("gateway response parser supports Cohere and OpenAI text shapes", () => {
   );
 });
 
+test("gateway endpoint validation accepts only loopback IPv6 over HTTP", () => {
+  for (const endpoint of ["http://[::1]:8080/chat", "http://[0:0:0:0:0:0:0:1]:8080/chat"]) {
+    assert.equal(normalizeModelGatewayEndpoint(endpoint), "http://[::1]:8080/chat");
+  }
+  for (const endpoint of ["http://[::2]:8080/chat", "http://[2001:db8::1]:8080/chat"]) {
+    assert.throws(() => normalizeModelGatewayEndpoint(endpoint), /must use HTTPS/);
+  }
+  assert.throws(() => normalizeModelGatewayEndpoint("http://user@[::1]:8080/chat"), /must not contain credentials/);
+  assert.throws(() => normalizeModelGatewayEndpoint("http://[::1]:8080/chat?secret=synthetic"), /must not contain a query/);
+});
+
 test("gateway endpoint validation requires a credential-free HTTPS URL", () => {
   assert.equal(
     normalizeModelGatewayEndpoint(

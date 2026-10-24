@@ -66,7 +66,7 @@ export function normalizeModelGatewayEndpoint(value: string): string {
 
   const localHttp =
     url.protocol === "http:" &&
-    (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1");
+    (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]");
   if (url.protocol !== "https:" && !localHttp) {
     throw new Error("AICT_MODEL_ENDPOINT must use HTTPS unless it targets localhost.");
   }
