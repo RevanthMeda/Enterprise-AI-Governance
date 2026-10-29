@@ -1,0 +1,168 @@
+name: Pending security and dependency integration QA
+on:
+  push:
+    branches: [qa/security-dependencies-20261029]
+permissions:
+  contents: read
+jobs:
+  validation:
+    name: Combined regressions and disposable sidecar
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: enterprise_ai_governance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d enterprise_ai_governance"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/enterprise_ai_governance
+      NODE_ENV: test
+      DB_SSL_MODE: disable
+    defaults:
+      run:
+        working-directory: source
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          path: source
+          ref: 21dbac1f9cdab7a723bf6094cad58f5c0ff136a0
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - name: Record source, runtime and disposable database guard
+        run: |
+          test "$(git rev-parse HEAD)" = 21dbac1f9cdab7a723bf6094cad58f5c0ff136a0
+          git rev-parse HEAD
+          node --version
+          docker version
+          docker compose version
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { randomUUID } from 'node:crypto';
+          import { appendFileSync } from 'node:fs';
+          const url = new URL(process.env.DATABASE_URL);
+          assert.equal(url.hostname, '127.0.0.1');
+          assert.equal(url.pathname, '/enterprise_ai_governance');
+          assert.equal(url.search, '');
+          for (const key of ['SESSION_SECRET', 'CONTROL_TOWER_VAULT_SECRET', 'RATE_LIMIT_HMAC_SECRET', 'PASSWORD_RESET_SECRET']) {
+            appendFileSync(process.env.GITHUB_ENV, `${key}=${randomUUID()}${randomUUID()}\n`);
+          }
+          NODE
+      - run: npm ci --no-audit --no-fund
+      - name: SDK, demo types and secret boundary
+        run: |
+          npm run build:sdk:telemetry
+          npm run check:demo
+          npm run security:secrets
+      - name: Combined targeted security contracts
+        run: |
+          node --import tsx --test script/persisted-secret.test.ts script/provider-egress-security.test.ts script/db-config-security.test.ts script/runtime-config-validation.test.ts script/runtime-readiness.test.ts script/secret-comparison.test.ts script/production-migration-security.test.ts script/cors-cache-variants.test.ts script/session-cors-http.test.ts script/session-revocation-security.test.ts script/saml-security.test.ts script/sso-login-exchange.test.ts script/oidc-security.test.ts script/saml-metadata-http.test.ts script/compressed-request-parsing.test.ts script/email-content-security.test.ts script/multer-request-cleanup.test.ts
+          npm run test:ci:semgrep
+      - name: Combined application build
+        run: |
+          npm run build
+          git diff --exit-code
+      - name: Initialize only the guarded ephemeral CI database
+        run: npm run db:push -- --force
+      - name: Real non-root image, Compose, storage and HTTP checks
+        run: npm run test:deployment:sidecar
+      - name: Database-backed CSRF check
+        run: npm run test:security:csrf
+      - name: Existing full regression command
+        run: npm run test:regression:all
+      - name: Existing telemetry response contracts
+        run: npm run test:regression:telemetry-sdk
+      - name: Existing golden seed
+        run: npm run seed:heavy:golden
+  scan:
+    name: Combined fail-closed security scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      NODE_ENV: test
+    defaults:
+      run:
+        working-directory: source
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          path: source
+          ref: 21dbac1f9cdab7a723bf6094cad58f5c0ff136a0
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - name: Record exact source and runtime
+        run: |
+          test "$(git rev-parse HEAD)" = 21dbac1f9cdab7a723bf6094cad58f5c0ff136a0
+          git rev-parse HEAD
+          node --version
+      - run: npm ci --no-audit --no-fund
+      - name: Install unchanged pinned scanner requirements
+        run: |
+          python3 -m venv "$RUNNER_TEMP/semgrep-venv"
+          "$RUNNER_TEMP/semgrep-venv/bin/python" -m pip install --disable-pip-version-check -r script/requirements-semgrep.txt
+          echo "$RUNNER_TEMP/semgrep-venv/bin" >> "$GITHUB_PATH"
+      - name: Existing fail-closed and real CLI contracts
+        run: |
+          npm run test:ci:semgrep
+          npm run test:ci:semgrep:integration
+      - name: Unchanged full-source findings gate
+        id: semgrep
+        run: node script/semgrep-gate.mjs "$RUNNER_TEMP/combined-semgrep-summary.json"
+      - name: Upload only sanitized scan status
+        if: always() && steps.semgrep.outcome != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: combined-semgrep-summary
+          path: ${{ runner.temp }}/combined-semgrep-summary.json
+          if-no-files-found: error
+          retention-days: 7
+  dependency-audit:
+    name: Combined unchanged production dependency gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: source
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          path: source
+          ref: 21dbac1f9cdab7a723bf6094cad58f5c0ff136a0
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+      - name: Record exact source and runtime
+        run: |
+          test "$(git rev-parse HEAD)" = 21dbac1f9cdab7a723bf6094cad58f5c0ff136a0
+          git rev-parse HEAD
+          node --version
+          npm --version
+      - run: npm ci --no-audit --no-fund
+      - name: Existing production dependency gate
+        run: npm run security:deps
